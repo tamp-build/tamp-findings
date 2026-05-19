@@ -64,6 +64,92 @@ export type FindingsListFilters = {
   take?: number
 }
 
+// ----- SBOM components ----------------------------------------------------
+
+export type SbomComponentListItem = {
+  id: string
+  purl: string
+  name: string
+  version: string
+  kind: string | null
+  ecosystem: 'nuget' | 'npm' | 'other' | string
+  license: string | null
+  vulnerabilityCount: number
+  componentVersionId: string
+  versionString: string
+  componentId: string
+  componentName: string
+  projectId: string
+  projectName: string
+  clientId: string
+  clientName: string
+}
+
+export type EcosystemCounts = { nuget: number; npm: number; other: number; total: number }
+
+export type SbomComponentsListResponse = {
+  totalCount: number
+  skip: number
+  take: number
+  counts: EcosystemCounts
+  totalVulnerabilities: number
+  items: SbomComponentListItem[]
+}
+
+export type SbomComponentsFilters = {
+  componentVersionId?: string
+  ecosystem?: string
+  search?: string
+  skip?: number
+  take?: number
+}
+
+export async function fetchSbomComponents(filters: SbomComponentsFilters = {}): Promise<SbomComponentsListResponse> {
+  const params = new URLSearchParams()
+  if (filters.componentVersionId) params.set('componentVersionId', filters.componentVersionId)
+  if (filters.ecosystem) params.set('ecosystem', filters.ecosystem)
+  if (filters.search) params.set('search', filters.search)
+  if (filters.skip != null) params.set('skip', String(filters.skip))
+  if (filters.take != null) params.set('take', String(filters.take))
+  const r = await fetch(`${API_BASE}/sbom-components?${params.toString()}`)
+  if (!r.ok) throw new Error(`GET /sbom-components failed: ${r.status}`)
+  return r.json()
+}
+
+export type VulnerabilityDetail = {
+  id: string
+  advisoryId: string
+  severity: string
+  title: string | null
+  description: string | null
+  fixedInVersion: string | null
+  referenceUrl: string | null
+  source: string
+}
+
+export type SbomComponentDetail = {
+  id: string
+  purl: string
+  name: string
+  version: string
+  kind: string | null
+  ecosystem: string
+  license: string | null
+  componentVersionId: string
+  versionString: string
+  vulnerabilities: VulnerabilityDetail[]
+  dependsOnPurls: string[]
+  dependentPurls: string[]
+}
+
+export async function fetchSbomComponent(id: string): Promise<SbomComponentDetail> {
+  const r = await fetch(`${API_BASE}/sbom-components/${id}`)
+  if (!r.ok) throw new Error(`GET /sbom-components/${id} failed: ${r.status}`)
+  return r.json()
+}
+
+// ----- Findings -----------------------------------------------------------
+
 export async function fetchFindings(filters: FindingsListFilters = {}): Promise<FindingsListResponse> {
   const params = new URLSearchParams()
   if (filters.clientId) params.set('clientId', filters.clientId)
