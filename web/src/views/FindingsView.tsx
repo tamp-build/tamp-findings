@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { AlertCircle, X } from 'lucide-react'
 import { fetchFindings } from '@/lib/api'
@@ -13,10 +13,25 @@ const ALL_SCANNERS: ScannerKind[] = [
   'Oasdiff', 'Cosign', 'NetArchTest', 'DependencyCruiser', 'Stryker', 'Coverlet',
 ]
 
-export function FindingsView({ search }: { search: string }) {
+export function FindingsView({
+  search,
+  initialScanners = [],
+}: {
+  search: string
+  initialScanners?: ScannerKind[]
+}) {
   const [activeSeverities, setActiveSeverities] = useState<Set<Severity>>(new Set())
-  const [activeScanners, setActiveScanners] = useState<Set<ScannerKind>>(new Set())
+  const [activeScanners, setActiveScanners] = useState<Set<ScannerKind>>(new Set(initialScanners))
   const [selected, setSelected] = useState<FindingListItem | null>(null)
+
+  // When the parent passes a new initialScanners (e.g. from a donut-drill
+  // click on the Overview tab), seed the local filter state. The user can
+  // still toggle scanners off after the seed; we don't re-sync downstream.
+  useEffect(() => {
+    if (initialScanners.length > 0) {
+      setActiveScanners(new Set(initialScanners))
+    }
+  }, [initialScanners])
 
   const filters = useMemo(() => ({
     severities: [...activeSeverities],
