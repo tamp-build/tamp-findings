@@ -1,18 +1,25 @@
-import type { ScannerDetail, SbomHealthCounts } from '@/lib/api'
+import type { ScannerDetail, SbomHealthCounts, SecretsHealthCounts } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-// Two concentric segmented donuts driving the Overview tab:
-//   Outer ring — Code Quality (OpenGrep, fallback to Roslyn while
-//     TAM-262 keeps the OpenGrep CLI install blocked). Each arc is
-//     sized to that severity bucket's share of the scanner's lifetime
-//     findings; clockwise from worst (Critical) to best (Closed).
-//   Inner ring — SBOM health (F6.4 / F6.3). Three buckets: Vulnerable
-//     (red, ≥1 known CVE), Outdated (yellow, newer version known
-//     available — requires registry-enrichment that doesn't run yet),
-//     and Current (green, the rest).
+// Three concentric segmented donuts driving the Overview tab. Moving
+// inward = closer to "exploitable right now":
 //
-// Both rings are clickable. Outer drills into the Findings tab
-// pre-filtered to the active scanner; inner navigates to Components.
+//   Outer  — Code Quality   (OpenGrep / Roslyn while TAM-262 blocked).
+//             Severity buckets (Critical…Info) + lifecycle (Closed,
+//             Suppressed, Accepted).
+//   Middle — SBOM dep health (F6.3 / F6.4). Vulnerable / Outdated /
+//             Current; Outdated requires registry enrichment, which
+//             runs as part of every Ingest.
+//   Inner  — Secrets. TruffleHog open findings: Critical = Verified
+//             (live credential), High = Unverified (pattern match).
+//
+// Each ring is clickable and emits a click event the OverviewView turns
+// into a cross-tab nav to a filtered list. Tables to the right mirror
+// the same color language and same click-through.
+//
+// As we onboard more tamp scanners the catalog of rings will grow.
+// Centralising the geometry + buckets here keeps the visual coherent
+// even as the data widens.
 
 const SAST_PREFERENCE = ['OpenGrep', 'Roslyn', 'CodeQL'] as const
 
@@ -21,26 +28,34 @@ const SEGMENT_COLORS = {
   low:        '#facc15',  info:       '#38bdf8',  closed:     '#22c55e',
   suppressed: '#a3a3a3',  accepted:   '#737373',
 } as const
-
 const SEGMENT_ORDER = ['critical', 'high', 'medium', 'low', 'info', 'closed', 'suppressed', 'accepted'] as const
 type SegKey = (typeof SEGMENT_ORDER)[number]
-
 const SEGMENT_LABELS: Record<SegKey, string> = {
   critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low',
   info: 'Info', closed: 'Closed', suppressed: 'Suppressed', accepted: 'Accepted',
 }
 
 const SBOM_COLORS = {
-  vulnerable: '#dc2626',  // red-600
-  outdated:   '#f59e0b',  // amber-500
-  current:    '#22c55e',  // green-500
+  vulnerable: '#dc2626', outdated: '#f59e0b', current: '#22c55e',
 } as const
-
 const SBOM_ORDER = ['vulnerable', 'outdated', 'current'] as const
 type SbomKey = (typeof SBOM_ORDER)[number]
 const SBOM_LABELS: Record<SbomKey, string> = {
   vulnerable: 'Vulnerable', outdated: 'Outdated', current: 'Current',
 }
+
+const SECRETS_COLORS = {
+  verified:   '#dc2626',  // red — credential is live
+  unverified: '#f59e0b',  // amber — pattern hit, didn't verify
+  clean:      '#22c55e',  // green — fills the ring when nothing leaked
+} as const
+const SECRETS_ORDER = ['verified', 'unverified'] as const
+type SecretsKey = (typeof SECRETS_ORDER)[number]
+const SECRETS_LABELS: Record<SecretsKey, string> = {
+  verified: 'Verified', unverified: 'Unverified',
+}
+
+// ----- shared helpers ----------------------------------------------------
 
 function pickPrimaryScanner(details: ScannerDetail[]): ScannerDetail | null {
   for (const preferred of SAST_PREFERENCE) {
@@ -49,11 +64,9 @@ function pickPrimaryScanner(details: ScannerDetail[]): ScannerDetail | null {
   }
   return details.find(d => totalOf(d) > 0) ?? details[0] ?? null
 }
-
 function totalOf(d: ScannerDetail): number {
   return d.open.total + d.closed + d.suppressed + d.accepted
 }
-
 function countFor(d: ScannerDetail, k: SegKey): number {
   switch (k) {
     case 'closed':     return d.closed
@@ -63,20 +76,24 @@ function countFor(d: ScannerDetail, k: SegKey): number {
   }
 }
 
+// ----- geometry ----------------------------------------------------------
+
 const SIZE = 320
-const OUTER_R = 130
-const OUTER_WIDTH = 24
-const INNER_R = 90
-const INNER_WIDTH = 22
+const RINGS = {
+  outer:  { radius: 130, width: 22 },
+  middle: { radius: 92,  width: 18 },
+  inner:  { radius: 58,  width: 18 },
+} as const
+type RingSlot = keyof typeof RINGS
 
-type Arc = { key: string; count: number; color: string; dashArray: string; dashOffset: number }
-
+type Arc = { key: string; color: string; dashArray: string; dashOffset: number }
 function buildArcs(
   buckets: Array<{ key: string; count: number; color: string }>,
   total: number,
-  circumference: number,
+  radius: number,
 ): Arc[] {
   if (total === 0) return []
+  const circumference = 2 * Math.PI * radius
   let offset = 0
   const arcs: Arc[] = []
   for (const seg of buckets) {
@@ -84,7 +101,6 @@ function buildArcs(
     const segLen = (seg.count / total) * circumference
     arcs.push({
       key: seg.key,
-      count: seg.count,
       color: seg.color,
       dashArray: `${segLen} ${circumference - segLen}`,
       dashOffset: -offset,
@@ -94,172 +110,152 @@ function buildArcs(
   return arcs
 }
 
+function ConcentricRing({
+  slot, arcs, cleanFill, onClick, ariaLabel,
+}: {
+  slot: RingSlot
+  arcs: Arc[]
+  // When arcs is empty AND cleanFill is set, draw a full ring in that
+  // color (the "all clear" state for the secrets ring). When cleanFill
+  // is undefined, draw the neutral gray track instead.
+  cleanFill?: string
+  onClick?: () => void
+  ariaLabel?: string
+}) {
+  const { radius, width } = RINGS[slot]
+  const cx = SIZE / 2
+  const cy = SIZE / 2
+  const interactive = !!onClick
+  return (
+    <>
+      <circle
+        cx={cx} cy={cy} r={radius}
+        fill="none"
+        stroke={arcs.length === 0 && cleanFill ? cleanFill : 'rgb(229 231 235)'}
+        strokeWidth={width}
+        opacity={arcs.length === 0 ? 1 : 0.2}
+      />
+      {interactive && (
+        <circle
+          cx={cx} cy={cy} r={radius}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={width}
+          style={{ cursor: 'pointer' }}
+          onClick={onClick}
+          tabIndex={0}
+          role="button"
+          aria-label={ariaLabel}
+        />
+      )}
+      <g transform={`rotate(-90 ${cx} ${cy})`} style={{ pointerEvents: 'none' }}>
+        {arcs.map(seg => (
+          <circle
+            key={`${slot}-${seg.key}`}
+            cx={cx} cy={cy} r={radius}
+            fill="none"
+            stroke={seg.color}
+            strokeWidth={width}
+            strokeDasharray={seg.dashArray}
+            strokeDashoffset={seg.dashOffset}
+            strokeLinecap="butt"
+          />
+        ))}
+      </g>
+    </>
+  )
+}
+
+// ----- main chart --------------------------------------------------------
+
 export function RingChart({
   scannerDetails,
   sbomHealth,
+  secretsHealth,
   onScannerClick,
   onSbomClick,
+  onSecretsClick,
 }: {
   scannerDetails: ScannerDetail[]
   sbomHealth?: SbomHealthCounts
+  secretsHealth?: SecretsHealthCounts
   onScannerClick?: (scanner: string) => void
   onSbomClick?: () => void
+  onSecretsClick?: () => void
 }) {
   const primary = pickPrimaryScanner(scannerDetails)
   const outerTotal = primary ? totalOf(primary) : 0
-  const outerEmpty = outerTotal === 0
+  const outerArcs = buildArcs(
+    SEGMENT_ORDER.map(k => ({ key: k, count: primary ? countFor(primary, k) : 0, color: SEGMENT_COLORS[k] })),
+    outerTotal,
+    RINGS.outer.radius,
+  )
 
   const sbomTotal = sbomHealth ? sbomHealth.current + sbomHealth.outdated + sbomHealth.vulnerable : 0
-  const innerEmpty = sbomTotal === 0
+  const sbomArcs = sbomHealth
+    ? buildArcs(SBOM_ORDER.map(k => ({ key: k, count: sbomHealth[k], color: SBOM_COLORS[k] })), sbomTotal, RINGS.middle.radius)
+    : []
 
-  const cx = SIZE / 2
-  const cy = SIZE / 2
-  const outerCircumference = 2 * Math.PI * OUTER_R
-  const innerCircumference = 2 * Math.PI * INNER_R
-
-  const outerArcs = buildArcs(
-    SEGMENT_ORDER.map(k => ({
-      key: k,
-      count: primary ? countFor(primary, k) : 0,
-      color: SEGMENT_COLORS[k],
-    })),
-    outerTotal,
-    outerCircumference,
-  )
-  const innerArcs = sbomHealth ? buildArcs(
-    SBOM_ORDER.map(k => ({ key: k, count: sbomHealth[k], color: SBOM_COLORS[k] })),
-    sbomTotal,
-    innerCircumference,
-  ) : []
-
-  const outerInteractive = !!onScannerClick && !!primary
-  const innerInteractive = !!onSbomClick && !!sbomHealth && sbomTotal > 0
+  const secretsTotal = secretsHealth ? secretsHealth.verified + secretsHealth.unverified : 0
+  const secretsArcs = secretsHealth
+    ? buildArcs(SECRETS_ORDER.map(k => ({ key: k, count: secretsHealth[k], color: SECRETS_COLORS[k] })), secretsTotal, RINGS.inner.radius)
+    : []
+  // When the secrets metric is "0 leaked", the inner ring renders solid
+  // green — empty-state IS the success state for secrets, unlike SBOM
+  // where empty means "no data".
+  const innerCleanFill = secretsHealth && secretsTotal === 0 ? SECRETS_COLORS.clean : undefined
 
   return (
     <div className="flex flex-col items-center">
       <div className="text-center">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">Outer ring</p>
-        <p className="text-base font-semibold">Code Quality</p>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">Risk rings</p>
+        <p className="text-base font-semibold">Code Quality · SBOM · Secrets</p>
         {primary && primary.scanner !== 'OpenGrep' && (
           <p className="text-[11px] text-muted-foreground">
-            via {primary.scanner} · OpenGrep pending TAM-262
+            outer via {primary.scanner} · OpenGrep pending TAM-262
           </p>
-        )}
-        {!primary && (
-          <p className="text-[11px] text-muted-foreground">no scanner data yet</p>
         )}
       </div>
 
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mt-2 w-full max-w-[300px]" role="img" aria-label="Code Quality + SBOM health donuts">
-        {/* Outer track */}
-        <circle
-          cx={cx} cy={cy} r={OUTER_R}
-          fill="none"
-          stroke="rgb(229 231 235)"
-          strokeWidth={OUTER_WIDTH}
-          opacity={outerEmpty ? 1 : 0.2}
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mt-2 w-full max-w-[300px]" role="img" aria-label="Risk rings: code quality, SBOM, secrets">
+        <ConcentricRing
+          slot="outer"
+          arcs={outerArcs}
+          onClick={onScannerClick && primary ? () => onScannerClick(primary.scanner) : undefined}
+          ariaLabel={primary ? `Open ${primary.scanner} findings` : undefined}
         />
-        {/* Inner track */}
-        <circle
-          cx={cx} cy={cy} r={INNER_R}
-          fill="none"
-          stroke="rgb(229 231 235)"
-          strokeWidth={INNER_WIDTH}
-          opacity={innerEmpty ? 1 : 0.2}
+        <ConcentricRing
+          slot="middle"
+          arcs={sbomArcs}
+          onClick={onSbomClick}
+          ariaLabel="Browse SBOM components"
+        />
+        <ConcentricRing
+          slot="inner"
+          arcs={secretsArcs}
+          cleanFill={innerCleanFill}
+          onClick={secretsHealth && secretsTotal > 0 ? onSecretsClick : undefined}
+          ariaLabel={secretsTotal > 0 ? 'Open TruffleHog findings' : undefined}
         />
 
-        {/* Clickable outer hit region — render before arcs so arcs sit on top visually */}
-        {outerInteractive && (
-          <circle
-            cx={cx} cy={cy} r={OUTER_R}
-            fill="none"
-            stroke="transparent"
-            strokeWidth={OUTER_WIDTH}
-            style={{ cursor: 'pointer' }}
-            onClick={() => primary && onScannerClick?.(primary.scanner)}
-            tabIndex={0}
-            role="button"
-            aria-label={`Open ${primary?.scanner} findings`}
-          />
-        )}
-        {/* Outer arcs */}
-        <g transform={`rotate(-90 ${cx} ${cy})`} style={{ pointerEvents: 'none' }}>
-          {outerArcs.map(seg => (
-            <circle
-              key={`o-${seg.key}`}
-              cx={cx} cy={cy} r={OUTER_R}
-              fill="none"
-              stroke={seg.color}
-              strokeWidth={OUTER_WIDTH}
-              strokeDasharray={seg.dashArray}
-              strokeDashoffset={seg.dashOffset}
-              strokeLinecap="butt"
-            >
-              <title>{SEGMENT_LABELS[seg.key as SegKey]}: {seg.count}</title>
-            </circle>
-          ))}
-        </g>
-
-        {/* Clickable inner hit region */}
-        {innerInteractive && (
-          <circle
-            cx={cx} cy={cy} r={INNER_R}
-            fill="none"
-            stroke="transparent"
-            strokeWidth={INNER_WIDTH}
-            style={{ cursor: 'pointer' }}
-            onClick={() => onSbomClick?.()}
-            tabIndex={0}
-            role="button"
-            aria-label="Browse SBOM components"
-          />
-        )}
-        {/* Inner arcs */}
-        <g transform={`rotate(-90 ${cx} ${cy})`} style={{ pointerEvents: 'none' }}>
-          {innerArcs.map(seg => (
-            <circle
-              key={`i-${seg.key}`}
-              cx={cx} cy={cy} r={INNER_R}
-              fill="none"
-              stroke={seg.color}
-              strokeWidth={INNER_WIDTH}
-              strokeDasharray={seg.dashArray}
-              strokeDashoffset={seg.dashOffset}
-              strokeLinecap="butt"
-            >
-              <title>{SBOM_LABELS[seg.key as SbomKey]}: {seg.count}</title>
-            </circle>
-          ))}
-        </g>
-
-        {/* Center text — quality outer total above, sbom inner total below */}
-        <text x={cx} y={cy - 8} textAnchor="middle" fontSize="28" fontWeight="700" className="fill-foreground">
+        {/* Compact center text: just totals, two lines */}
+        <text x={SIZE / 2} y={SIZE / 2 - 4} textAnchor="middle" fontSize="22" fontWeight="700" className="fill-foreground">
           {outerTotal}
         </text>
-        <text x={cx} y={cy + 6} textAnchor="middle" fontSize="9" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
+        <text x={SIZE / 2} y={SIZE / 2 + 12} textAnchor="middle" fontSize="9" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
           findings
-        </text>
-        <text x={cx} y={cy + 24} textAnchor="middle" fontSize="14" fontWeight="600" className="fill-foreground">
-          {sbomTotal}
-        </text>
-        <text x={cx} y={cy + 36} textAnchor="middle" fontSize="8" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
-          sbom deps
         </text>
       </svg>
 
-      <div className="mt-2 grid grid-cols-2 gap-3 text-[11px] text-muted-foreground">
-        {outerInteractive && <span>Click outer → findings</span>}
-        {innerInteractive && <span>Click inner → components</span>}
+      <div className="mt-2 space-y-0.5 text-center text-[11px] text-muted-foreground">
+        {primary && <p>outer ring → findings · middle → components · inner → secrets</p>}
       </div>
     </div>
   )
 }
 
-// Compact table of severity buckets for the active code-quality scanner.
-// Drops zero rows so the visual stays tight when only a few severities
-// are populated. Each row is clickable when onRowClick is provided —
-// fires with the segment key (severity name or "closed"/"suppressed"/
-// "accepted") so the caller can navigate to a filtered Findings list.
+// ----- right-hand tables -------------------------------------------------
+
 export function FindingsTypeTable({
   scannerDetails,
   onRowClick,
@@ -291,8 +287,6 @@ export function FindingsTypeTable({
   )
 }
 
-// Same shape, different data — SBOM health buckets. Click row → caller
-// receives the bucket key ('vulnerable' / 'outdated' / 'current').
 export function SbomHealthTable({
   health,
   onRowClick,
@@ -321,6 +315,46 @@ export function SbomHealthTable({
     </CompactTable>
   )
 }
+
+export function SecretsHealthTable({
+  health,
+  onRowClick,
+}: {
+  health?: SecretsHealthCounts
+  onRowClick?: (bucket: SecretsKey) => void
+}) {
+  const total = health ? health.verified + health.unverified : 0
+  const rows = health
+    ? SECRETS_ORDER.map(k => ({ k, count: health[k] })).filter(r => r.count > 0)
+    : []
+  return (
+    <CompactTable title="Secrets">
+      {rows.length === 0 && (
+        <tr>
+          <td colSpan={3} className="px-3 py-3 text-center text-xs">
+            <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+              <span className="inline-block size-2.5 rounded-sm" style={{ background: SECRETS_COLORS.clean }} />
+              No secrets detected
+            </span>
+          </td>
+        </tr>
+      )}
+      {rows.map(({ k, count }) => (
+        <Row
+          key={k}
+          color={SECRETS_COLORS[k]}
+          label={SECRETS_LABELS[k]}
+          count={count}
+          pct={total > 0 ? (count / total) * 100 : 0}
+          onClick={onRowClick ? () => onRowClick(k) : undefined}
+        />
+      ))}
+      {total > 0 && <TotalRow total={total} />}
+    </CompactTable>
+  )
+}
+
+// ----- table primitives --------------------------------------------------
 
 function CompactTable({ title, children }: { title: string; children: React.ReactNode }) {
   return (

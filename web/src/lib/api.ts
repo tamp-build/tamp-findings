@@ -212,12 +212,20 @@ export type AggregatesResponse = {
     byEcosystem: Record<string, number>
     health: SbomHealthCounts
   }
+  secrets: {
+    health: SecretsHealthCounts
+  }
 }
 
 export type SbomHealthCounts = {
   current: number     // green
   outdated: number    // yellow
   vulnerable: number  // red
+}
+
+export type SecretsHealthCounts = {
+  verified: number    // red — TruffleHog confirmed live credential
+  unverified: number  // yellow — pattern match only
 }
 
 export type AggregatesFilters = {
