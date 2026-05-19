@@ -7,8 +7,20 @@ import {
   fetchComponents,
   fetchAggregates,
 } from '@/lib/api'
-import type { AggregatesFilters, ScannerKind } from '@/lib/api'
+import type { AggregatesFilters, ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
+import type { FindingsPreset, ComponentsPreset } from '@/App'
 import { RingChart, FindingsTypeTable, SbomHealthTable } from '@/components/RingChart'
+
+// Which Findings filter does a Code-Quality table row map to? Severities
+// fold into the severity filter (default-status Open); the lifecycle
+// rows (closed/suppressed/accepted) clear severity and switch the
+// status filter so the user lands on the right population.
+const SEVERITY_FROM_SEGMENT: Record<string, Severity | undefined> = {
+  critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info',
+}
+const STATUS_FROM_SEGMENT: Record<string, FindingStatus | undefined> = {
+  closed: 'Fixed', suppressed: 'Suppressed', accepted: 'Accepted',
+}
 import { cn } from '@/lib/utils'
 
 type Selection =
@@ -30,8 +42,8 @@ export function OverviewView({
   onDrillToFindings,
   onDrillToComponents,
 }: {
-  onDrillToFindings?: (scanners: ScannerKind[]) => void
-  onDrillToComponents?: () => void
+  onDrillToFindings?: (preset: Omit<FindingsPreset, 'nonce'>) => void
+  onDrillToComponents?: (preset?: Omit<ComponentsPreset, 'nonce'>) => void
 }) {
   const [selection, setSelection] = useState<Selection>({ kind: 'all' })
 
@@ -73,11 +85,27 @@ export function OverviewView({
               <RingChart
                 scannerDetails={aggregates.data.findings.byScannerDetail}
                 sbomHealth={aggregates.data.sbom.health}
-                onScannerClick={(scanner) => onDrillToFindings?.([scanner as ScannerKind])}
+                onScannerClick={(scanner) =>
+                  onDrillToFindings?.({ scanners: [scanner as ScannerKind] })
+                }
                 onSbomClick={() => onDrillToComponents?.()}
               />
-              <FindingsTypeTable scannerDetails={aggregates.data.findings.byScannerDetail} />
-              <SbomHealthTable health={aggregates.data.sbom.health} />
+              <FindingsTypeTable
+                scannerDetails={aggregates.data.findings.byScannerDetail}
+                onRowClick={(segment, scanner) => {
+                  const sev = SEVERITY_FROM_SEGMENT[segment]
+                  const status = STATUS_FROM_SEGMENT[segment]
+                  onDrillToFindings?.({
+                    scanners: [scanner as ScannerKind],
+                    severities: sev ? [sev] : [],
+                    statuses: status ? [status] : [],
+                  })
+                }}
+              />
+              <SbomHealthTable
+                health={aggregates.data.sbom.health}
+                onRowClick={(bucket) => onDrillToComponents?.({ sbomStatus: bucket as SbomHealthStatus })}
+              />
             </section>
 
             <section className="grid grid-cols-3 gap-3 text-sm">

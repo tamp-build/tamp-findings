@@ -257,8 +257,16 @@ export function RingChart({
 
 // Compact table of severity buckets for the active code-quality scanner.
 // Drops zero rows so the visual stays tight when only a few severities
-// are populated.
-export function FindingsTypeTable({ scannerDetails }: { scannerDetails: ScannerDetail[] }) {
+// are populated. Each row is clickable when onRowClick is provided —
+// fires with the segment key (severity name or "closed"/"suppressed"/
+// "accepted") so the caller can navigate to a filtered Findings list.
+export function FindingsTypeTable({
+  scannerDetails,
+  onRowClick,
+}: {
+  scannerDetails: ScannerDetail[]
+  onRowClick?: (segment: SegKey, scanner: string) => void
+}) {
   const primary = pickPrimaryScanner(scannerDetails)
   const total = primary ? totalOf(primary) : 0
   const rows = SEGMENT_ORDER
@@ -275,6 +283,7 @@ export function FindingsTypeTable({ scannerDetails }: { scannerDetails: ScannerD
           label={SEGMENT_LABELS[k]}
           count={count}
           pct={total > 0 ? (count / total) * 100 : 0}
+          onClick={primary && onRowClick ? () => onRowClick(k, primary.scanner) : undefined}
         />
       ))}
       <TotalRow total={total} />
@@ -282,8 +291,15 @@ export function FindingsTypeTable({ scannerDetails }: { scannerDetails: ScannerD
   )
 }
 
-// Same shape, different data — SBOM health buckets.
-export function SbomHealthTable({ health }: { health?: SbomHealthCounts }) {
+// Same shape, different data — SBOM health buckets. Click row → caller
+// receives the bucket key ('vulnerable' / 'outdated' / 'current').
+export function SbomHealthTable({
+  health,
+  onRowClick,
+}: {
+  health?: SbomHealthCounts
+  onRowClick?: (bucket: SbomKey) => void
+}) {
   const total = health ? health.current + health.outdated + health.vulnerable : 0
   const rows = health
     ? SBOM_ORDER.map(k => ({ k, count: health[k] })).filter(r => r.count > 0)
@@ -298,6 +314,7 @@ export function SbomHealthTable({ health }: { health?: SbomHealthCounts }) {
           label={SBOM_LABELS[k]}
           count={count}
           pct={total > 0 ? (count / total) * 100 : 0}
+          onClick={onRowClick ? () => onRowClick(k) : undefined}
         />
       ))}
       <TotalRow total={total} />
@@ -318,9 +335,24 @@ function CompactTable({ title, children }: { title: string; children: React.Reac
   )
 }
 
-function Row({ color, label, count, pct }: { color: string; label: string; count: number; pct: number }) {
+function Row({
+  color, label, count, pct, onClick,
+}: {
+  color: string; label: string; count: number; pct: number; onClick?: () => void
+}) {
+  const clickable = !!onClick
   return (
-    <tr className="border-b last:border-b-0">
+    <tr
+      className={cn(
+        'border-b last:border-b-0',
+        clickable && 'cursor-pointer hover:bg-muted/40 focus-within:bg-muted/40',
+      )}
+      onClick={onClick}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable
+        ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() } }
+        : undefined}
+    >
       <td className="flex items-center gap-2 px-3 py-1.5">
         <span className="inline-block size-2.5 rounded-sm" style={{ background: color }} />
         {label}

@@ -1,21 +1,37 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { AlertCircle, Search, X, ShieldAlert, ArrowUpCircle } from 'lucide-react'
 import { fetchSbomComponents, fetchSbomComponent } from '@/lib/api'
-import type { SbomComponentListItem } from '@/lib/api'
+import type { SbomComponentListItem, SbomHealthStatus } from '@/lib/api'
+import type { ComponentsPreset } from '@/App'
 import { EcosystemBadge } from '@/components/EcosystemBadge'
 import { cn } from '@/lib/utils'
 
-export function ComponentsView() {
+const STATUS_LABELS: Record<SbomHealthStatus, string> = {
+  vulnerable: 'Vulnerable',
+  outdated: 'Outdated',
+  current: 'Current',
+}
+
+export function ComponentsView({ preset }: { preset?: ComponentsPreset }) {
   const [ecosystem, setEcosystem] = useState<string | null>(null)
+  const [healthStatus, setHealthStatus] = useState<SbomHealthStatus | null>(null)
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
+  // Seed from preset when the parent bumps the nonce (Overview SBOM
+  // table row click). Bumping `nonce` even with no sbomStatus clears.
+  useEffect(() => {
+    if (!preset) return
+    setHealthStatus(preset.sbomStatus ?? null)
+  }, [preset?.nonce])
+
   const filters = useMemo(() => ({
     ecosystem: ecosystem ?? undefined,
+    status: healthStatus ?? undefined,
     search: search.trim() || undefined,
     take: 200,
-  }), [ecosystem, search])
+  }), [ecosystem, healthStatus, search])
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['sbom-components', filters],
@@ -45,6 +61,19 @@ export function ComponentsView() {
               onClick={() => setEcosystem(prev => prev === e ? null : e)}
             />
           ))}
+          {healthStatus && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+              status: {STATUS_LABELS[healthStatus]}
+              <button
+                type="button"
+                onClick={() => setHealthStatus(null)}
+                className="ml-1 rounded p-0.5 hover:bg-amber-500/20"
+                aria-label="Clear status filter"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          )}
         </div>
         <div className="relative ml-auto w-72">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />

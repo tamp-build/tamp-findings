@@ -98,9 +98,12 @@ export type SbomComponentsListResponse = {
   items: SbomComponentListItem[]
 }
 
+export type SbomHealthStatus = 'vulnerable' | 'outdated' | 'current'
+
 export type SbomComponentsFilters = {
   componentVersionId?: string
   ecosystem?: string
+  status?: SbomHealthStatus
   search?: string
   latest?: boolean
   skip?: number
@@ -111,6 +114,7 @@ export async function fetchSbomComponents(filters: SbomComponentsFilters = {}): 
   const params = new URLSearchParams()
   if (filters.componentVersionId) params.set('componentVersionId', filters.componentVersionId)
   if (filters.ecosystem) params.set('ecosystem', filters.ecosystem)
+  if (filters.status) params.set('status', filters.status)
   if (filters.search) params.set('search', filters.search)
   if (filters.latest === false) params.set('latest', 'false')
   if (filters.skip != null) params.set('skip', String(filters.skip))
