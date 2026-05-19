@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { AlertCircle, Search, X, ShieldAlert } from 'lucide-react'
+import { AlertCircle, Search, X, ShieldAlert, ArrowUpCircle } from 'lucide-react'
 import { fetchSbomComponents, fetchSbomComponent } from '@/lib/api'
 import type { SbomComponentListItem } from '@/lib/api'
 import { EcosystemBadge } from '@/components/EcosystemBadge'
@@ -133,6 +133,11 @@ function ComponentRow({
         <div className="flex items-baseline gap-2">
           <span className="truncate font-medium">{c.name}</span>
           <span className="font-mono text-xs text-muted-foreground">{c.version}</span>
+          {c.latestVersion && c.latestVersion !== c.version && (
+            <span className="font-mono text-xs text-amber-700 dark:text-amber-400">
+              → {c.latestVersion}
+            </span>
+          )}
         </div>
         <div className="truncate text-xs text-muted-foreground">
           {c.license ?? '(unknown license)'}
@@ -140,6 +145,12 @@ function ComponentRow({
           <span className="font-mono">{c.purl}</span>
         </div>
       </div>
+      {c.latestVersion && c.latestVersion !== c.version && (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400" title={`Outdated: latest ${c.latestVersion}`}>
+          <ArrowUpCircle className="size-3.5" />
+          outdated
+        </span>
+      )}
       {c.vulnerabilityCount > 0 && (
         <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
           <ShieldAlert className="size-3.5" />
