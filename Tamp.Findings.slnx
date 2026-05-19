@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="README.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path=".gitignore" />
+    <File Path="docker/docker-compose.dev.yml" />
+  </Folder>
+  <Folder Name="/docs/">
+    <File Path="docs/adr/README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Tamp.Findings.Domain/Tamp.Findings.Domain.csproj" />
+    <Project Path="src/Tamp.Findings.Data/Tamp.Findings.Data.csproj" />
+    <Project Path="src/Tamp.Findings.Api/Tamp.Findings.Api.csproj" />
+    <Project Path="src/Tamp.Findings.Mcp/Tamp.Findings.Mcp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Tamp.Findings.Domain.Tests/Tamp.Findings.Domain.Tests.csproj" />
+    <Project Path="tests/Tamp.Findings.Api.Tests/Tamp.Findings.Api.Tests.csproj" />
+  </Folder>
+</Solution>

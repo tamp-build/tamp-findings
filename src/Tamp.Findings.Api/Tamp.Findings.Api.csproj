@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tamp.Findings.Api</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <UserSecretsId>tamp.findings.api</UserSecretsId>
+    <Description>ASP.NET minimal API host for tamp.findings. Serves OpenAPI, ingestion, query, and (in prod) the static SPA bundle.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tamp.Findings.Domain\Tamp.Findings.Domain.csproj" />
+    <ProjectReference Include="..\Tamp.Findings.Data\Tamp.Findings.Data.csproj" />
+  </ItemGroup>
+
+</Project>
