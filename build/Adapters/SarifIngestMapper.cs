@@ -13,34 +13,46 @@ public static class SarifIngestMapper
     {
         if (log.Runs is null) yield break;
 
+        // A merged SARIF (sast.sarif from SarifMerge.CombineDistinct) carries
+        // separate runs for OpenGrep + per-(project, TFM) Roslyn outputs. All
+        // Roslyn runs collapse to scanner=Roslyn here, so we group runs by
+        // inferred scanner and post ONE IngestRequest per scanner with ALL
+        // findings merged. Without this, each per-run POST would auto-close
+        // (TFND-6 / F5.4) findings only present in sibling runs because the
+        // ingest endpoint scopes auto-close to (componentVersion, scanner).
+        var byScanner = new Dictionary<ScannerKind, List<IngestFindingDto>>();
         foreach (var run in log.Runs)
         {
+            if (run.Results is null || run.Results.Count == 0) continue;
             var scanner = InferScanner(run.Tool?.Driver?.Name);
-            var findings = new List<IngestFindingDto>();
-
-            if (run.Results is not null)
+            if (!byScanner.TryGetValue(scanner, out var bucket))
             {
-                foreach (var r in run.Results)
-                {
-                    var loc = r.Locations?.FirstOrDefault();
-                    var artifact = loc?.PhysicalLocation?.ArtifactLocation?.Uri;
-                    var region = loc?.PhysicalLocation?.Region;
-
-                    findings.Add(new IngestFindingDto(
-                        RuleId: r.RuleId ?? "(unknown)",
-                        Severity: MapSeverity(r.Level),
-                        Title: r.Message?.Text ?? r.RuleId ?? "(no title)",
-                        Description: r.Message?.Text,
-                        FilePath: artifact,
-                        Line: region?.StartLine,
-                        // Tamp.Sarif's minimal model doesn't surface snippets;
-                        // dedup will fall back to (scanner, rule, path) only.
-                        Snippet: null));
-                }
+                bucket = [];
+                byScanner[scanner] = bucket;
             }
 
-            if (findings.Count == 0) continue;
+            foreach (var r in run.Results)
+            {
+                var loc = r.Locations?.FirstOrDefault();
+                var artifact = loc?.PhysicalLocation?.ArtifactLocation?.Uri;
+                var region = loc?.PhysicalLocation?.Region;
 
+                bucket.Add(new IngestFindingDto(
+                    RuleId: r.RuleId ?? "(unknown)",
+                    Severity: MapSeverity(r.Level),
+                    Title: r.Message?.Text ?? r.RuleId ?? "(no title)",
+                    Description: r.Message?.Text,
+                    FilePath: artifact,
+                    Line: region?.StartLine,
+                    // Tamp.Sarif's minimal model doesn't surface snippets;
+                    // dedup will fall back to (scanner, rule, path) only.
+                    Snippet: null));
+            }
+        }
+
+        foreach (var (scanner, findings) in byScanner)
+        {
+            if (findings.Count == 0) continue;
             yield return new IngestRequestDto(
                 Client: ctx.Client,
                 Project: ctx.Project,
