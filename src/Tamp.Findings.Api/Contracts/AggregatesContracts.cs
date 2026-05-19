@@ -21,7 +21,24 @@ public sealed record AggregateScope(
 public sealed record FindingAggregate(
     SeverityCounts Counts,
     IReadOnlyDictionary<string, int> ByScanner,
-    IReadOnlyDictionary<string, int> ByStatus);
+    IReadOnlyDictionary<string, int> ByStatus,
+    // Per-scanner detail for the segmented ring view. Counts split by
+    // severity (open only) plus separate closed/suppressed/accepted
+    // buckets — enough to render a donut where every finding ever seen
+    // for the scanner has a slot. Always returns every scanner the user
+    // currently has data for, sorted alphabetically; the SPA decides
+    // which one to render as the outer ring.
+    IReadOnlyList<ScannerDetail> ByScannerDetail);
+
+public sealed record ScannerDetail(
+    string Scanner,
+    SeverityCounts Open,
+    int Closed,
+    int Suppressed,
+    int Accepted)
+{
+    public int Total => Open.Total + Closed + Suppressed + Accepted;
+}
 
 public sealed record SbomAggregate(
     int ComponentsCount,
