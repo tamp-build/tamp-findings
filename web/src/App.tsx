@@ -21,6 +21,7 @@ export type FindingsPreset = {
 export type ComponentsPreset = {
   nonce: number
   sbomStatus?: SbomHealthStatus
+  license?: string
 }
 
 function App() {

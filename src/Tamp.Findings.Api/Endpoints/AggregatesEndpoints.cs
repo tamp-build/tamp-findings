@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Contracts;
+using Tamp.Findings.Api.Services;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Values;
 
@@ -170,13 +171,38 @@ public static class AggregatesEndpoints
         var verifiedSecrets = await secretsBase.CountAsync(f => f.Severity == Severity.Critical, ct);
         var unverifiedSecrets = await secretsBase.CountAsync(f => f.Severity == Severity.High, ct);
 
+        // License posture: pull the license string for every component in
+        // scope, classify into a permissiveness tier, build the per-string
+        // count map for the "% of licenses" table.
+        var licenseRows = await sq
+            .Select(c => c.License)
+            .ToListAsync(ct);
+        var byLicense = new Dictionary<string, int>(StringComparer.Ordinal);
+        var perm = 0; var weak = 0; var strong = 0; var denied = 0; var unknown = 0;
+        foreach (var raw in licenseRows)
+        {
+            var key = string.IsNullOrWhiteSpace(raw) ? "(unknown)" : raw.Trim();
+            byLicense[key] = byLicense.GetValueOrDefault(key) + 1;
+            switch (LicensePolicy.Classify(raw))
+            {
+                case LicensePolicy.Tier.Permissive:     perm++; break;
+                case LicensePolicy.Tier.WeakCopyleft:   weak++; break;
+                case LicensePolicy.Tier.StrongCopyleft: strong++; break;
+                case LicensePolicy.Tier.Denied:         denied++; break;
+                default:                                unknown++; break;
+            }
+        }
+
         return TypedResults.Ok(new AggregatesResponse(
             scope,
             new FindingAggregate(counts, byScanner, byStatus, byScannerDetail),
             new SbomAggregate(
                 compsCount, vulnsCount, byEcosystem,
                 new SbomHealthCounts(current, outdated, vulnerable)),
-            new SecretsAggregate(new SecretsHealthCounts(verifiedSecrets, unverifiedSecrets))));
+            new SecretsAggregate(new SecretsHealthCounts(verifiedSecrets, unverifiedSecrets)),
+            new LicensesAggregate(
+                new LicenseTierCounts(perm, weak, strong, denied, unknown),
+                byLicense)));
     }
 
     private static async Task<AggregateScope> ResolveScopeAsync(

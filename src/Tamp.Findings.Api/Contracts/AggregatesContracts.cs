@@ -8,7 +8,8 @@ public sealed record AggregatesResponse(
     AggregateScope Scope,
     FindingAggregate Findings,
     SbomAggregate Sbom,
-    SecretsAggregate Secrets);
+    SecretsAggregate Secrets,
+    LicensesAggregate Licenses);
 
 // Secrets ring (innermost concentric) — verified credentials are the
 // closest thing we can render to "actively exploitable right now".
@@ -22,6 +23,22 @@ public sealed record SecretsAggregate(SecretsHealthCounts Health);
 public sealed record SecretsHealthCounts(
     int Verified,     // red — TruffleHog reported a live credential
     int Unverified);  // yellow — pattern match, no verification
+
+// Innermost ring — license posture. Tiers go from most permissive
+// (lightest green) to least permissive / outright denied (red), with a
+// neutral "unknown" bucket for the small slice we couldn't categorize
+// either from the SBOM or from registry enrichment. The ByLicense map
+// powers the table-of-percentages on the right of the donut.
+public sealed record LicensesAggregate(
+    LicenseTierCounts Tiers,
+    IReadOnlyDictionary<string, int> ByLicense);
+
+public sealed record LicenseTierCounts(
+    int Permissive,      // MIT, Apache-2.0, BSD-*, ISC, 0BSD, MPL-2.0 etc.
+    int WeakCopyleft,    // LGPL-2.1, EPL — file-level / library-level copyleft
+    int StrongCopyleft,  // GPL-2.0, LGPL-3.0 — affects derivatives
+    int Denied,          // GPL-3.0, AGPL, SSPL — release-blocking by default
+    int Unknown);        // missing license or unrecognized expression
 
 public sealed record AggregateScope(
     string? ClientName,

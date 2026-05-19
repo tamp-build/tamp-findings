@@ -35,6 +35,7 @@ public static class SbomComponentsEndpoints
         Guid? projectId = null,
         string? ecosystem = null,
         string? status = null,
+        string? license = null,
         string? search = null,
         bool latest = true,
         int skip = 0,
@@ -99,6 +100,22 @@ public static class SbomComponentsEndpoints
                     // unknown bucket → ignore the filter so the response
                     // doesn't silently 200 with zero rows.
                     break;
+            }
+        }
+
+        // Exact-license filter (used by Overview's license table row clicks).
+        // The special token "(unknown)" matches null/empty License rows so the
+        // unknown bucket on the ring is also drillable.
+        if (!string.IsNullOrWhiteSpace(license))
+        {
+            var lic = license.Trim();
+            if (string.Equals(lic, "(unknown)", StringComparison.OrdinalIgnoreCase))
+            {
+                q = q.Where(c => c.License == null || c.License == "");
+            }
+            else
+            {
+                q = q.Where(c => c.License == lic);
             }
         }
 

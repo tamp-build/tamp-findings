@@ -104,6 +104,7 @@ export type SbomComponentsFilters = {
   componentVersionId?: string
   ecosystem?: string
   status?: SbomHealthStatus
+  license?: string
   search?: string
   latest?: boolean
   skip?: number
@@ -115,6 +116,7 @@ export async function fetchSbomComponents(filters: SbomComponentsFilters = {}): 
   if (filters.componentVersionId) params.set('componentVersionId', filters.componentVersionId)
   if (filters.ecosystem) params.set('ecosystem', filters.ecosystem)
   if (filters.status) params.set('status', filters.status)
+  if (filters.license) params.set('license', filters.license)
   if (filters.search) params.set('search', filters.search)
   if (filters.latest === false) params.set('latest', 'false')
   if (filters.skip != null) params.set('skip', String(filters.skip))
@@ -215,6 +217,10 @@ export type AggregatesResponse = {
   secrets: {
     health: SecretsHealthCounts
   }
+  licenses: {
+    tiers: LicenseTierCounts
+    byLicense: Record<string, number>
+  }
 }
 
 export type SbomHealthCounts = {
@@ -226,6 +232,14 @@ export type SbomHealthCounts = {
 export type SecretsHealthCounts = {
   verified: number    // red — TruffleHog confirmed live credential
   unverified: number  // yellow — pattern match only
+}
+
+export type LicenseTierCounts = {
+  permissive: number       // lightest green
+  weakCopyleft: number
+  strongCopyleft: number
+  denied: number           // red — release-blocking by default
+  unknown: number          // grey
 }
 
 export type AggregatesFilters = {
