@@ -99,13 +99,18 @@ public static class IngestEndpoints
             .Where(f => f.ComponentVersionId == version.Id)
             .ToDictionaryAsync(f => f.Hash, ct);
 
+        // In-batch dedup: a single scanner run may emit the same effective
+        // finding twice (e.g., overlapping OpenGrep rule patterns). Collapse
+        // them so the unique index doesn't reject the SaveChanges.
+        var pendingInsert = new Dictionary<string, Finding>(StringComparer.Ordinal);
+
         var now = DateTimeOffset.UtcNow;
         var inserted = 0;
         var updated = 0;
 
         foreach (var f in req.Findings)
         {
-            var hash = FindingHasher.Compute(req.Scanner, f.RuleId, f.FilePath, f.Snippet);
+            var hash = FindingHasher.Compute(req.Scanner, f.RuleId, f.FilePath, f.Snippet, f.Line);
 
             if (existing.TryGetValue(hash, out var current))
             {
@@ -117,9 +122,20 @@ public static class IngestEndpoints
                 current.Snippet = f.Snippet;
                 updated++;
             }
+            else if (pendingInsert.TryGetValue(hash, out var queued))
+            {
+                // Same hash earlier in this same batch — fold into the queued
+                // insert (latest wins on the mutable fields).
+                queued.Severity = f.Severity;
+                queued.Title = f.Title;
+                queued.Description = f.Description;
+                queued.Line = f.Line;
+                queued.Snippet = f.Snippet;
+                updated++;
+            }
             else
             {
-                db.Findings.Add(new Finding
+                var finding = new Finding
                 {
                     ComponentVersionId = version.Id,
                     Hash = hash,
@@ -133,7 +149,9 @@ public static class IngestEndpoints
                     Snippet = f.Snippet,
                     FirstSeen = now,
                     LastSeen = now,
-                });
+                };
+                db.Findings.Add(finding);
+                pendingInsert[hash] = finding;
                 inserted++;
             }
         }

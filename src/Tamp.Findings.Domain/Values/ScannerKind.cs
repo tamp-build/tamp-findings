@@ -18,4 +18,8 @@ public enum ScannerKind
     DependencyCruiser = 13,
     Stryker = 14,
     Coverlet = 15,
+    OsvScanner = 16,
+    Roslyn = 17,
+    Syft = 18,
+    Grype = 19,
 }

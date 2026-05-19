@@ -6,17 +6,27 @@ namespace Tamp.Findings.Domain.Hashing;
 
 // Line-independent finding hash per TFND-6 / F5. Inputs are scanner, rule
 // id, project-relative file path, and a whitespace-normalized snippet.
-// Snippet normalization in v0 is "trim + collapse internal whitespace runs"
-// — language-aware normalization (comment stripping) is a later refinement.
+// When the scanner does not emit a snippet, line is used as a fallback
+// disambiguator — brittle on edits but at least keeps sibling findings of
+// the same rule in the same file distinct from each other within one run.
 public static class FindingHasher
 {
-    public static string Compute(ScannerKind scanner, string ruleId, string? filePath, string? snippet)
+    public static string Compute(ScannerKind scanner, string ruleId, string? filePath, string? snippet, int? line = null)
     {
         var sb = new StringBuilder();
-        sb.Append((int)scanner).Append('');
-        sb.Append(ruleId).Append('');
-        sb.Append(filePath ?? string.Empty).Append('');
-        sb.Append(NormalizeSnippet(snippet));
+        sb.Append((int)scanner).Append('');
+        sb.Append(ruleId).Append('');
+        sb.Append(filePath ?? string.Empty).Append('');
+
+        var normalized = NormalizeSnippet(snippet);
+        if (normalized.Length > 0)
+        {
+            sb.Append(normalized);
+        }
+        else if (line is not null)
+        {
+            sb.Append("#L").Append(line.Value);
+        }
 
         var bytes = Encoding.UTF8.GetBytes(sb.ToString());
         var hash = SHA256.HashData(bytes);
