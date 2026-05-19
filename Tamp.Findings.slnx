@@ -16,6 +16,9 @@
     <Project Path="src/Tamp.Findings.Api/Tamp.Findings.Api.csproj" />
     <Project Path="src/Tamp.Findings.Mcp/Tamp.Findings.Mcp.csproj" />
   </Folder>
+  <Folder Name="/build/">
+    <Project Path="build/Build.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Tamp.Findings.Domain.Tests/Tamp.Findings.Domain.Tests.csproj" />
     <Project Path="tests/Tamp.Findings.Api.Tests/Tamp.Findings.Api.Tests.csproj" />
