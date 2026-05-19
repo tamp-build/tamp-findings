@@ -83,6 +83,40 @@ public static class AggregatesEndpoints
             .Select(g => new { g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Key.ToString(), x => x.Count, ct);
 
+        // Per-scanner detail: every (Scanner, Severity, Status) bucket
+        // pulled in one query, pivoted client-side. The donut needs both
+        // the open-by-severity split AND the closed/suppressed/accepted
+        // totals — keeping it in one round-trip beats per-scanner queries.
+        var rawBuckets = await statusQ
+            .GroupBy(f => new { f.Scanner, f.Severity, f.Status })
+            .Select(g => new { g.Key.Scanner, g.Key.Severity, g.Key.Status, Count = g.Count() })
+            .ToListAsync(ct);
+
+        var byScannerDetail = rawBuckets
+            .GroupBy(b => b.Scanner)
+            .Select(g =>
+            {
+                int OpenBy(Severity sev) => g
+                    .Where(x => x.Status == FindingStatus.Open && x.Severity == sev)
+                    .Sum(x => x.Count);
+                int StatusTotal(FindingStatus s) => g
+                    .Where(x => x.Status == s)
+                    .Sum(x => x.Count);
+                return new ScannerDetail(
+                    Scanner: g.Key.ToString(),
+                    Open: new SeverityCounts(
+                        Info: OpenBy(Severity.Info),
+                        Low: OpenBy(Severity.Low),
+                        Medium: OpenBy(Severity.Medium),
+                        High: OpenBy(Severity.High),
+                        Critical: OpenBy(Severity.Critical)),
+                    Closed: StatusTotal(FindingStatus.Fixed),
+                    Suppressed: StatusTotal(FindingStatus.Suppressed),
+                    Accepted: StatusTotal(FindingStatus.Accepted));
+            })
+            .OrderBy(d => d.Scanner)
+            .ToList();
+
         // --- SBOM half -------------------------------------------------------
         var sq = db.SbomComponents.AsNoTracking();
         if (componentId is { } cmp3) sq = sq.Where(c => c.SbomSnapshot!.ComponentVersion!.ComponentId == cmp3);
@@ -110,7 +144,7 @@ public static class AggregatesEndpoints
 
         return TypedResults.Ok(new AggregatesResponse(
             scope,
-            new FindingAggregate(counts, byScanner, byStatus),
+            new FindingAggregate(counts, byScanner, byStatus, byScannerDetail),
             new SbomAggregate(compsCount, vulnsCount, byEcosystem)));
     }
 

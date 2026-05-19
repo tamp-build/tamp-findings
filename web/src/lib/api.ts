@@ -184,12 +184,21 @@ export type AggregateScope = {
   level: 'All' | 'Client' | 'Project' | 'Component'
 }
 
+export type ScannerDetail = {
+  scanner: string
+  open: SeverityCounts
+  closed: number
+  suppressed: number
+  accepted: number
+}
+
 export type AggregatesResponse = {
   scope: AggregateScope
   findings: {
     counts: SeverityCounts
     byScanner: Record<string, number>
     byStatus: Record<string, number>
+    byScannerDetail: ScannerDetail[]
   }
   sbom: {
     componentsCount: number

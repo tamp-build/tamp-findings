@@ -64,10 +64,7 @@ export function OverviewView() {
             </header>
 
             <section className="grid grid-cols-[auto_1fr] gap-8 rounded-md border bg-card p-6">
-              <RingChart
-                counts={aggregates.data.findings.counts}
-                title="Findings by severity"
-              />
+              <RingChart scannerDetails={aggregates.data.findings.byScannerDetail} />
               <div className="space-y-4">
                 <Metric icon={<ShieldAlert className="size-5" />} label="Open findings" value={aggregates.data.findings.counts.total} />
                 <Metric icon={<Boxes className="size-5" />} label="SBOM components" value={aggregates.data.sbom.componentsCount} />
