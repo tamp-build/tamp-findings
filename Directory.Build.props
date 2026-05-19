@@ -11,6 +11,12 @@
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <NeutralLanguage>en-US</NeutralLanguage>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- Emit packages.lock.json on restore so reproducible builds are the
+         default and Syft's dotnet-packages-lock cataloger can see the .NET
+         dependency graph (TFND-14). Filesystem-only SBOM tools like Syft
+         can't introspect MSBuild project graphs, so the lock file is the
+         interop point. Lock files SHOULD be committed. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <PropertyGroup Label="tamp.findings package metadata defaults">

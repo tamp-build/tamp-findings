@@ -6,6 +6,8 @@ using Tamp.NetCli.V10;
 using Tamp.Sarif;
 using Tamp.Sbom;
 using Tamp.Security.Pipeline;
+using Tamp.Syft.V1;
+using SyftCli = Tamp.Syft.V1.Syft;
 
 // tamp.findings self-hosted build script. Run with:
 //   dotnet run --project build -- <target>
@@ -23,7 +25,8 @@ class Build : SecurityPipelineBuild
     [Parameter("tamp.findings API URL", EnvironmentVariable = "TAMP_FINDINGS_URL")]
     readonly string IngestUrl = "http://localhost:5080";
 
-    // Grype binary resolved off PATH (winget install Anchore.Grype).
+    // Grype binary resolved off PATH (winget install Anchore.Grype). The
+    // Grype satellite uses the newer "pass Tool explicitly" wrapper style.
     [FromPath("grype")] readonly Tool GrypeTool = null!;
 
     // CycloneDX SBOM enriched with the Vulnerabilities array — Grype's
@@ -40,6 +43,30 @@ class Build : SecurityPipelineBuild
 
     protected override string SecurityProductName => "tamp.findings";
     protected override string SecuritySolutionPath => Solution.Path;
+
+    // Replace dotnet-CycloneDX (.NET-only) with Syft so the SBOM also covers
+    // web/'s npm tree. Syft handles both ecosystems via the directory source
+    // and pnpm-lock.yaml support. Trade-off: Syft's .NET cataloger is slightly
+    // less precise than dotnet-CycloneDX's project graph traversal, but the
+    // cross-ecosystem coverage is the bigger win.
+    protected override Target Sbom => _ => _
+        .DependsOn(SbomDependencies)
+        .Description("Cross-ecosystem CycloneDX SBOM via Syft (.NET + npm + anything else Syft catalogs).")
+        .Executes(() =>
+        {
+            SecurityArtifactsDir.CreateDirectory();
+            return SyftCli.ScanDirectory(s => s
+                .SetPath(RootDirectory.Value)
+                .SetFormat(SyftFormat.CycloneDxJson)
+                .SetOutputFile(SecuritySbomFile.Value)
+                .AddExcludePattern("./artifacts")
+                .AddExcludePattern("./**/bin")
+                .AddExcludePattern("./**/obj")
+                .AddExcludePattern("./**/node_modules")
+                .AddExcludePattern("./.git")
+                .SetQuiet(true)
+                .SetWorkingDirectory(RootDirectory));
+        });
 
     // OpenGrep CLI install on Windows is upstream-blocked (TAM-262).
     // No-op the target so the dependency chain still runs; SecurityScan
