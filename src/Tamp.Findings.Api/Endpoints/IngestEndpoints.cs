@@ -3,6 +3,7 @@ using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Hashing;
+using Tamp.Findings.Domain.Suppressions;
 using Tamp.Findings.Domain.Values;
 
 namespace Tamp.Findings.Api.Endpoints;
@@ -103,17 +104,29 @@ public static class IngestEndpoints
             .Where(f => f.ComponentVersionId == version.Id && f.Scanner == req.Scanner)
             .ToDictionaryAsync(f => f.Hash, ct);
 
+        // Load the active suppression pool once. The table is small (n
+        // suppressions per project, not per finding) so a single load and
+        // in-memory match is simpler than per-finding queries.
+        var now = DateTimeOffset.UtcNow;
+        var activeSuppressions = await db.Suppressions
+            .AsNoTracking()
+            .Where(s => s.ExpiresAt == null || s.ExpiresAt > now)
+            .ToListAsync(ct);
+
+        bool CoveredBySuppression(Guid? findingId, string ruleId, string? filePath)
+            => SuppressionMatcher.AnyCovers(activeSuppressions, version!.ComponentId, ruleId, filePath, findingId, now);
+
         // In-batch dedup: a single scanner run may emit the same effective
         // finding twice (e.g., overlapping OpenGrep rule patterns). Collapse
         // them so the unique index doesn't reject the SaveChanges.
         var pendingInsert = new Dictionary<string, Finding>(StringComparer.Ordinal);
         var incomingHashes = new HashSet<string>(StringComparer.Ordinal);
 
-        var now = DateTimeOffset.UtcNow;
         var inserted = 0;
         var updated = 0;
         var reopened = 0;
         var closed = 0;
+        var suppressed = 0;
 
         foreach (var f in req.Findings)
         {
@@ -122,21 +135,31 @@ public static class IngestEndpoints
 
             if (existing.TryGetValue(hash, out var current))
             {
-                var wasResolved = current.Status is FindingStatus.Fixed;
+                var prev = current.Status;
                 current.LastSeen = now;
                 current.Severity = f.Severity;
                 current.Title = f.Title;
                 current.Description = f.Description;
                 current.Line = f.Line;
                 current.Snippet = f.Snippet;
-                // Reopen if previously auto-closed and the finding came back.
-                // Deliberately don't touch Suppressed or Accepted — those are
-                // explicit decisions by named roles (F10) and shouldn't be
-                // undone by a re-scan.
-                if (wasResolved)
+
+                if (prev == FindingStatus.Accepted)
                 {
+                    // Untouchable — explicit "we know, accepting risk" decision.
+                }
+                else if (CoveredBySuppression(current.Id, current.RuleId, current.FilePath))
+                {
+                    current.Status = FindingStatus.Suppressed;
+                    if (prev != FindingStatus.Suppressed) suppressed++;
+                }
+                else
+                {
+                    // No active suppression covers it — it's Open.
+                    // Note: this also handles Suppression-expired (was
+                    // Suppressed, no longer covered → Open) and Fixed-reappeared
+                    // (was Fixed, now seen again → Open).
                     current.Status = FindingStatus.Open;
-                    reopened++;
+                    if (prev is FindingStatus.Fixed or FindingStatus.Suppressed) reopened++;
                 }
                 updated++;
             }
@@ -168,6 +191,11 @@ public static class IngestEndpoints
                     FirstSeen = now,
                     LastSeen = now,
                 };
+                if (CoveredBySuppression(null, f.RuleId, f.FilePath))
+                {
+                    finding.Status = FindingStatus.Suppressed;
+                    suppressed++;
+                }
                 db.Findings.Add(finding);
                 pendingInsert[hash] = finding;
                 inserted++;
@@ -177,7 +205,8 @@ public static class IngestEndpoints
         // Auto-close: any existing Open finding for this (componentVersion,
         // scanner) whose hash wasn't in the incoming batch is now Fixed.
         // LastSeen is left untouched so consumers can see when it last
-        // appeared. Status==Suppressed / Accepted are deliberately skipped.
+        // appeared. Suppressed/Accepted are deliberately skipped — their
+        // status carries human intent we don't auto-override here.
         foreach (var (hash, current) in existing)
         {
             if (current.Status == FindingStatus.Open && !incomingHashes.Contains(hash))
@@ -188,6 +217,6 @@ public static class IngestEndpoints
         }
 
         await db.SaveChangesAsync(ct);
-        return Results.Ok(new IngestResponse(version.Id, inserted, updated, reopened, closed));
+        return Results.Ok(new IngestResponse(version.Id, inserted, updated, reopened, closed, suppressed));
     }
 }
