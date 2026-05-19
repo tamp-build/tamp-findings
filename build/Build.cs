@@ -246,7 +246,15 @@ class Build : SecurityPipelineBuild
                 }
                 var payload = SbomIngestMapper.Map(bom, ctx);
                 var resp = await client.PostSbomAsync(payload);
-                Console.WriteLine($"[ingest] SBOM       → snapshot {resp.GetProperty("sbomSnapshotId")}  components={resp.GetProperty("componentsCount")}  deps={resp.GetProperty("dependenciesCount")}  vulns={resp.GetProperty("vulnerabilitiesCount")} (grype matches={grypeVulns})");
+                var snapshotId = resp.GetProperty("sbomSnapshotId").GetGuid();
+                Console.WriteLine($"[ingest] SBOM       → snapshot {snapshotId}  components={resp.GetProperty("componentsCount")}  deps={resp.GetProperty("dependenciesCount")}  vulns={resp.GetProperty("vulnerabilitiesCount")} (grype matches={grypeVulns})");
+
+                // Registry enrichment populates LatestVersion for the just-
+                // ingested components by hitting nuget.org / registry.npmjs.org.
+                // ~3-4s for ~300 deps at 8 concurrent. Errors are individual-
+                // component failures that don't stop the batch.
+                var enrichResp = await client.EnrichSbomVersionsAsync(snapshotId);
+                Console.WriteLine($"[ingest] Enrich     → checked={enrichResp.GetProperty("checked")} updated={enrichResp.GetProperty("updated")} cleared={enrichResp.GetProperty("cleared")} skipped={enrichResp.GetProperty("skipped")} errors={enrichResp.GetProperty("errors")}");
             }
             else
             {
