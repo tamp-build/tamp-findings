@@ -1,26 +1,25 @@
-import type { ScannerDetail } from '@/lib/api'
+import type { ScannerDetail, SbomHealthCounts } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-// Segmented donut for one scanner. The arc length of each color reflects
-// that bucket's share of the scanner's lifetime finding total. Severities
-// run clockwise from worst (Critical) to best (Closed = green).
+// Two concentric segmented donuts driving the Overview tab:
+//   Outer ring — Code Quality (OpenGrep, fallback to Roslyn while
+//     TAM-262 keeps the OpenGrep CLI install blocked). Each arc is
+//     sized to that severity bucket's share of the scanner's lifetime
+//     findings; clockwise from worst (Critical) to best (Closed).
+//   Inner ring — SBOM health (F6.4 / F6.3). Three buckets: Vulnerable
+//     (red, ≥1 known CVE), Outdated (yellow, newer version known
+//     available — requires registry-enrichment that doesn't run yet),
+//     and Current (green, the rest).
 //
-// Outer ring is reserved for code-quality SAST (OpenGrep when its CLI
-// install unblocks via TAM-262; Roslyn until then). The chart's header
-// label is always "Code Quality" — that's the *category*, not the
-// underlying tool.
+// Both rings are clickable. Outer drills into the Findings tab
+// pre-filtered to the active scanner; inner navigates to Components.
 
 const SAST_PREFERENCE = ['OpenGrep', 'Roslyn', 'CodeQL'] as const
 
 const SEGMENT_COLORS = {
-  critical:   '#dc2626',  // red-600
-  high:       '#f97316',  // orange-500
-  medium:     '#f59e0b',  // amber-500
-  low:        '#facc15',  // yellow-400
-  info:       '#38bdf8',  // sky-400
-  closed:     '#22c55e',  // green-500
-  suppressed: '#a3a3a3',  // neutral-400
-  accepted:   '#737373',  // neutral-500
+  critical:   '#dc2626',  high:       '#f97316',  medium:     '#f59e0b',
+  low:        '#facc15',  info:       '#38bdf8',  closed:     '#22c55e',
+  suppressed: '#a3a3a3',  accepted:   '#737373',
 } as const
 
 const SEGMENT_ORDER = ['critical', 'high', 'medium', 'low', 'info', 'closed', 'suppressed', 'accepted'] as const
@@ -29,6 +28,18 @@ type SegKey = (typeof SEGMENT_ORDER)[number]
 const SEGMENT_LABELS: Record<SegKey, string> = {
   critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low',
   info: 'Info', closed: 'Closed', suppressed: 'Suppressed', accepted: 'Accepted',
+}
+
+const SBOM_COLORS = {
+  vulnerable: '#dc2626',  // red-600
+  outdated:   '#f59e0b',  // amber-500
+  current:    '#22c55e',  // green-500
+} as const
+
+const SBOM_ORDER = ['vulnerable', 'outdated', 'current'] as const
+type SbomKey = (typeof SBOM_ORDER)[number]
+const SBOM_LABELS: Record<SbomKey, string> = {
+  vulnerable: 'Vulnerable', outdated: 'Outdated', current: 'Current',
 }
 
 function pickPrimaryScanner(details: ScannerDetail[]): ScannerDetail | null {
@@ -52,44 +63,77 @@ function countFor(d: ScannerDetail, k: SegKey): number {
   }
 }
 
-const SIZE = 280
-const RING_WIDTH = 26
-const RADIUS = 115
+const SIZE = 320
+const OUTER_R = 130
+const OUTER_WIDTH = 24
+const INNER_R = 90
+const INNER_WIDTH = 22
+
+type Arc = { key: string; count: number; color: string; dashArray: string; dashOffset: number }
+
+function buildArcs(
+  buckets: Array<{ key: string; count: number; color: string }>,
+  total: number,
+  circumference: number,
+): Arc[] {
+  if (total === 0) return []
+  let offset = 0
+  const arcs: Arc[] = []
+  for (const seg of buckets) {
+    if (seg.count <= 0) continue
+    const segLen = (seg.count / total) * circumference
+    arcs.push({
+      key: seg.key,
+      count: seg.count,
+      color: seg.color,
+      dashArray: `${segLen} ${circumference - segLen}`,
+      dashOffset: -offset,
+    })
+    offset += segLen
+  }
+  return arcs
+}
 
 export function RingChart({
   scannerDetails,
+  sbomHealth,
   onScannerClick,
+  onSbomClick,
 }: {
   scannerDetails: ScannerDetail[]
+  sbomHealth?: SbomHealthCounts
   onScannerClick?: (scanner: string) => void
+  onSbomClick?: () => void
 }) {
   const primary = pickPrimaryScanner(scannerDetails)
-  const total = primary ? totalOf(primary) : 0
-  const empty = total === 0
+  const outerTotal = primary ? totalOf(primary) : 0
+  const outerEmpty = outerTotal === 0
+
+  const sbomTotal = sbomHealth ? sbomHealth.current + sbomHealth.outdated + sbomHealth.vulnerable : 0
+  const innerEmpty = sbomTotal === 0
 
   const cx = SIZE / 2
   const cy = SIZE / 2
-  const circumference = 2 * Math.PI * RADIUS
+  const outerCircumference = 2 * Math.PI * OUTER_R
+  const innerCircumference = 2 * Math.PI * INNER_R
 
-  // Compute cumulative offsets for the stroke-dasharray trick.
-  const drawn = SEGMENT_ORDER
-    .map(key => ({ key, count: primary ? countFor(primary, key) : 0 }))
-    .filter(s => s.count > 0)
-  let offsetSoFar = 0
-  const arcs = drawn.map(seg => {
-    const segLen = (seg.count / total) * circumference
-    const arc = {
-      key: seg.key,
-      count: seg.count,
-      dashArray: `${segLen} ${circumference - segLen}`,
-      dashOffset: -offsetSoFar,
-    }
-    offsetSoFar += segLen
-    return arc
-  })
+  const outerArcs = buildArcs(
+    SEGMENT_ORDER.map(k => ({
+      key: k,
+      count: primary ? countFor(primary, k) : 0,
+      color: SEGMENT_COLORS[k],
+    })),
+    outerTotal,
+    outerCircumference,
+  )
+  const innerArcs = sbomHealth ? buildArcs(
+    SBOM_ORDER.map(k => ({ key: k, count: sbomHealth[k], color: SBOM_COLORS[k] })),
+    sbomTotal,
+    innerCircumference,
+  ) : []
 
-  const interactive = !!onScannerClick && !!primary
-  const handleClick = () => primary && onScannerClick?.(primary.scanner)
+  const outerInteractive = !!onScannerClick && !!primary
+  const innerInteractive = !!onSbomClick && !!sbomHealth && sbomTotal > 0
 
   return (
     <div className="flex flex-col items-center">
@@ -106,98 +150,203 @@ export function RingChart({
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={handleClick}
-        disabled={!interactive}
-        aria-label={interactive ? `Open ${primary?.scanner} findings` : undefined}
-        className={cn(
-          'group mt-2 rounded-full transition-transform',
-          interactive && 'cursor-pointer hover:scale-[1.02] focus-visible:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-        )}
-      >
-        <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-full max-w-[260px]" role="img" aria-label="Code Quality findings donut">
-          <circle
-            cx={cx} cy={cy} r={RADIUS}
-            fill="none"
-            stroke="rgb(229 231 235)"
-            strokeWidth={RING_WIDTH}
-            opacity={empty ? 1 : 0.25}
-          />
-          <g transform={`rotate(-90 ${cx} ${cy})`}>
-            {arcs.map(seg => (
-              <circle
-                key={seg.key}
-                cx={cx} cy={cy} r={RADIUS}
-                fill="none"
-                stroke={SEGMENT_COLORS[seg.key]}
-                strokeWidth={RING_WIDTH}
-                strokeDasharray={seg.dashArray}
-                strokeDashoffset={seg.dashOffset}
-                strokeLinecap="butt"
-              >
-                <title>{SEGMENT_LABELS[seg.key]}: {seg.count}</title>
-              </circle>
-            ))}
-          </g>
-          <text x={cx} y={cy - 2} textAnchor="middle" fontSize="34" fontWeight="700" className="fill-foreground">
-            {total}
-          </text>
-          <text x={cx} y={cy + 18} textAnchor="middle" fontSize="10" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
-            {empty ? 'no findings' : 'total tracked'}
-          </text>
-        </svg>
-      </button>
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mt-2 w-full max-w-[300px]" role="img" aria-label="Code Quality + SBOM health donuts">
+        {/* Outer track */}
+        <circle
+          cx={cx} cy={cy} r={OUTER_R}
+          fill="none"
+          stroke="rgb(229 231 235)"
+          strokeWidth={OUTER_WIDTH}
+          opacity={outerEmpty ? 1 : 0.2}
+        />
+        {/* Inner track */}
+        <circle
+          cx={cx} cy={cy} r={INNER_R}
+          fill="none"
+          stroke="rgb(229 231 235)"
+          strokeWidth={INNER_WIDTH}
+          opacity={innerEmpty ? 1 : 0.2}
+        />
 
-      {interactive && (
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          Click to drill into the {primary?.scanner} findings list
-        </p>
-      )}
+        {/* Clickable outer hit region — render before arcs so arcs sit on top visually */}
+        {outerInteractive && (
+          <circle
+            cx={cx} cy={cy} r={OUTER_R}
+            fill="none"
+            stroke="transparent"
+            strokeWidth={OUTER_WIDTH}
+            style={{ cursor: 'pointer' }}
+            onClick={() => primary && onScannerClick?.(primary.scanner)}
+            tabIndex={0}
+            role="button"
+            aria-label={`Open ${primary?.scanner} findings`}
+          />
+        )}
+        {/* Outer arcs */}
+        <g transform={`rotate(-90 ${cx} ${cy})`} style={{ pointerEvents: 'none' }}>
+          {outerArcs.map(seg => (
+            <circle
+              key={`o-${seg.key}`}
+              cx={cx} cy={cy} r={OUTER_R}
+              fill="none"
+              stroke={seg.color}
+              strokeWidth={OUTER_WIDTH}
+              strokeDasharray={seg.dashArray}
+              strokeDashoffset={seg.dashOffset}
+              strokeLinecap="butt"
+            >
+              <title>{SEGMENT_LABELS[seg.key as SegKey]}: {seg.count}</title>
+            </circle>
+          ))}
+        </g>
+
+        {/* Clickable inner hit region */}
+        {innerInteractive && (
+          <circle
+            cx={cx} cy={cy} r={INNER_R}
+            fill="none"
+            stroke="transparent"
+            strokeWidth={INNER_WIDTH}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onSbomClick?.()}
+            tabIndex={0}
+            role="button"
+            aria-label="Browse SBOM components"
+          />
+        )}
+        {/* Inner arcs */}
+        <g transform={`rotate(-90 ${cx} ${cy})`} style={{ pointerEvents: 'none' }}>
+          {innerArcs.map(seg => (
+            <circle
+              key={`i-${seg.key}`}
+              cx={cx} cy={cy} r={INNER_R}
+              fill="none"
+              stroke={seg.color}
+              strokeWidth={INNER_WIDTH}
+              strokeDasharray={seg.dashArray}
+              strokeDashoffset={seg.dashOffset}
+              strokeLinecap="butt"
+            >
+              <title>{SBOM_LABELS[seg.key as SbomKey]}: {seg.count}</title>
+            </circle>
+          ))}
+        </g>
+
+        {/* Center text — quality outer total above, sbom inner total below */}
+        <text x={cx} y={cy - 8} textAnchor="middle" fontSize="28" fontWeight="700" className="fill-foreground">
+          {outerTotal}
+        </text>
+        <text x={cx} y={cy + 6} textAnchor="middle" fontSize="9" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
+          findings
+        </text>
+        <text x={cx} y={cy + 24} textAnchor="middle" fontSize="14" fontWeight="600" className="fill-foreground">
+          {sbomTotal}
+        </text>
+        <text x={cx} y={cy + 36} textAnchor="middle" fontSize="8" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
+          sbom deps
+        </text>
+      </svg>
+
+      <div className="mt-2 grid grid-cols-2 gap-3 text-[11px] text-muted-foreground">
+        {outerInteractive && <span>Click outer → findings</span>}
+        {innerInteractive && <span>Click inner → components</span>}
+      </div>
     </div>
   )
 }
 
-// Standalone type-breakdown table — same color language as the donut so
-// they read as one chart. Used by the Overview view to the right of the
-// ring; kept in this file so the segment order / colors stay in sync.
+// Compact table of severity buckets for the active code-quality scanner.
+// Drops zero rows so the visual stays tight when only a few severities
+// are populated.
 export function FindingsTypeTable({ scannerDetails }: { scannerDetails: ScannerDetail[] }) {
   const primary = pickPrimaryScanner(scannerDetails)
   const total = primary ? totalOf(primary) : 0
+  const rows = SEGMENT_ORDER
+    .map(k => ({ k, count: primary ? countFor(primary, k) : 0 }))
+    .filter(r => r.count > 0)
 
   return (
+    <CompactTable title="Code Quality types">
+      {rows.length === 0 && <EmptyRow />}
+      {rows.map(({ k, count }) => (
+        <Row
+          key={k}
+          color={SEGMENT_COLORS[k]}
+          label={SEGMENT_LABELS[k]}
+          count={count}
+          pct={total > 0 ? (count / total) * 100 : 0}
+        />
+      ))}
+      <TotalRow total={total} />
+    </CompactTable>
+  )
+}
+
+// Same shape, different data — SBOM health buckets.
+export function SbomHealthTable({ health }: { health?: SbomHealthCounts }) {
+  const total = health ? health.current + health.outdated + health.vulnerable : 0
+  const rows = health
+    ? SBOM_ORDER.map(k => ({ k, count: health[k] })).filter(r => r.count > 0)
+    : []
+  return (
+    <CompactTable title="SBOM dep health">
+      {rows.length === 0 && <EmptyRow />}
+      {rows.map(({ k, count }) => (
+        <Row
+          key={k}
+          color={SBOM_COLORS[k]}
+          label={SBOM_LABELS[k]}
+          count={count}
+          pct={total > 0 ? (count / total) * 100 : 0}
+        />
+      ))}
+      <TotalRow total={total} />
+    </CompactTable>
+  )
+}
+
+function CompactTable({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
     <div className="rounded-md border bg-background">
+      <div className="border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {title}
+      </div>
       <table className="w-full text-sm">
-        <thead className="border-b text-xs uppercase tracking-wide text-muted-foreground">
-          <tr>
-            <th className="px-3 py-2 text-left font-medium">Type</th>
-            <th className="px-3 py-2 text-right font-medium">Count</th>
-            <th className="px-3 py-2 text-right font-medium">Share</th>
-          </tr>
-        </thead>
-        <tbody>
-          {SEGMENT_ORDER.map(k => {
-            const count = primary ? countFor(primary, k) : 0
-            const pct = total > 0 ? (count / total) * 100 : 0
-            const muted = count === 0
-            return (
-              <tr key={k} className={cn('border-b last:border-b-0', muted && 'text-muted-foreground')}>
-                <td className="flex items-center gap-2 px-3 py-2">
-                  <span className="inline-block size-2.5 rounded-sm" style={{ background: SEGMENT_COLORS[k] }} />
-                  {SEGMENT_LABELS[k]}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{count}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{pct.toFixed(1)}%</td>
-              </tr>
-            )
-          })}
-          <tr className="bg-muted/30 font-semibold">
-            <td className="px-3 py-2">Total</td>
-            <td className="px-3 py-2 text-right tabular-nums">{total}</td>
-            <td className="px-3 py-2 text-right tabular-nums">{total > 0 ? '100.0%' : '—'}</td>
-          </tr>
-        </tbody>
+        <tbody>{children}</tbody>
       </table>
     </div>
+  )
+}
+
+function Row({ color, label, count, pct }: { color: string; label: string; count: number; pct: number }) {
+  return (
+    <tr className="border-b last:border-b-0">
+      <td className="flex items-center gap-2 px-3 py-1.5">
+        <span className="inline-block size-2.5 rounded-sm" style={{ background: color }} />
+        {label}
+      </td>
+      <td className="px-3 py-1.5 text-right tabular-nums">{count}</td>
+      <td className="w-14 px-3 py-1.5 text-right text-xs text-muted-foreground tabular-nums">{pct.toFixed(1)}%</td>
+    </tr>
+  )
+}
+
+function TotalRow({ total }: { total: number }) {
+  return (
+    <tr className={cn('bg-muted/30 font-semibold')}>
+      <td className="px-3 py-1.5">Total</td>
+      <td className="px-3 py-1.5 text-right tabular-nums">{total}</td>
+      <td className="px-3 py-1.5 text-right text-xs text-muted-foreground tabular-nums">{total > 0 ? '100.0%' : '—'}</td>
+    </tr>
+  )
+}
+
+function EmptyRow() {
+  return (
+    <tr>
+      <td colSpan={3} className="px-3 py-3 text-center text-xs text-muted-foreground">
+        No data
+      </td>
+    </tr>
   )
 }

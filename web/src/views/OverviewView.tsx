@@ -8,7 +8,7 @@ import {
   fetchAggregates,
 } from '@/lib/api'
 import type { AggregatesFilters, ScannerKind } from '@/lib/api'
-import { RingChart, FindingsTypeTable } from '@/components/RingChart'
+import { RingChart, FindingsTypeTable, SbomHealthTable } from '@/components/RingChart'
 import { cn } from '@/lib/utils'
 
 type Selection =
@@ -28,8 +28,10 @@ function toFilters(sel: Selection): AggregatesFilters {
 
 export function OverviewView({
   onDrillToFindings,
+  onDrillToComponents,
 }: {
   onDrillToFindings?: (scanners: ScannerKind[]) => void
+  onDrillToComponents?: () => void
 }) {
   const [selection, setSelection] = useState<Selection>({ kind: 'all' })
 
@@ -67,12 +69,15 @@ export function OverviewView({
               </h2>
             </header>
 
-            <section className="grid grid-cols-[auto_1fr] items-start gap-8 rounded-md border bg-card p-6">
+            <section className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] items-start gap-6 rounded-md border bg-card p-6">
               <RingChart
                 scannerDetails={aggregates.data.findings.byScannerDetail}
+                sbomHealth={aggregates.data.sbom.health}
                 onScannerClick={(scanner) => onDrillToFindings?.([scanner as ScannerKind])}
+                onSbomClick={() => onDrillToComponents?.()}
               />
               <FindingsTypeTable scannerDetails={aggregates.data.findings.byScannerDetail} />
+              <SbomHealthTable health={aggregates.data.sbom.health} />
             </section>
 
             <section className="grid grid-cols-3 gap-3 text-sm">

@@ -43,4 +43,17 @@ public sealed record ScannerDetail(
 public sealed record SbomAggregate(
     int ComponentsCount,
     int VulnerabilitiesCount,
-    IReadOnlyDictionary<string, int> ByEcosystem);
+    IReadOnlyDictionary<string, int> ByEcosystem,
+    // F6.4 health rollup driving the SBOM ring on the Overview tab.
+    // Priority is Vulnerable > Outdated > Current — a component with both
+    // a known CVE and a newer version available counts as Vulnerable.
+    // Yellow (Outdated) requires LatestVersion to be populated by an
+    // enrichment pass that doesn't exist yet, so today every non-vuln
+    // dep falls into Current. When registry enrichment lands the same
+    // payload shape carries the new signal automatically.
+    SbomHealthCounts Health);
+
+public sealed record SbomHealthCounts(
+    int Current,     // green: no vuln + (no LatestVersion OR LatestVersion == Version)
+    int Outdated,    // yellow: no vuln + LatestVersion populated and != Version
+    int Vulnerable); // red: has any Vulnerability row

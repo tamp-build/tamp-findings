@@ -21,6 +21,10 @@ function App() {
     setSearch('')
     setTab('findings')
   }
+  const goToComponents = () => {
+    setSearch('')
+    setTab('components')
+  }
 
   return (
     <div className="min-h-svh bg-background text-foreground">
@@ -53,7 +57,7 @@ function App() {
       </header>
 
       <div className="mx-auto max-w-7xl px-6 py-6">
-        {tab === 'overview' && <OverviewView onDrillToFindings={goToFindings} />}
+        {tab === 'overview' && <OverviewView onDrillToFindings={goToFindings} onDrillToComponents={goToComponents} />}
         {tab === 'findings' && <FindingsView search={search} initialScanners={initialFindingsScanners} />}
         {tab === 'components' && <ComponentsView />}
       </div>
