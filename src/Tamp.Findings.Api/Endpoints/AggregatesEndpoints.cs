@@ -142,10 +142,21 @@ public static class AggregatesEndpoints
             .ToListAsync(ct);
         var byEcosystem = byEcosystemList.ToDictionary(x => x.Eco, x => x.Count);
 
+        // SBOM health rollup — vulnerable wins over outdated wins over current.
+        var vulnerable = await sq.Where(c => c.Vulnerabilities.Any()).CountAsync(ct);
+        var outdated = await sq
+            .Where(c => !c.Vulnerabilities.Any()
+                     && c.LatestVersion != null
+                     && c.LatestVersion != c.Version)
+            .CountAsync(ct);
+        var current = compsCount - vulnerable - outdated;
+
         return TypedResults.Ok(new AggregatesResponse(
             scope,
             new FindingAggregate(counts, byScanner, byStatus, byScannerDetail),
-            new SbomAggregate(compsCount, vulnsCount, byEcosystem)));
+            new SbomAggregate(
+                compsCount, vulnsCount, byEcosystem,
+                new SbomHealthCounts(current, outdated, vulnerable))));
     }
 
     private static async Task<AggregateScope> ResolveScopeAsync(

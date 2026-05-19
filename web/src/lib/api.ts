@@ -204,7 +204,14 @@ export type AggregatesResponse = {
     componentsCount: number
     vulnerabilitiesCount: number
     byEcosystem: Record<string, number>
+    health: SbomHealthCounts
   }
+}
+
+export type SbomHealthCounts = {
+  current: number     // green
+  outdated: number    // yellow
+  vulnerable: number  // red
 }
 
 export type AggregatesFilters = {
