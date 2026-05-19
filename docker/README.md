@@ -6,7 +6,9 @@ Run from the repo root:
 docker compose -f docker/docker-compose.dev.yml up -d
 ```
 
-Brings up Postgres 17 on `localhost:5432` with:
+Brings up Postgres 17 on `localhost:5544` (offset from the default 5432
+to avoid colliding with other local Postgres containers; inside the
+container it still listens on 5432) with:
 
 | Setting      | Value           |
 |--------------|-----------------|
