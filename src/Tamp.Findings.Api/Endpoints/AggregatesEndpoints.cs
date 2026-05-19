@@ -151,12 +151,32 @@ public static class AggregatesEndpoints
             .CountAsync(ct);
         var current = compsCount - vulnerable - outdated;
 
+        // Secrets ring: TruffleHog Critical = verified, High = unverified.
+        // Scoped same as the other finding metrics (open + latest CV).
+        var secretsBase = db.Findings
+            .AsNoTracking()
+            .Where(f => f.Scanner == ScannerKind.TruffleHog && f.Status == FindingStatus.Open);
+        if (componentId is { } cmp4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.ComponentId == cmp4);
+        if (projectId is { } prj4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.Component!.ProjectId == prj4);
+        if (clientId is { } cli4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli4);
+        if (latest)
+        {
+            var latestCvIds3 = await db.ComponentVersions
+                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
+                .ToListAsync(ct);
+            secretsBase = secretsBase.Where(f => latestCvIds3.Contains(f.ComponentVersionId));
+        }
+        var verifiedSecrets = await secretsBase.CountAsync(f => f.Severity == Severity.Critical, ct);
+        var unverifiedSecrets = await secretsBase.CountAsync(f => f.Severity == Severity.High, ct);
+
         return TypedResults.Ok(new AggregatesResponse(
             scope,
             new FindingAggregate(counts, byScanner, byStatus, byScannerDetail),
             new SbomAggregate(
                 compsCount, vulnsCount, byEcosystem,
-                new SbomHealthCounts(current, outdated, vulnerable))));
+                new SbomHealthCounts(current, outdated, vulnerable)),
+            new SecretsAggregate(new SecretsHealthCounts(verifiedSecrets, unverifiedSecrets))));
     }
 
     private static async Task<AggregateScope> ResolveScopeAsync(

@@ -9,7 +9,7 @@ import {
 } from '@/lib/api'
 import type { AggregatesFilters, ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import type { FindingsPreset, ComponentsPreset } from '@/App'
-import { RingChart, FindingsTypeTable, SbomHealthTable } from '@/components/RingChart'
+import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable } from '@/components/RingChart'
 
 // Which Findings filter does a Code-Quality table row map to? Severities
 // fold into the severity filter (default-status Open); the lifecycle
@@ -81,31 +81,42 @@ export function OverviewView({
               </h2>
             </header>
 
-            <section className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)] items-start gap-6 rounded-md border bg-card p-6">
+            <section className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-6 rounded-md border bg-card p-6">
               <RingChart
                 scannerDetails={aggregates.data.findings.byScannerDetail}
                 sbomHealth={aggregates.data.sbom.health}
+                secretsHealth={aggregates.data.secrets.health}
                 onScannerClick={(scanner) =>
                   onDrillToFindings?.({ scanners: [scanner as ScannerKind] })
                 }
                 onSbomClick={() => onDrillToComponents?.()}
+                onSecretsClick={() => onDrillToFindings?.({ scanners: ['TruffleHog'] })}
               />
-              <FindingsTypeTable
-                scannerDetails={aggregates.data.findings.byScannerDetail}
-                onRowClick={(segment, scanner) => {
-                  const sev = SEVERITY_FROM_SEGMENT[segment]
-                  const status = STATUS_FROM_SEGMENT[segment]
-                  onDrillToFindings?.({
-                    scanners: [scanner as ScannerKind],
-                    severities: sev ? [sev] : [],
-                    statuses: status ? [status] : [],
-                  })
-                }}
-              />
-              <SbomHealthTable
-                health={aggregates.data.sbom.health}
-                onRowClick={(bucket) => onDrillToComponents?.({ sbomStatus: bucket as SbomHealthStatus })}
-              />
+              <div className="grid grid-cols-3 gap-4">
+                <FindingsTypeTable
+                  scannerDetails={aggregates.data.findings.byScannerDetail}
+                  onRowClick={(segment, scanner) => {
+                    const sev = SEVERITY_FROM_SEGMENT[segment]
+                    const status = STATUS_FROM_SEGMENT[segment]
+                    onDrillToFindings?.({
+                      scanners: [scanner as ScannerKind],
+                      severities: sev ? [sev] : [],
+                      statuses: status ? [status] : [],
+                    })
+                  }}
+                />
+                <SbomHealthTable
+                  health={aggregates.data.sbom.health}
+                  onRowClick={(bucket) => onDrillToComponents?.({ sbomStatus: bucket as SbomHealthStatus })}
+                />
+                <SecretsHealthTable
+                  health={aggregates.data.secrets.health}
+                  onRowClick={(bucket) => onDrillToFindings?.({
+                    scanners: ['TruffleHog'],
+                    severities: bucket === 'verified' ? ['Critical'] : ['High'],
+                  })}
+                />
+              </div>
             </section>
 
             <section className="grid grid-cols-3 gap-3 text-sm">

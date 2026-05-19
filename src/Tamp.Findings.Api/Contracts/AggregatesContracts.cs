@@ -7,7 +7,21 @@ namespace Tamp.Findings.Api.Contracts;
 public sealed record AggregatesResponse(
     AggregateScope Scope,
     FindingAggregate Findings,
-    SbomAggregate Sbom);
+    SbomAggregate Sbom,
+    SecretsAggregate Secrets);
+
+// Secrets ring (innermost concentric) — verified credentials are the
+// closest thing we can render to "actively exploitable right now".
+// Buckets sourced from open TruffleHog findings: Critical = Verified
+// (the credential authenticated against the live service), High =
+// Unverified (pattern matched but TruffleHog skipped or failed the
+// verification probe). Other severities are ignored. Trivy's secret
+// subcategory could fold in here later once we track rule categories.
+public sealed record SecretsAggregate(SecretsHealthCounts Health);
+
+public sealed record SecretsHealthCounts(
+    int Verified,     // red — TruffleHog reported a live credential
+    int Unverified);  // yellow — pattern match, no verification
 
 public sealed record AggregateScope(
     string? ClientName,
