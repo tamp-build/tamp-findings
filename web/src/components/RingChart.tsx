@@ -1,4 +1,4 @@
-import type { ScannerDetail, SbomHealthCounts, SecretsHealthCounts, LicenseTierCounts } from '@/lib/api'
+import type { ScannerDetail, SbomHealthCounts, SecretsHealthCounts, LicenseTierCounts, SeverityCounts } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 // Three concentric segmented donuts driving the Overview tab. Moving
@@ -67,6 +67,22 @@ const LICENSE_COLORS = {
 const LICENSE_ORDER = ['permissive', 'weakCopyleft', 'strongCopyleft', 'denied', 'unknown'] as const
 type LicenseKey = (typeof LICENSE_ORDER)[number]
 
+// IaC bullseye — same severity palette as the outer Code Quality ring.
+// Grey ("unscanned") fill takes over when the API says no Trivy signal
+// has ever landed in scope; that's the user's explicit "no containers/
+// IaC" affordance — not the same as "scanned clean".
+const IAC_COLORS = {
+  critical: '#dc2626', high: '#f97316', medium: '#f59e0b',
+  low: '#facc15',     info: '#38bdf8',
+  unscanned: '#9ca3af',  // gray-400
+  clean:     '#22c55e',  // green-500
+} as const
+const IAC_SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'] as const
+type IacSevKey = (typeof IAC_SEVERITY_ORDER)[number]
+const IAC_SEVERITY_LABELS: Record<IacSevKey, string> = {
+  critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info',
+}
+
 // ----- shared helpers ----------------------------------------------------
 
 function pickPrimaryScanner(details: ScannerDetail[]): ScannerDetail | null {
@@ -90,12 +106,13 @@ function countFor(d: ScannerDetail, k: SegKey): number {
 
 // ----- geometry ----------------------------------------------------------
 
-const SIZE = 340
+const SIZE = 380
 const RINGS = {
-  outer:    { radius: 142, width: 20 },
-  upper:    { radius: 110, width: 18 },
-  lower:    { radius: 80,  width: 16 },
-  inner:    { radius: 52,  width: 14 },
+  outer:    { radius: 158, width: 22 },
+  upper:    { radius: 124, width: 20 },
+  middle:   { radius: 92,  width: 18 },
+  lower:    { radius: 62,  width: 16 },
+  inner:    { radius: 34,  width: 14 },
 } as const
 type RingSlot = keyof typeof RINGS
 
@@ -186,19 +203,23 @@ export function RingChart({
   sbomHealth,
   secretsHealth,
   licenseTiers,
+  iac,
   onScannerClick,
   onSbomClick,
   onSecretsClick,
   onLicenseClick,
+  onIacClick,
 }: {
   scannerDetails: ScannerDetail[]
   sbomHealth?: SbomHealthCounts
   secretsHealth?: SecretsHealthCounts
   licenseTiers?: LicenseTierCounts
+  iac?: { counts: SeverityCounts; scanned: boolean }
   onScannerClick?: (scanner: string) => void
   onSbomClick?: () => void
   onSecretsClick?: () => void
   onLicenseClick?: () => void
+  onIacClick?: () => void
 }) {
   const primary = pickPrimaryScanner(scannerDetails)
   const outerTotal = primary ? totalOf(primary) : 0
@@ -226,6 +247,25 @@ export function RingChart({
     ? buildArcs(
         LICENSE_ORDER.map(k => ({ key: k, count: licenseTiers[k], color: LICENSE_COLORS[k] })),
         licenseTotal,
+        RINGS.lower.radius,
+      )
+    : []
+
+  const iacTotal = iac
+    ? iac.counts.critical + iac.counts.high + iac.counts.medium + iac.counts.low + iac.counts.info
+    : 0
+  // Three states for the bullseye:
+  //   unscanned (no Trivy signal in scope)  → solid grey
+  //   scanned + zero counts                 → solid green
+  //   scanned + counts > 0                  → segmented arcs by severity
+  const iacUnscanned = iac && !iac.scanned
+  const iacCleanFill = iac && iac.scanned && iacTotal === 0 ? IAC_COLORS.clean
+                     : iacUnscanned ? IAC_COLORS.unscanned
+                     : undefined
+  const iacArcs = iac && iac.scanned && iacTotal > 0
+    ? buildArcs(
+        IAC_SEVERITY_ORDER.map(k => ({ key: k, count: iac.counts[k], color: IAC_COLORS[k] })),
+        iacTotal,
         RINGS.inner.radius,
       )
     : []
@@ -234,7 +274,7 @@ export function RingChart({
     <div className="flex flex-col items-center">
       <div className="text-center">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Risk rings</p>
-        <p className="text-base font-semibold">Code Quality · SBOM · Secrets · Licenses</p>
+        <p className="text-base font-semibold">Code Quality · SBOM · Secrets · Licenses · IaC</p>
         {primary && primary.scanner !== 'OpenGrep' && (
           <p className="text-[11px] text-muted-foreground">
             outer via {primary.scanner} · OpenGrep pending TAM-262
@@ -242,7 +282,7 @@ export function RingChart({
         )}
       </div>
 
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mt-2 w-full max-w-[320px]" role="img" aria-label="Risk rings: code quality, SBOM, secrets, licenses">
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mt-2 w-full max-w-[340px]" role="img" aria-label="Risk rings: code quality, SBOM, secrets, licenses, IaC">
         <ConcentricRing
           slot="outer"
           arcs={outerArcs}
@@ -256,32 +296,93 @@ export function RingChart({
           ariaLabel="Browse SBOM components"
         />
         <ConcentricRing
-          slot="lower"
+          slot="middle"
           arcs={secretsArcs}
           cleanFill={lowerCleanFill}
           onClick={secretsHealth && secretsTotal > 0 ? onSecretsClick : undefined}
           ariaLabel={secretsTotal > 0 ? 'Open TruffleHog findings' : undefined}
         />
         <ConcentricRing
-          slot="inner"
+          slot="lower"
           arcs={licenseArcs}
           onClick={onLicenseClick && licenseTotal > 0 ? onLicenseClick : undefined}
           ariaLabel="Browse license breakdown"
         />
+        <ConcentricRing
+          slot="inner"
+          arcs={iacArcs}
+          cleanFill={iacCleanFill}
+          onClick={onIacClick && iac?.scanned && iacTotal > 0 ? onIacClick : undefined}
+          ariaLabel={iac?.scanned && iacTotal > 0 ? 'Open Trivy IaC findings' : undefined}
+        />
 
         {/* Compact center text */}
-        <text x={SIZE / 2} y={SIZE / 2 - 4} textAnchor="middle" fontSize="22" fontWeight="700" className="fill-foreground">
+        <text x={SIZE / 2} y={SIZE / 2 - 3} textAnchor="middle" fontSize="20" fontWeight="700" className="fill-foreground">
           {outerTotal}
         </text>
-        <text x={SIZE / 2} y={SIZE / 2 + 12} textAnchor="middle" fontSize="9" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
+        <text x={SIZE / 2} y={SIZE / 2 + 11} textAnchor="middle" fontSize="8" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
           findings
         </text>
       </svg>
 
       <div className="mt-2 text-center text-[11px] text-muted-foreground">
-        outer → findings · 2nd → components · 3rd → secrets · inner → licenses
+        outer → findings · 2 → components · 3 → secrets · 4 → licenses · 5 → IaC
       </div>
     </div>
+  )
+}
+
+// IaC table — same severity color language as the outer Code Quality
+// table but smaller scope (Trivy only). When the scope is unscanned
+// (no Trivy data at all), the table reads as a single neutral row
+// instead of an "all green" row that would falsely imply a clean scan.
+export function IacHealthTable({
+  iac,
+  onRowClick,
+}: {
+  iac?: { counts: SeverityCounts; scanned: boolean }
+  onRowClick?: (severity: IacSevKey) => void
+}) {
+  if (!iac) return null
+  const total = iac.counts.total
+  const rows = IAC_SEVERITY_ORDER
+    .map(k => ({ k, count: iac.counts[k] }))
+    .filter(r => r.count > 0)
+
+  return (
+    <CompactTable title="IaC misconfig (Trivy)">
+      {!iac.scanned && (
+        <tr>
+          <td colSpan={3} className="px-3 py-3 text-center text-xs">
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <span className="inline-block size-2.5 rounded-sm" style={{ background: IAC_COLORS.unscanned }} />
+              No IaC / container artifacts in scope
+            </span>
+          </td>
+        </tr>
+      )}
+      {iac.scanned && rows.length === 0 && (
+        <tr>
+          <td colSpan={3} className="px-3 py-3 text-center text-xs">
+            <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+              <span className="inline-block size-2.5 rounded-sm" style={{ background: IAC_COLORS.clean }} />
+              Scanned · no misconfig detected
+            </span>
+          </td>
+        </tr>
+      )}
+      {iac.scanned && rows.map(({ k, count }) => (
+        <Row
+          key={k}
+          color={IAC_COLORS[k]}
+          label={IAC_SEVERITY_LABELS[k]}
+          count={count}
+          pct={total > 0 ? (count / total) * 100 : 0}
+          onClick={onRowClick ? () => onRowClick(k) : undefined}
+        />
+      ))}
+      {iac.scanned && total > 0 && <TotalRow total={total} />}
+    </CompactTable>
   )
 }
 

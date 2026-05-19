@@ -9,7 +9,8 @@ public sealed record AggregatesResponse(
     FindingAggregate Findings,
     SbomAggregate Sbom,
     SecretsAggregate Secrets,
-    LicensesAggregate Licenses);
+    LicensesAggregate Licenses,
+    IacAggregate Iac);
 
 // Secrets ring (innermost concentric) — verified credentials are the
 // closest thing we can render to "actively exploitable right now".
@@ -88,3 +89,14 @@ public sealed record SbomHealthCounts(
     int Current,     // green: no vuln + (no LatestVersion OR LatestVersion == Version)
     int Outdated,    // yellow: no vuln + LatestVersion populated and != Version
     int Vulnerable); // red: has any Vulnerability row
+
+// Bullseye — IaC / container misconfig from Trivy. Bucketed by severity
+// like the outer Code Quality ring. `Scanned` distinguishes "we ran
+// Trivy and found nothing" (green) from "Trivy has no signal in scope
+// at all" (grey). Today the proxy is "any Trivy finding ever ingested
+// in scope" — when we add per-build scan-invocation receipts this
+// becomes more honest. tamp.findings has no IaC files so the bullseye
+// renders grey here.
+public sealed record IacAggregate(
+    SeverityCounts Counts,
+    bool Scanned);

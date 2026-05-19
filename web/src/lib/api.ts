@@ -221,6 +221,10 @@ export type AggregatesResponse = {
     tiers: LicenseTierCounts
     byLicense: Record<string, number>
   }
+  iac: {
+    counts: SeverityCounts
+    scanned: boolean
+  }
 }
 
 export type SbomHealthCounts = {
