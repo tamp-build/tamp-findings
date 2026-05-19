@@ -91,10 +91,16 @@ public static class SbomIngestEndpoints
         // isn't in the components list (some tools list edges to externals
         // they didn't enumerate as components).
         var depsAdded = 0;
+        // Some SBOM emitters (Syft especially) can list the same edge more
+        // than once when a transitive dep is reached via multiple paths.
+        // Dedupe in-batch so the unique index on (snapshot, parent, child)
+        // doesn't reject the SaveChanges.
+        var seenEdges = new HashSet<(Guid, Guid)>();
         foreach (var d in req.Dependencies)
         {
             if (!purlToId.TryGetValue(d.ParentPurl, out var pid)) continue;
             if (!purlToId.TryGetValue(d.ChildPurl, out var cid)) continue;
+            if (!seenEdges.Add((pid, cid))) continue;
             db.SbomDependencies.Add(new SbomDependency
             {
                 SbomSnapshotId = snapshot.Id,

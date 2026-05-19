@@ -1,0 +1,191 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "Tamp.Coverlet.V6": {
+        "type": "Direct",
+        "requested": "[0.2.0, )",
+        "resolved": "0.2.0",
+        "contentHash": "iiFWxlzWjjlGMTqSjWgoM5F0Cz9+o4351H6ym+83j+4Gve427rF2185GBEGCBp7pQh1Pei8DatewxeffMZsOkw==",
+        "dependencies": {
+          "Tamp.Core": "1.8.0",
+          "Tamp.NetCli.V10": "1.5.0"
+        }
+      },
+      "Tamp.DotNetCoverage.V18": {
+        "type": "Direct",
+        "requested": "[1.11.1, )",
+        "resolved": "1.11.1",
+        "contentHash": "5X9Rw8kohwI6HXOW8zCfrAU+ju4+cW8XCtyY0eGG8yvaQWVLogJ1F/ktbJ2Ejwhaa+SflXLQdVFvz7lIfcA6Sg==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1"
+        }
+      },
+      "Tamp.GitVersion.V6": {
+        "type": "Direct",
+        "requested": "[0.2.0, )",
+        "resolved": "0.2.0",
+        "contentHash": "m/7J5N5IUbkArf2uYXSlWTcXq0RkN1aDHDPEmtX8JhTJPZFJ/4Uu1wSnTY2+cmeqDiMeGumNjdwqNAjuOoMRHQ==",
+        "dependencies": {
+          "Tamp.Core": "1.4.0"
+        }
+      },
+      "Tamp.Grype": {
+        "type": "Direct",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "BgzxkyXZSaPCmXoji5KUwSlb4XPXRa+4Tmz3lQmRM7NnEQEt97U/0Q/I5nBMkL94MeIj0zMafcqWggwA8t1sYw==",
+        "dependencies": {
+          "Tamp.Core": "1.6.0"
+        }
+      },
+      "Tamp.ReportGenerator.V5": {
+        "type": "Direct",
+        "requested": "[0.1.1, )",
+        "resolved": "0.1.1",
+        "contentHash": "Id8poLoGAr5XksVQx29Imenmvo9E6ZYl3c+22qItIPTAt463D7KhGVyd9vGC5kfJ69yPpLOBw5VoZLA2IRyC4w==",
+        "dependencies": {
+          "Tamp.Core": "1.2.0"
+        }
+      },
+      "Tamp.Security.Pipeline": {
+        "type": "Direct",
+        "requested": "[1.11.1, )",
+        "resolved": "1.11.1",
+        "contentHash": "RclFulAY55alCdLiJhvfka4e5+BX7gyYfNENH79K1AELVA8nH1HK9FToTXw8JOig4VVu4r4kkzvs6s/Ylz4E7Q==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1",
+          "Tamp.CycloneDx.V6": "1.11.1",
+          "Tamp.DefectDojo.V2": "1.11.1",
+          "Tamp.DependencyTrack.V1": "1.11.1",
+          "Tamp.NetCli.V10": "1.11.1",
+          "Tamp.OpenGrep": "1.11.1",
+          "Tamp.OsvScanner.V2": "1.11.1",
+          "Tamp.Sarif": "1.11.1",
+          "Tamp.Sbom": "1.11.1",
+          "Tamp.Trivy": "1.11.1"
+        }
+      },
+      "Tamp.Syft.V1": {
+        "type": "Direct",
+        "requested": "[1.11.0, )",
+        "resolved": "1.11.0",
+        "contentHash": "mipfgS/vl9RMlV0HO9APztUkMeP9cgBz3fvs7BrHWirdMCtwFg++i5OhOH1oKFfbr9t7JQTH9MCdqDkgwiXaNg==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.0"
+        }
+      },
+      "Tamp.TruffleHog.V3": {
+        "type": "Direct",
+        "requested": "[0.1.1, )",
+        "resolved": "0.1.1",
+        "contentHash": "TFEbXcoC4TjUqsX7ETBGnYjzZXKRKuGQWpH++EN6PUdmNqUIVZyeYdSnqHi7u0ZkK1ZDHhzG6Sjtikt3zH7L4A==",
+        "dependencies": {
+          "Tamp.Core": "1.2.0"
+        }
+      },
+      "Microsoft.Extensions.FileSystemGlobbing": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "jGFKZiXs2HNseK3NK/rfwHNNovER71jSj4BD1a/649ml9+h6oEtYd0GSALZDNW8jZ2Rh+oAeadOa6sagYW1F2A=="
+      },
+      "Tamp.Core": {
+        "type": "Transitive",
+        "resolved": "1.11.1",
+        "contentHash": "zxHlj2tsQLgLVCVk0e91I1cAAP7NL0On8IU33GRUINxKN4VCsmy01NOZwTY/fTvLY8gZnFZA9HgXV8MWR8fCqA==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0"
+        }
+      },
+      "Tamp.CycloneDx.V6": {
+        "type": "Transitive",
+        "resolved": "1.11.1",
+        "contentHash": "Fv6mfCDNObOjUv1i9d9fCyVuvqsL8jtkqK2/tcLr+5YFbdNpYyknQIUMwUS7m5NAQTtwNklc47cV1kLuBSvS2A==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1"
+        }
+      },
+      "Tamp.DefectDojo.V2": {
+        "type": "Transitive",
+        "resolved": "1.11.1",
+        "contentHash": "pN2vW8lcUjLOWTtfbHtHiwTLyVv0YSh4Q8Bfv1U5ghNIUiP6hOA1kl3iJFEZpQlpkyCMpP3IhDpxGT826KK1OQ==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1",
+          "Tamp.Sarif": "1.11.1"
+        }
+      },
+      "Tamp.DependencyTrack.V1": {
+        "type": "Transitive",
+        "resolved": "1.11.1",
+        "contentHash": "iPzZGBGWSm/KWWx9zux9xJg1+kcYrCfg0nw0Tn+99LwlozAOmNRXyy7rt/HU7hgc09JF+xbOqV6OIFJdrr+qOg==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1",
+          "Tamp.Sbom": "1.11.1"
+        }
+      },
+      "Tamp.NetCli.V10": {
+        "type": "Transitive",
+        "resolved": "1.11.1",
+        "contentHash": "WWJSASeXTfFt5Ed3do/ktMx6oHYBRYN8FY9ht3z2NUuVd2VGqes0xxIDI0ar9aHOf6xbcahEcpDPQzIf12d25g==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1"
+        }
+      },
+      "Tamp.OpenGrep": {
+        "type": "Transitive",
+        "resolved": "1.11.1",
+        "contentHash": "0Nqnh5LJmGnOApXZrl9o2zDpJkH8sDALHLJPcMCqP+cSgl80ayO85mhAx2ujVCgqx55lzUnCN/G51aWh6dQn4Q==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1"
+        }
+      },
+      "Tamp.OsvScanner.V2": {
+        "type": "Transitive",
+        "resolved": "1.11.1",
+        "contentHash": "RPmUiLj2TvPeuHBSuyVxXS5O5Qx8IqllbrZmdtzMkFFcTgsoRRiFLvpI72ZLId2RhNYYJTMuyVg4hqrL4EcCrA==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1"
+        }
+      },
+      "Tamp.Sarif": {
+        "type": "Transitive",
+        "resolved": "1.11.1",
+        "contentHash": "xDmdS4brpPelNehX7bt9obxbnOoZyFDcMskBMk61vvnkCkMlTMpH8gpl9aVJpr4D9TeXAQDgwq5V2zRtHekEog==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1"
+        }
+      },
+      "Tamp.Sbom": {
+        "type": "Transitive",
+        "resolved": "1.11.1",
+        "contentHash": "1Eot/9NWTqjD39W1bSo129+bIMnBSN6VhRfCNQk66I+ntaZvAv4uLPwr3aSvZJQ/wcONposw8YzB6sbLXBpPbA==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1"
+        }
+      },
+      "Tamp.Trivy": {
+        "type": "Transitive",
+        "resolved": "1.11.1",
+        "contentHash": "KpYMRItlmZqgRhdfYPLXjM3SszOR7zWQJYnF8njtkuBWUdaY42qKPDGE6lqAysQYOTCXzwSCazdABXWcG+AS2g==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.11.1"
+        }
+      },
+      "tamp.findings.domain": {
+        "type": "Project"
+      }
+    }
+  }
+}
