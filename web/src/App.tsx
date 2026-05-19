@@ -1,90 +1,254 @@
-import { useEffect, useState } from 'react'
-import { Activity, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { AlertCircle, Search, X } from 'lucide-react'
+import { fetchFindings } from '@/lib/api'
+import type { FindingListItem, Severity, ScannerKind } from '@/lib/api'
+import { SeverityBadge } from '@/components/SeverityBadge'
+import { SeverityCountsBar } from '@/components/SeverityCountsBar'
 import { cn } from '@/lib/utils'
 
-type HealthState =
-  | { kind: 'loading' }
-  | { kind: 'ok'; service: string }
-  | { kind: 'error'; message: string }
+const ALL_SCANNERS: ScannerKind[] = [
+  'Roslyn', 'OpenGrep', 'TruffleHog', 'Trivy', 'CodeQL', 'OsvScanner',
+  'Syft', 'Grype', 'Checkov', 'Tfsec', 'Kics', 'Zap', 'Spectral',
+  'Oasdiff', 'Cosign', 'NetArchTest', 'DependencyCruiser', 'Stryker', 'Coverlet',
+]
 
 function App() {
-  const [health, setHealth] = useState<HealthState>({ kind: 'loading' })
+  const [activeSeverities, setActiveSeverities] = useState<Set<Severity>>(new Set())
+  const [activeScanners, setActiveScanners] = useState<Set<ScannerKind>>(new Set())
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<FindingListItem | null>(null)
 
-  useEffect(() => {
-    const ctrl = new AbortController()
-    fetch('/api/health', { signal: ctrl.signal })
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        const body = (await r.json()) as { status: string; service: string }
-        setHealth({ kind: 'ok', service: body.service })
-      })
-      .catch((e: unknown) => {
-        if (ctrl.signal.aborted) return
-        setHealth({
-          kind: 'error',
-          message: e instanceof Error ? e.message : String(e),
-        })
-      })
-    return () => ctrl.abort()
-  }, [])
+  const filters = useMemo(() => ({
+    severities: [...activeSeverities],
+    scanners: [...activeScanners],
+    search: search.trim() || undefined,
+    take: 200,
+  }), [activeSeverities, activeScanners, search])
+
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['findings', filters],
+    queryFn: () => fetchFindings(filters),
+    placeholderData: keepPreviousData,
+  })
+
+  const toggleSeverity = (s: Severity) => {
+    setActiveSeverities(prev => {
+      const next = new Set(prev)
+      next.has(s) ? next.delete(s) : next.add(s)
+      return next
+    })
+  }
+  const toggleScanner = (s: ScannerKind) => {
+    setActiveScanners(prev => {
+      const next = new Set(prev)
+      next.has(s) ? next.delete(s) : next.add(s)
+      return next
+    })
+  }
+
+  // Only show scanners that actually have findings in the current view —
+  // listing all 19 ScannerKinds in the sidebar is noise for a fresh repo.
+  const visibleScanners = useMemo(() => {
+    const seen = new Set<ScannerKind>()
+    data?.items?.forEach(f => seen.add(f.scanner))
+    return ALL_SCANNERS.filter(s => seen.has(s) || activeScanners.has(s))
+  }, [data, activeScanners])
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <div className="mx-auto max-w-3xl px-6 py-16">
-        <header className="mb-12">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            tamp.findings
-          </h1>
-          <p className="mt-2 text-muted-foreground">
-            Findings hub for tamp-built software — POC scaffold
-          </p>
-        </header>
-
-        <section
-          className={cn(
-            'rounded-lg border bg-card p-6',
-            health.kind === 'error' && 'border-destructive/50',
-          )}
-        >
-          <div className="flex items-start gap-4">
-            <StatusIcon state={health} />
-            <div className="flex-1">
-              <h2 className="text-lg font-medium">API health</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {health.kind === 'loading' && 'Probing /api/health…'}
-                {health.kind === 'ok' && (
-                  <>
-                    Service <code className="font-mono">{health.service}</code> is
-                    responding.
-                  </>
-                )}
-                {health.kind === 'error' && (
-                  <>
-                    Could not reach the API: <code className="font-mono">{health.message}</code>.
-                    Is <code className="font-mono">dotnet run</code> up on port 5080?
-                  </>
-                )}
-              </p>
-            </div>
+    <div className="min-h-svh bg-background text-foreground">
+      <header className="border-b border-border bg-card/50">
+        <div className="mx-auto flex max-w-7xl items-center gap-4 px-6 py-4">
+          <h1 className="text-xl font-semibold tracking-tight">tamp.findings</h1>
+          <span className="text-sm text-muted-foreground">Inbox</span>
+          <div className="ml-auto relative w-72">
+            <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search rule or title…"
+              className="w-full rounded-md border bg-background py-2 pl-8 pr-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
+            />
           </div>
-        </section>
+        </div>
+      </header>
 
-        <footer className="mt-16 text-xs text-muted-foreground">
-          Tracking: YouTrack <code className="font-mono">TFND</code> · Stack: .NET 10 · React 19 · shadcn/ui · Postgres
-        </footer>
+      <div className="mx-auto grid max-w-7xl grid-cols-[220px_1fr] gap-6 px-6 py-6">
+        <aside className="space-y-6">
+          <section>
+            <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Scanner</h2>
+            <ul className="space-y-1">
+              {visibleScanners.length === 0 && (
+                <li className="text-xs text-muted-foreground">No findings yet — run ScanAll + Ingest.</li>
+              )}
+              {visibleScanners.map(s => {
+                const checked = activeScanners.has(s)
+                return (
+                  <li key={s}>
+                    <button
+                      type="button"
+                      onClick={() => toggleScanner(s)}
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted/60',
+                        checked && 'bg-muted',
+                      )}
+                    >
+                      <span className={cn('size-3.5 rounded border', checked ? 'bg-primary border-primary' : 'border-input')} />
+                      <span>{s}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+            {activeScanners.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveScanners(new Set())}
+                className="mt-2 text-xs text-muted-foreground hover:text-foreground"
+              >
+                Clear scanners
+              </button>
+            )}
+          </section>
+        </aside>
+
+        <main className="space-y-4">
+          {data && (
+            <SeverityCountsBar
+              counts={data.counts}
+              active={activeSeverities}
+              onToggle={toggleSeverity}
+            />
+          )}
+
+          {isError && (
+            <div className="flex items-start gap-3 rounded-md border border-destructive/50 bg-card p-4">
+              <AlertCircle className="size-5 text-destructive" />
+              <div>
+                <p className="text-sm font-medium">Couldn't load findings</p>
+                <p className="text-xs text-muted-foreground">{(error as Error)?.message}</p>
+              </div>
+            </div>
+          )}
+
+          <FindingsTable
+            isLoading={isLoading}
+            items={data?.items ?? []}
+            totalCount={data?.totalCount ?? 0}
+            selectedId={selected?.id ?? null}
+            onSelect={setSelected}
+          />
+        </main>
       </div>
-    </main>
+
+      {selected && (
+        <DetailPanel finding={selected} onClose={() => setSelected(null)} />
+      )}
+    </div>
   )
 }
 
-function StatusIcon({ state }: { state: HealthState }) {
-  if (state.kind === 'loading') {
-    return <Activity className="size-6 animate-pulse text-muted-foreground" />
-  }
-  if (state.kind === 'ok') {
-    return <CheckCircle2 className="size-6 text-emerald-500" />
-  }
-  return <AlertCircle className="size-6 text-destructive" />
+function FindingsTable({
+  isLoading,
+  items,
+  totalCount,
+  selectedId,
+  onSelect,
+}: {
+  isLoading: boolean
+  items: FindingListItem[]
+  totalCount: number
+  selectedId: string | null
+  onSelect: (f: FindingListItem) => void
+}) {
+  return (
+    <div className="rounded-md border bg-card">
+      <div className="border-b px-4 py-2 text-xs text-muted-foreground">
+        {isLoading ? 'Loading…' : `Showing ${items.length} of ${totalCount}`}
+      </div>
+      <div className="divide-y">
+        {items.map(f => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => onSelect(f)}
+            className={cn(
+              'flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40',
+              selectedId === f.id && 'bg-muted/60',
+            )}
+          >
+            <SeverityBadge severity={f.severity} className="mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-xs text-muted-foreground">{f.ruleId}</span>
+                <span className="truncate font-medium">{f.title}</span>
+              </div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                {f.filePath ?? '(no file)'}{f.line != null && <span>:{f.line}</span>}
+                <span className="mx-2 opacity-50">·</span>
+                {f.clientName} / {f.projectName} / {f.componentName} @ {f.versionString}
+              </div>
+            </div>
+            <span className="shrink-0 self-center text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {f.scanner}
+            </span>
+          </button>
+        ))}
+        {!isLoading && items.length === 0 && (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            No findings match the current filters.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function DetailPanel({ finding, onClose }: { finding: FindingListItem; onClose: () => void }) {
+  return (
+    <aside className="fixed inset-y-0 right-0 w-[460px] border-l border-border bg-card shadow-xl">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <SeverityBadge severity={finding.severity} />
+          <span className="font-mono text-sm">{finding.ruleId}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md p-1 hover:bg-muted"
+          aria-label="Close"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+      <div className="space-y-4 p-4 text-sm">
+        <p className="font-medium leading-snug">{finding.title}</p>
+        <Field label="Scanner" value={finding.scanner} mono />
+        <Field label="Status" value={finding.status} />
+        <Field
+          label="Location"
+          value={finding.filePath ? `${finding.filePath}${finding.line != null ? `:${finding.line}` : ''}` : '(no location)'}
+          mono
+        />
+        <Field
+          label="Scope"
+          value={`${finding.clientName} / ${finding.projectName} / ${finding.componentName} @ ${finding.versionString}`}
+        />
+        <Field label="First seen" value={new Date(finding.firstSeen).toLocaleString()} />
+        <Field label="Last seen" value={new Date(finding.lastSeen).toLocaleString()} />
+        <Field label="Finding ID" value={finding.id} mono />
+      </div>
+    </aside>
+  )
+}
+
+function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={cn('mt-0.5 break-all', mono && 'font-mono text-xs')}>{value}</p>
+    </div>
+  )
 }
 
 export default App
