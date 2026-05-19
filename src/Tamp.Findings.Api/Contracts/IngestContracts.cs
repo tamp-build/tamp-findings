@@ -35,8 +35,13 @@ public sealed record IngestResponse(
     int FindingsInserted,
     int FindingsUpdated,
     // TFND-6 / F5.4 — lifecycle transitions effected by this batch.
-    // Reopened: existing Fixed/Accepted findings whose hash reappeared.
-    // Closed: existing Open findings whose hash disappeared from this
-    // scanner's results for this component version.
+    // Reopened: existing Fixed/Suppressed findings whose hash reappeared
+    //           AND no active suppression covers them anymore.
+    // Closed:   existing Open findings whose hash disappeared from this
+    //           scanner's results for this component version.
+    // Suppressed: findings (new or existing) that an active Suppression
+    //           covers — transitioned to Status=Suppressed during upsert
+    //           (TFND-11 / F10).
     int FindingsReopened,
-    int FindingsClosed);
+    int FindingsClosed,
+    int FindingsSuppressed);
