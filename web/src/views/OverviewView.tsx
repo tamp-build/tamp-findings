@@ -9,7 +9,7 @@ import {
 } from '@/lib/api'
 import type { AggregatesFilters, ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import type { FindingsPreset, ComponentsPreset } from '@/App'
-import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable, LicenseTable } from '@/components/RingChart'
+import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable, LicenseTable, IacHealthTable } from '@/components/RingChart'
 
 // Which Findings filter does a Code-Quality table row map to? Severities
 // fold into the severity filter (default-status Open); the lifecycle
@@ -87,12 +87,14 @@ export function OverviewView({
                 sbomHealth={aggregates.data.sbom.health}
                 secretsHealth={aggregates.data.secrets.health}
                 licenseTiers={aggregates.data.licenses.tiers}
+                iac={aggregates.data.iac}
                 onScannerClick={(scanner) =>
                   onDrillToFindings?.({ scanners: [scanner as ScannerKind] })
                 }
                 onSbomClick={() => onDrillToComponents?.()}
                 onSecretsClick={() => onDrillToFindings?.({ scanners: ['TruffleHog'] })}
                 onLicenseClick={() => onDrillToComponents?.()}
+                onIacClick={() => onDrillToFindings?.({ scanners: ['Trivy'] })}
               />
               <div className="grid grid-cols-2 gap-4">
                 <FindingsTypeTable
@@ -121,6 +123,19 @@ export function OverviewView({
                 <LicenseTable
                   byLicense={aggregates.data.licenses.byLicense}
                   onRowClick={(license) => onDrillToComponents?.({ license })}
+                />
+                <IacHealthTable
+                  iac={aggregates.data.iac}
+                  onRowClick={(severity) => {
+                    const map: Record<string, Severity> = {
+                      critical: 'Critical', high: 'High', medium: 'Medium',
+                      low: 'Low', info: 'Info',
+                    }
+                    onDrillToFindings?.({
+                      scanners: ['Trivy'],
+                      severities: [map[severity]],
+                    })
+                  }}
                 />
               </div>
             </section>

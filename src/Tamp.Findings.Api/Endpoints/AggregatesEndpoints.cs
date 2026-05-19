@@ -193,6 +193,42 @@ public static class AggregatesEndpoints
             }
         }
 
+        // IaC bullseye: Trivy findings bucketed by severity. We don't
+        // yet track a per-scan "Trivy ran" receipt, so the heuristic is
+        // "any Trivy finding ever ingested in scope" → Scanned=true.
+        // For tamp.findings (no IaC files in repo) this stays false →
+        // SPA renders the bullseye in grey, not green.
+        var iacBase = db.Findings
+            .AsNoTracking()
+            .Where(f => f.Scanner == ScannerKind.Trivy && f.Status == FindingStatus.Open);
+        if (componentId is { } cmp5) iacBase = iacBase.Where(f => f.ComponentVersion!.ComponentId == cmp5);
+        if (projectId is { } prj5) iacBase = iacBase.Where(f => f.ComponentVersion!.Component!.ProjectId == prj5);
+        if (clientId is { } cli5) iacBase = iacBase.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli5);
+        if (latest)
+        {
+            var latestCvIds4 = await db.ComponentVersions
+                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
+                .ToListAsync(ct);
+            iacBase = iacBase.Where(f => latestCvIds4.Contains(f.ComponentVersionId));
+        }
+        var iacBySev = await iacBase
+            .GroupBy(f => f.Severity)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+        var iacCounts = new SeverityCounts(
+            iacBySev.GetValueOrDefault(Severity.Info, 0),
+            iacBySev.GetValueOrDefault(Severity.Low, 0),
+            iacBySev.GetValueOrDefault(Severity.Medium, 0),
+            iacBySev.GetValueOrDefault(Severity.High, 0),
+            iacBySev.GetValueOrDefault(Severity.Critical, 0));
+        // Scanned flag: include closed/suppressed/accepted in the "did we
+        // ever see Trivy data" check so a once-found-now-fixed finding
+        // still counts as evidence the scanner ran.
+        var trivySeenAnywhere = await db.Findings
+            .AsNoTracking()
+            .AnyAsync(f => f.Scanner == ScannerKind.Trivy, ct);
+
         return TypedResults.Ok(new AggregatesResponse(
             scope,
             new FindingAggregate(counts, byScanner, byStatus, byScannerDetail),
@@ -202,7 +238,8 @@ public static class AggregatesEndpoints
             new SecretsAggregate(new SecretsHealthCounts(verifiedSecrets, unverifiedSecrets)),
             new LicensesAggregate(
                 new LicenseTierCounts(perm, weak, strong, denied, unknown),
-                byLicense)));
+                byLicense),
+            new IacAggregate(iacCounts, Scanned: trivySeenAnywhere)));
     }
 
     private static async Task<AggregateScope> ResolveScopeAsync(
