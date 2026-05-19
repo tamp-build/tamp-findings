@@ -16,7 +16,10 @@ services:
       # Locale + encoding so JSONB and full-text search behave predictably.
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
     ports:
-      - "5432:5432"
+      # Host port deliberately offset from the Postgres default to avoid
+      # collisions with other local Postgres containers; the container still
+      # listens on 5432 internally.
+      - "5544:5432"
     volumes:
       - ./.data/postgres:/var/lib/postgresql/data
     healthcheck:
