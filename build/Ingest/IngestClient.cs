@@ -30,6 +30,16 @@ public sealed class IngestClient(string baseUrl)
         return await ReadResponseAsync(resp, ct);
     }
 
+    public async Task<JsonElement> EnrichSbomVersionsAsync(Guid snapshotId, CancellationToken ct = default)
+    {
+        // Slow call (one HTTP roundtrip per dep against the public registries),
+        // so a long timeout is appropriate. 5 minutes is overkill for 300 deps
+        // at 8 concurrent, but keeps the cliff far away from real workloads.
+        var http = new HttpClient { BaseAddress = _http.BaseAddress, Timeout = TimeSpan.FromMinutes(5) };
+        var resp = await http.PostAsync($"/sbom-components/enrich-versions?snapshotId={snapshotId}", content: null, ct);
+        return await ReadResponseAsync(resp, ct);
+    }
+
     private static async Task<JsonElement> ReadResponseAsync(HttpResponseMessage resp, CancellationToken ct)
     {
         var body = await resp.Content.ReadAsStringAsync(ct);

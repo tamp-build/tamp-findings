@@ -111,6 +111,8 @@ public static class SbomComponentsEndpoints
                   : c.Purl.StartsWith("pkg:npm/") ? "npm"
                   : "other",
                 c.License,
+                c.LatestVersion,
+                c.LatestReleasedAt,
                 c.Vulnerabilities.Count,
                 c.SbomSnapshot!.ComponentVersionId,
                 c.SbomSnapshot.ComponentVersion!.VersionString,
