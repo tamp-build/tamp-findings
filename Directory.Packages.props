@@ -20,6 +20,28 @@
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
   </ItemGroup>
 
+  <ItemGroup Label="Tamp ecosystem (TFND-14 — dogfood pipeline)">
+    <!-- Meta package brings: Core, NetCli.V10, CycloneDx.V6, OpenGrep,
+         OsvScanner.V2, Trivy, Sarif, Sbom, DependencyTrack.V1, DefectDojo.V2. -->
+    <PackageVersion Include="Tamp.Security.Pipeline" Version="1.11.1" />
+    <!-- Not in the meta package — secrets scanning satellite. -->
+    <PackageVersion Include="Tamp.TruffleHog.V3" Version="0.1.1" />
+    <!-- Versioning + GitHub CLI for release/PR plumbing. -->
+    <PackageVersion Include="Tamp.GitVersion.V6" Version="0.2.0" />
+    <PackageVersion Include="Tamp.GitHubCli.V2" Version="0.1.1" />
+    <!-- Coverage + reporting. -->
+    <PackageVersion Include="Tamp.DotNetCoverage.V18" Version="1.11.1" />
+    <PackageVersion Include="Tamp.Coverlet.V6" Version="0.2.0" />
+    <PackageVersion Include="Tamp.ReportGenerator.V5" Version="0.1.1" />
+    <!-- EF Core wrapper for migrations from the build script. -->
+    <PackageVersion Include="Tamp.EFCore.V10" Version="0.4.0" />
+  </ItemGroup>
+
+  <ItemGroup Label="Roslyn security analyzers (TFND-14 — TAM-248 pattern; gated by /p:IncludeSecurityAnalyzers=true)">
+    <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.25.0.139117" />
+    <PackageVersion Include="Roslynator.Analyzers" Version="4.15.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Transitive pins (CVE patches; central package transitive pinning surfaces these)">
     <!-- Npgsql 10.0.1 pulls in System.Security.Cryptography.Xml 9.0.0 which has
          known high-severity advisories (GHSA-37gx-xxp4-5rgx, GHSA-w3x6-4m5h-cxqf).
