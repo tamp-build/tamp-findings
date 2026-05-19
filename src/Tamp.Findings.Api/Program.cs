@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Endpoints;
+using Tamp.Findings.Api.Services;
 using Tamp.Findings.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -21,6 +22,12 @@ var connectionString =
     ?? "Host=localhost;Port=5544;Database=tamp_findings;Username=tamp;Password=tamp";
 
 builder.Services.AddFindingsDb(connectionString);
+
+// IHttpClientFactory powers the SBOM registry enrichment service. A
+// single named client is registered so the factory can pool sockets
+// across enrichment calls.
+builder.Services.AddHttpClient("registries");
+builder.Services.AddScoped<SbomEnrichmentService>();
 
 builder.Services.AddCors(options =>
 {
@@ -69,6 +76,7 @@ app.MapSbomComponents();
 app.MapSuppressions();
 app.MapRoleAssignments();
 app.MapAggregates();
+app.MapSbomEnrich();
 
 app.Run();
 
