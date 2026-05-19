@@ -24,9 +24,13 @@ builder.Services.AddFindingsDb(connectionString);
 
 builder.Services.AddCors(options =>
 {
-    // Vite dev server origin during POC. Tighten before any non-local deployment.
+    // POC dev posture: any origin allowed. The SPA uses Vite's /api proxy
+    // so same-origin via the dev server is the normal path — this opens
+    // direct API access for ad-hoc curl from other machines, the MCP
+    // server, and any future tools. Tighten to an allow-list before any
+    // non-local deployment (and definitely before OIDC + tokens land).
     options.AddDefaultPolicy(p =>
-        p.WithOrigins("http://localhost:5173")
+        p.AllowAnyOrigin()
          .AllowAnyHeader()
          .AllowAnyMethod());
 });
@@ -64,6 +68,7 @@ app.MapFindingsList();
 app.MapSbomComponents();
 app.MapSuppressions();
 app.MapRoleAssignments();
+app.MapAggregates();
 
 app.Run();
 
