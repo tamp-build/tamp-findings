@@ -60,6 +60,7 @@ app.MapGet("/version", () => Results.Ok(new
 app.MapIngest();
 app.MapSbomIngest();
 app.MapFindingsQuery();
+app.MapFindingsList();
 
 app.Run();
 

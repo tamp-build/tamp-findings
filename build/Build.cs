@@ -1,6 +1,7 @@
 using Tamp;
 using Tamp.Findings.Build.Adapters;
 using Tamp.Findings.Build.Ingest;
+using Tamp.Grype;
 using Tamp.NetCli.V10;
 using Tamp.Sarif;
 using Tamp.Sbom;
@@ -21,6 +22,15 @@ class Build : SecurityPipelineBuild
 
     [Parameter("tamp.findings API URL", EnvironmentVariable = "TAMP_FINDINGS_URL")]
     readonly string IngestUrl = "http://localhost:5080";
+
+    // Grype binary resolved off PATH (winget install Anchore.Grype).
+    [FromPath("grype")] readonly Tool GrypeTool = null!;
+
+    // CycloneDX SBOM enriched with the Vulnerabilities array — Grype's
+    // cyclonedx-json output reads the source SBOM and re-emits it with
+    // CVE annotations under top-level vulnerabilities. Our existing
+    // SbomIngestMapper already folds those into per-component vuln lists.
+    AbsolutePath SbomWithCvesFile => RootDirectory / "artifacts" / "security" / "tamp.findings.cves.cdx.json";
 
     AbsolutePath Artifacts => RootDirectory / "artifacts";
     AbsolutePath CoverageDir => Artifacts / "coverage";
@@ -111,6 +121,16 @@ class Build : SecurityPipelineBuild
             Console.WriteLine($"  Coverage outputs landed under {TestResults.Value}");
         });
 
+    // ----- Grype CVE enrichment -------------------------------------------
+
+    Target SecurityScanGrype => _ => _
+        .DependsOn(nameof(Sbom))
+        .Description("Run Grype against the CycloneDX SBOM, emit an enriched CycloneDX file with CVEs folded in. First run downloads Grype's vuln DB (~5 min); subsequent runs are seconds.")
+        .Executes(() => Grype.Scan(GrypeTool, s => s
+            .SetSbomSource(SecuritySbomFile.Value)
+            .AddOutput($"cyclonedx-json={SbomWithCvesFile.Value}")
+            .SetWorkingDirectory(RootDirectory)));
+
     // ----- Ingestion -------------------------------------------------------
 
     Target Ingest => _ => _
@@ -122,14 +142,27 @@ class Build : SecurityPipelineBuild
 
             var client = new IngestClient(IngestUrl);
 
-            // SBOM first so subsequent SARIF posts attach to an existing
-            // ComponentVersion in the most predictable order.
+            // SBOM: post the original CycloneDx (full component metadata) and,
+            // when Grype produced an enriched file, splice its vulnerabilities
+            // into the in-memory bom before mapping. Grype's cyclonedx-json
+            // output drops hashes/authors/externalRefs, so we don't want it as
+            // the canonical SBOM — just as a source of CVEs.
             if (File.Exists(SecuritySbomFile))
             {
                 var bom = SbomReader.LoadFromFile(SecuritySbomFile);
+                int grypeVulns = 0;
+                if (File.Exists(SbomWithCvesFile))
+                {
+                    var grypeBom = SbomReader.LoadFromFile(SbomWithCvesFile);
+                    if (grypeBom.Vulnerabilities is { Count: > 0 } gv)
+                    {
+                        bom = bom with { Vulnerabilities = gv };
+                        grypeVulns = gv.Count;
+                    }
+                }
                 var payload = SbomIngestMapper.Map(bom, ctx);
                 var resp = await client.PostSbomAsync(payload);
-                Console.WriteLine($"[ingest] SBOM       → snapshot {resp.GetProperty("sbomSnapshotId")}  components={resp.GetProperty("componentsCount")}  deps={resp.GetProperty("dependenciesCount")}");
+                Console.WriteLine($"[ingest] SBOM       → snapshot {resp.GetProperty("sbomSnapshotId")}  components={resp.GetProperty("componentsCount")}  deps={resp.GetProperty("dependenciesCount")}  vulns={resp.GetProperty("vulnerabilitiesCount")} (grype matches={grypeVulns})");
             }
             else
             {
@@ -142,7 +175,7 @@ class Build : SecurityPipelineBuild
         });
 
     Target ScanAll => _ => _
-        .DependsOn(nameof(Sbom), nameof(SecurityScan), nameof(SecurityScanCveSbom), nameof(SecurityScanTrivy))
+        .DependsOn(nameof(Sbom), nameof(SecurityScanGrype), nameof(SecurityScan), nameof(SecurityScanCveSbom), nameof(SecurityScanTrivy))
         .Description("Run every scan in artifacts/security/. The API process MUST be stopped first — the Roslyn scan rebuilds with /p:NoIncremental=true and will fight a running API for the DLL locks. Follow up with the Ingest target after the API is back up.");
 
     Target Ci => _ => _
