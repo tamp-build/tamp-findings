@@ -19,19 +19,23 @@ export function ComponentsView({ preset }: { preset?: ComponentsPreset }) {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  // Seed from preset when the parent bumps the nonce (Overview SBOM
-  // table row click). Bumping `nonce` even with no sbomStatus clears.
+  const [licenseFilter, setLicenseFilter] = useState<string | null>(null)
+
+  // Seed from preset when the parent bumps the nonce (Overview row clicks).
+  // Bumping `nonce` even with no value clears.
   useEffect(() => {
     if (!preset) return
     setHealthStatus(preset.sbomStatus ?? null)
+    setLicenseFilter(preset.license ?? null)
   }, [preset?.nonce])
 
   const filters = useMemo(() => ({
     ecosystem: ecosystem ?? undefined,
     status: healthStatus ?? undefined,
+    license: licenseFilter ?? undefined,
     search: search.trim() || undefined,
     take: 200,
-  }), [ecosystem, healthStatus, search])
+  }), [ecosystem, healthStatus, licenseFilter, search])
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['sbom-components', filters],
@@ -69,6 +73,19 @@ export function ComponentsView({ preset }: { preset?: ComponentsPreset }) {
                 onClick={() => setHealthStatus(null)}
                 className="ml-1 rounded p-0.5 hover:bg-amber-500/20"
                 aria-label="Clear status filter"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          )}
+          {licenseFilter && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+              license: {licenseFilter}
+              <button
+                type="button"
+                onClick={() => setLicenseFilter(null)}
+                className="ml-1 rounded p-0.5 hover:bg-emerald-500/20"
+                aria-label="Clear license filter"
               >
                 <X className="size-3" />
               </button>

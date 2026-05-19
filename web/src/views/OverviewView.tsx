@@ -9,7 +9,7 @@ import {
 } from '@/lib/api'
 import type { AggregatesFilters, ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import type { FindingsPreset, ComponentsPreset } from '@/App'
-import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable } from '@/components/RingChart'
+import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable, LicenseTable } from '@/components/RingChart'
 
 // Which Findings filter does a Code-Quality table row map to? Severities
 // fold into the severity filter (default-status Open); the lifecycle
@@ -86,13 +86,15 @@ export function OverviewView({
                 scannerDetails={aggregates.data.findings.byScannerDetail}
                 sbomHealth={aggregates.data.sbom.health}
                 secretsHealth={aggregates.data.secrets.health}
+                licenseTiers={aggregates.data.licenses.tiers}
                 onScannerClick={(scanner) =>
                   onDrillToFindings?.({ scanners: [scanner as ScannerKind] })
                 }
                 onSbomClick={() => onDrillToComponents?.()}
                 onSecretsClick={() => onDrillToFindings?.({ scanners: ['TruffleHog'] })}
+                onLicenseClick={() => onDrillToComponents?.()}
               />
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <FindingsTypeTable
                   scannerDetails={aggregates.data.findings.byScannerDetail}
                   onRowClick={(segment, scanner) => {
@@ -115,6 +117,10 @@ export function OverviewView({
                     scanners: ['TruffleHog'],
                     severities: bucket === 'verified' ? ['Critical'] : ['High'],
                   })}
+                />
+                <LicenseTable
+                  byLicense={aggregates.data.licenses.byLicense}
+                  onRowClick={(license) => onDrillToComponents?.({ license })}
                 />
               </div>
             </section>

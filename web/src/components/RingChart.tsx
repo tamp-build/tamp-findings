@@ -1,4 +1,4 @@
-import type { ScannerDetail, SbomHealthCounts, SecretsHealthCounts } from '@/lib/api'
+import type { ScannerDetail, SbomHealthCounts, SecretsHealthCounts, LicenseTierCounts } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 // Three concentric segmented donuts driving the Overview tab. Moving
@@ -55,6 +55,18 @@ const SECRETS_LABELS: Record<SecretsKey, string> = {
   verified: 'Verified', unverified: 'Unverified',
 }
 
+// License ring: green gradient that darkens with restrictiveness, red
+// for explicitly denied (AGPL/SSPL family), neutral for unknown.
+const LICENSE_COLORS = {
+  permissive:     '#86efac',  // green-300 — MIT, Apache-2.0, BSD, ISC…
+  weakCopyleft:   '#22c55e',  // green-500 — MPL, LGPL-2.1, EPL
+  strongCopyleft: '#15803d',  // green-700 — GPL-2.0, LGPL-3.0
+  denied:         '#b91c1c',  // red-700  — GPL-3.0, AGPL, SSPL
+  unknown:        '#9ca3af',  // gray-400 — couldn't categorize
+} as const
+const LICENSE_ORDER = ['permissive', 'weakCopyleft', 'strongCopyleft', 'denied', 'unknown'] as const
+type LicenseKey = (typeof LICENSE_ORDER)[number]
+
 // ----- shared helpers ----------------------------------------------------
 
 function pickPrimaryScanner(details: ScannerDetail[]): ScannerDetail | null {
@@ -78,11 +90,12 @@ function countFor(d: ScannerDetail, k: SegKey): number {
 
 // ----- geometry ----------------------------------------------------------
 
-const SIZE = 320
+const SIZE = 340
 const RINGS = {
-  outer:  { radius: 130, width: 22 },
-  middle: { radius: 92,  width: 18 },
-  inner:  { radius: 58,  width: 18 },
+  outer:    { radius: 142, width: 20 },
+  upper:    { radius: 110, width: 18 },
+  lower:    { radius: 80,  width: 16 },
+  inner:    { radius: 52,  width: 14 },
 } as const
 type RingSlot = keyof typeof RINGS
 
@@ -172,16 +185,20 @@ export function RingChart({
   scannerDetails,
   sbomHealth,
   secretsHealth,
+  licenseTiers,
   onScannerClick,
   onSbomClick,
   onSecretsClick,
+  onLicenseClick,
 }: {
   scannerDetails: ScannerDetail[]
   sbomHealth?: SbomHealthCounts
   secretsHealth?: SecretsHealthCounts
+  licenseTiers?: LicenseTierCounts
   onScannerClick?: (scanner: string) => void
   onSbomClick?: () => void
   onSecretsClick?: () => void
+  onLicenseClick?: () => void
 }) {
   const primary = pickPrimaryScanner(scannerDetails)
   const outerTotal = primary ? totalOf(primary) : 0
@@ -193,23 +210,31 @@ export function RingChart({
 
   const sbomTotal = sbomHealth ? sbomHealth.current + sbomHealth.outdated + sbomHealth.vulnerable : 0
   const sbomArcs = sbomHealth
-    ? buildArcs(SBOM_ORDER.map(k => ({ key: k, count: sbomHealth[k], color: SBOM_COLORS[k] })), sbomTotal, RINGS.middle.radius)
+    ? buildArcs(SBOM_ORDER.map(k => ({ key: k, count: sbomHealth[k], color: SBOM_COLORS[k] })), sbomTotal, RINGS.upper.radius)
     : []
 
   const secretsTotal = secretsHealth ? secretsHealth.verified + secretsHealth.unverified : 0
   const secretsArcs = secretsHealth
-    ? buildArcs(SECRETS_ORDER.map(k => ({ key: k, count: secretsHealth[k], color: SECRETS_COLORS[k] })), secretsTotal, RINGS.inner.radius)
+    ? buildArcs(SECRETS_ORDER.map(k => ({ key: k, count: secretsHealth[k], color: SECRETS_COLORS[k] })), secretsTotal, RINGS.lower.radius)
     : []
-  // When the secrets metric is "0 leaked", the inner ring renders solid
-  // green — empty-state IS the success state for secrets, unlike SBOM
-  // where empty means "no data".
-  const innerCleanFill = secretsHealth && secretsTotal === 0 ? SECRETS_COLORS.clean : undefined
+  const lowerCleanFill = secretsHealth && secretsTotal === 0 ? SECRETS_COLORS.clean : undefined
+
+  const licenseTotal = licenseTiers
+    ? licenseTiers.permissive + licenseTiers.weakCopyleft + licenseTiers.strongCopyleft + licenseTiers.denied + licenseTiers.unknown
+    : 0
+  const licenseArcs = licenseTiers
+    ? buildArcs(
+        LICENSE_ORDER.map(k => ({ key: k, count: licenseTiers[k], color: LICENSE_COLORS[k] })),
+        licenseTotal,
+        RINGS.inner.radius,
+      )
+    : []
 
   return (
     <div className="flex flex-col items-center">
       <div className="text-center">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Risk rings</p>
-        <p className="text-base font-semibold">Code Quality · SBOM · Secrets</p>
+        <p className="text-base font-semibold">Code Quality · SBOM · Secrets · Licenses</p>
         {primary && primary.scanner !== 'OpenGrep' && (
           <p className="text-[11px] text-muted-foreground">
             outer via {primary.scanner} · OpenGrep pending TAM-262
@@ -217,7 +242,7 @@ export function RingChart({
         )}
       </div>
 
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mt-2 w-full max-w-[300px]" role="img" aria-label="Risk rings: code quality, SBOM, secrets">
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mt-2 w-full max-w-[320px]" role="img" aria-label="Risk rings: code quality, SBOM, secrets, licenses">
         <ConcentricRing
           slot="outer"
           arcs={outerArcs}
@@ -225,20 +250,26 @@ export function RingChart({
           ariaLabel={primary ? `Open ${primary.scanner} findings` : undefined}
         />
         <ConcentricRing
-          slot="middle"
+          slot="upper"
           arcs={sbomArcs}
           onClick={onSbomClick}
           ariaLabel="Browse SBOM components"
         />
         <ConcentricRing
-          slot="inner"
+          slot="lower"
           arcs={secretsArcs}
-          cleanFill={innerCleanFill}
+          cleanFill={lowerCleanFill}
           onClick={secretsHealth && secretsTotal > 0 ? onSecretsClick : undefined}
           ariaLabel={secretsTotal > 0 ? 'Open TruffleHog findings' : undefined}
         />
+        <ConcentricRing
+          slot="inner"
+          arcs={licenseArcs}
+          onClick={onLicenseClick && licenseTotal > 0 ? onLicenseClick : undefined}
+          ariaLabel="Browse license breakdown"
+        />
 
-        {/* Compact center text: just totals, two lines */}
+        {/* Compact center text */}
         <text x={SIZE / 2} y={SIZE / 2 - 4} textAnchor="middle" fontSize="22" fontWeight="700" className="fill-foreground">
           {outerTotal}
         </text>
@@ -247,8 +278,8 @@ export function RingChart({
         </text>
       </svg>
 
-      <div className="mt-2 space-y-0.5 text-center text-[11px] text-muted-foreground">
-        {primary && <p>outer ring → findings · middle → components · inner → secrets</p>}
+      <div className="mt-2 text-center text-[11px] text-muted-foreground">
+        outer → findings · 2nd → components · 3rd → secrets · inner → licenses
       </div>
     </div>
   )
@@ -311,6 +342,108 @@ export function SbomHealthTable({
           onClick={onRowClick ? () => onRowClick(k) : undefined}
         />
       ))}
+      <TotalRow total={total} />
+    </CompactTable>
+  )
+}
+
+// License classifier mirroring the server's LicensePolicy.Classify — keeps
+// each row's swatch color in lockstep with the tier it'd land in.
+function tierForLicense(spdx: string): LicenseKey {
+  const norm = spdx.trim()
+  if (!norm || norm === '(unknown)') return 'unknown'
+  // Exact SPDX-id matches — covers virtually every row on a normal repo.
+  if (PERMISSIVE_IDS.has(norm)) return 'permissive'
+  if (WEAK_IDS.has(norm)) return 'weakCopyleft'
+  if (STRONG_IDS.has(norm)) return 'strongCopyleft'
+  if (DENIED_IDS.has(norm)) return 'denied'
+  // Composite expression: take loosest atom.
+  const atoms = norm
+    .replace(/[()]/g, ' ')
+    .split(/\s+(?:OR|AND|WITH)\s+|,/i)
+    .map(s => s.trim())
+    .filter(Boolean)
+  let best: LicenseKey | null = null
+  const order: LicenseKey[] = ['permissive', 'weakCopyleft', 'strongCopyleft', 'denied']
+  for (const a of atoms) {
+    if (PERMISSIVE_IDS.has(a))     best = bestTier(best, 'permissive', order)
+    else if (WEAK_IDS.has(a))      best = bestTier(best, 'weakCopyleft', order)
+    else if (STRONG_IDS.has(a))    best = bestTier(best, 'strongCopyleft', order)
+    else if (DENIED_IDS.has(a))    best = bestTier(best, 'denied', order)
+  }
+  return best ?? 'unknown'
+}
+function bestTier(cur: LicenseKey | null, candidate: LicenseKey, order: LicenseKey[]): LicenseKey {
+  if (cur === null) return candidate
+  return order.indexOf(candidate) < order.indexOf(cur) ? candidate : cur
+}
+
+// Mirror of LicensePolicy.cs — keep these in sync. Exhaustive enough
+// for the SPDX ids that show up in mainstream OSS today.
+const PERMISSIVE_IDS = new Set([
+  'MIT', 'MIT-0', 'Apache-2.0',
+  'BSD-2-Clause', 'BSD-3-Clause', 'BSD-3-Clause-Clear',
+  'ISC', '0BSD', 'Unlicense', 'CC0-1.0',
+  'CC-BY-4.0', 'CC-BY-3.0', 'PostgreSQL', 'BlueOak-1.0.0',
+  'Zlib', 'WTFPL', 'Python-2.0', 'MS-PL',
+])
+const WEAK_IDS = new Set([
+  'MPL-2.0', 'MPL-1.1', 'EPL-1.0', 'EPL-2.0',
+  'LGPL-2.1', 'LGPL-2.1-only', 'LGPL-2.1-or-later',
+  'CDDL-1.0', 'CDDL-1.1', 'MS-RL',
+])
+const STRONG_IDS = new Set([
+  'GPL-2.0', 'GPL-2.0-only', 'GPL-2.0-or-later',
+  'LGPL-3.0', 'LGPL-3.0-only', 'LGPL-3.0-or-later',
+])
+const DENIED_IDS = new Set([
+  'GPL-3.0', 'GPL-3.0-only', 'GPL-3.0-or-later',
+  'AGPL-3.0', 'AGPL-3.0-only', 'AGPL-3.0-or-later',
+  'SSPL-1.0', 'Commons-Clause',
+])
+
+export function LicenseTable({
+  byLicense,
+  onRowClick,
+  topN = 10,
+}: {
+  byLicense?: Record<string, number>
+  onRowClick?: (license: string) => void
+  topN?: number
+}) {
+  const entries = byLicense ? Object.entries(byLicense) : []
+  const total = entries.reduce((s, [, v]) => s + v, 0)
+  const sorted = entries.sort((a, b) => b[1] - a[1])
+  const visible = sorted.slice(0, topN)
+  const restCount = sorted.slice(topN).reduce((s, [, v]) => s + v, 0)
+  const restLicenses = sorted.slice(topN).length
+
+  return (
+    <CompactTable title="Licenses (% of deps)">
+      {visible.length === 0 && <EmptyRow />}
+      {visible.map(([lic, count]) => {
+        const tier = tierForLicense(lic)
+        return (
+          <Row
+            key={lic}
+            color={LICENSE_COLORS[tier]}
+            label={lic}
+            count={count}
+            pct={total > 0 ? (count / total) * 100 : 0}
+            onClick={onRowClick ? () => onRowClick(lic) : undefined}
+          />
+        )
+      })}
+      {restCount > 0 && (
+        <tr className="border-b last:border-b-0 text-muted-foreground">
+          <td className="flex items-center gap-2 px-3 py-1.5">
+            <span className="inline-block size-2.5 rounded-sm border" />
+            <span className="italic">… {restLicenses} more</span>
+          </td>
+          <td className="px-3 py-1.5 text-right tabular-nums">{restCount}</td>
+          <td className="w-14 px-3 py-1.5 text-right text-xs tabular-nums">{total > 0 ? ((restCount / total) * 100).toFixed(1) : '0'}%</td>
+        </tr>
+      )}
       <TotalRow total={total} />
     </CompactTable>
   )
