@@ -7,7 +7,9 @@ using Tamp.Sarif;
 using Tamp.Sbom;
 using Tamp.Security.Pipeline;
 using Tamp.Syft.V1;
+using Tamp.TruffleHog.V3;
 using SyftCli = Tamp.Syft.V1.Syft;
+using TrufflehogCli = Tamp.TruffleHog.V3.TruffleHog;
 
 // tamp.findings self-hosted build script. Run with:
 //   dotnet run --project build -- <target>
@@ -27,13 +29,25 @@ class Build : SecurityPipelineBuild
 
     // Grype binary resolved off PATH (winget install Anchore.Grype). The
     // Grype satellite uses the newer "pass Tool explicitly" wrapper style.
-    [FromPath("grype")] readonly Tool GrypeTool = null!;
+#pragma warning disable CS0649
+    [FromPath("grype", Optional = true)] readonly Tool? GrypeTool;
+
+    // TruffleHog v3 binary resolved off PATH (scoop install trufflehog).
+    // Optional so targets that don't need it (Ingest, Compile, Test) can
+    // run from a shell where scoop's shims aren't on PATH.
+    [FromPath("trufflehog", Optional = true)] readonly Tool? TrufflehogTool;
+#pragma warning restore CS0649
 
     // CycloneDX SBOM enriched with the Vulnerabilities array — Grype's
     // cyclonedx-json output reads the source SBOM and re-emits it with
     // CVE annotations under top-level vulnerabilities. Our existing
     // SbomIngestMapper already folds those into per-component vuln lists.
     AbsolutePath SbomWithCvesFile => RootDirectory / "artifacts" / "security" / "tamp.findings.cves.cdx.json";
+
+    // TruffleHog JSON: one finding per line (jsonl). The wrapper writes
+    // raw secret material here when scanning, so make sure this path is
+    // gitignored (it already is under artifacts/).
+    AbsolutePath TrufflehogJsonFile => RootDirectory / "artifacts" / "security" / "trufflehog.jsonl";
 
     AbsolutePath Artifacts => RootDirectory / "artifacts";
     AbsolutePath CoverageDir => Artifacts / "coverage";
@@ -152,11 +166,54 @@ class Build : SecurityPipelineBuild
 
     Target SecurityScanGrype => _ => _
         .DependsOn(nameof(Sbom))
+        .Requires(() => GrypeTool is not null)
         .Description("Run Grype against the CycloneDX SBOM, emit an enriched CycloneDX file with CVEs folded in. First run downloads Grype's vuln DB (~5 min); subsequent runs are seconds.")
-        .Executes(() => Grype.Scan(GrypeTool, s => s
+        .Executes(() => Grype.Scan(GrypeTool!, s => s
             .SetSbomSource(SecuritySbomFile.Value)
             .AddOutput($"cyclonedx-json={SbomWithCvesFile.Value}")
             .SetWorkingDirectory(RootDirectory)));
+
+    // ----- TruffleHog secrets ---------------------------------------------
+
+    Target SecurityScanSecrets => _ => _
+        .Requires(() => TrufflehogTool is not null)
+        .Description("TruffleHog filesystem scan emitting JSONL findings (one per line). --no-verification keeps this offline and fast; verification can be re-enabled in CI when network egress is allowed. NOTE: bypasses Tamp.TruffleHog.V3.SetOutput due to TAM-263 — TruffleHog v3 has no --output flag, so we capture stdout to a file directly.")
+        .Executes(() => RunTrufflehog());
+
+    void RunTrufflehog()
+    {
+        SecurityArtifactsDir.CreateDirectory();
+        var excludeFile = (RootDirectory / "build" / ".trufflehogignore").Value;
+        var psi = new System.Diagnostics.ProcessStartInfo(TrufflehogTool!.Executable.Value)
+        {
+            // --exclude-paths skips node_modules, .git, artifacts, build outputs.
+            // Without this TruffleHog walks the full web/node_modules tree and
+            // never returns — every file gets every detector regex applied.
+            ArgumentList =
+            {
+                "filesystem", ".",
+                "--json", "--no-verification", "--no-update",
+                "--exclude-paths", excludeFile,
+            },
+            WorkingDirectory = RootDirectory.Value,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        using var proc = System.Diagnostics.Process.Start(psi)!;
+        using (var sw = File.CreateText(TrufflehogJsonFile.Value))
+        {
+            sw.Write(proc.StandardOutput.ReadToEnd());
+        }
+        // Drain stderr so the buffer doesn't deadlock; ignore the
+        // contents — trufflehog logs progress there.
+        proc.StandardError.ReadToEnd();
+        proc.WaitForExit();
+        if (proc.ExitCode != 0)
+        {
+            Console.WriteLine($"[security] TruffleHog exited {proc.ExitCode} — output may be partial.");
+        }
+    }
 
     // ----- Ingestion -------------------------------------------------------
 
@@ -199,10 +256,22 @@ class Build : SecurityPipelineBuild
             await PostSarifAsync(client, ctx, SecuritySarifSastFile, "SAST");
             await PostSarifAsync(client, ctx, SecuritySarifCveFile, "CVE");
             await PostSarifAsync(client, ctx, SecuritySarifTrivyFile, "Trivy");
+
+            // TruffleHog jsonl is not SARIF — its own adapter.
+            var trufflehog = TrufflehogIngestMapper.Map(TrufflehogJsonFile.Value, ctx);
+            if (trufflehog is null)
+            {
+                Console.WriteLine("[ingest] TruffleHog — no secrets in jsonl (file missing or empty)");
+            }
+            else
+            {
+                var resp = await client.PostFindingsAsync(trufflehog);
+                Console.WriteLine($"[ingest] TruffleHog → inserted={resp.GetProperty("findingsInserted")}  updated={resp.GetProperty("findingsUpdated")}");
+            }
         });
 
     Target ScanAll => _ => _
-        .DependsOn(nameof(Sbom), nameof(SecurityScanGrype), nameof(SecurityScan), nameof(SecurityScanCveSbom), nameof(SecurityScanTrivy))
+        .DependsOn(nameof(Sbom), nameof(SecurityScanGrype), nameof(SecurityScan), nameof(SecurityScanCveSbom), nameof(SecurityScanTrivy), nameof(SecurityScanSecrets))
         .Description("Run every scan in artifacts/security/. The API process MUST be stopped first — the Roslyn scan rebuilds with /p:NoIncremental=true and will fight a running API for the DLL locks. Follow up with the Ingest target after the API is back up.");
 
     Target Ci => _ => _

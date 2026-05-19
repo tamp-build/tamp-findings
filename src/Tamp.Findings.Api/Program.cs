@@ -61,6 +61,7 @@ app.MapIngest();
 app.MapSbomIngest();
 app.MapFindingsQuery();
 app.MapFindingsList();
+app.MapSbomComponents();
 
 app.Run();
 

@@ -1,0 +1,13 @@
+^\.git/
+.*/\.git/
+^node_modules/
+.*/node_modules/
+^artifacts/
+.*/artifacts/
+.*/bin/
+.*/obj/
+^web/dist/
+.*/dist/
+^\.vs/
+.*/\.vs/
+.*\.lock\.json$
