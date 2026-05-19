@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, AlertCircle, Boxes, ShieldAlert } from 'lucide-react'
+import { ChevronRight, AlertCircle } from 'lucide-react'
 import {
   fetchClients,
   fetchProjects,
   fetchComponents,
   fetchAggregates,
 } from '@/lib/api'
-import type { AggregatesFilters } from '@/lib/api'
-import { RingChart } from '@/components/RingChart'
+import type { AggregatesFilters, ScannerKind } from '@/lib/api'
+import { RingChart, FindingsTypeTable } from '@/components/RingChart'
 import { cn } from '@/lib/utils'
 
 type Selection =
@@ -26,7 +26,11 @@ function toFilters(sel: Selection): AggregatesFilters {
   }
 }
 
-export function OverviewView() {
+export function OverviewView({
+  onDrillToFindings,
+}: {
+  onDrillToFindings?: (scanners: ScannerKind[]) => void
+}) {
   const [selection, setSelection] = useState<Selection>({ kind: 'all' })
 
   const aggregates = useQuery({
@@ -63,17 +67,18 @@ export function OverviewView() {
               </h2>
             </header>
 
-            <section className="grid grid-cols-[auto_1fr] gap-8 rounded-md border bg-card p-6">
-              <RingChart scannerDetails={aggregates.data.findings.byScannerDetail} />
-              <div className="space-y-4">
-                <Metric icon={<ShieldAlert className="size-5" />} label="Open findings" value={aggregates.data.findings.counts.total} />
-                <Metric icon={<Boxes className="size-5" />} label="SBOM components" value={aggregates.data.sbom.componentsCount} />
-                <Metric icon={<ShieldAlert className="size-5 text-destructive" />} label="Known CVEs" value={aggregates.data.sbom.vulnerabilitiesCount} highlight={aggregates.data.sbom.vulnerabilitiesCount > 0} />
+            <section className="grid grid-cols-[auto_1fr] items-start gap-8 rounded-md border bg-card p-6">
+              <RingChart
+                scannerDetails={aggregates.data.findings.byScannerDetail}
+                onScannerClick={(scanner) => onDrillToFindings?.([scanner as ScannerKind])}
+              />
+              <FindingsTypeTable scannerDetails={aggregates.data.findings.byScannerDetail} />
+            </section>
 
-                <Breakdown title="By scanner" map={aggregates.data.findings.byScanner} />
-                <Breakdown title="By status" map={aggregates.data.findings.byStatus} />
-                <Breakdown title="By ecosystem" map={aggregates.data.sbom.byEcosystem} />
-              </div>
+            <section className="grid grid-cols-3 gap-3 text-sm">
+              <ContextTile label="Open findings (all scanners)" value={aggregates.data.findings.counts.total} />
+              <ContextTile label="SBOM components" value={aggregates.data.sbom.componentsCount} />
+              <ContextTile label="Known CVEs" value={aggregates.data.sbom.vulnerabilitiesCount} alert={aggregates.data.sbom.vulnerabilitiesCount > 0} />
             </section>
           </>
         )}
@@ -248,36 +253,14 @@ function TreeRow({
   )
 }
 
-function Metric({
-  icon, label, value, highlight,
-}: { icon: React.ReactNode; label: string; value: number; highlight?: boolean }) {
+function ContextTile({ label, value, alert }: { label: string; value: number; alert?: boolean }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className={cn('rounded-md border bg-background p-2 text-muted-foreground', highlight && 'border-destructive/50 text-destructive')}>
-        {icon}
-      </div>
-      <div>
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-        <p className={cn('text-xl font-semibold tabular-nums', highlight && 'text-destructive')}>{value}</p>
-      </div>
-    </div>
-  )
-}
-
-function Breakdown({ title, map }: { title: string; map: Record<string, number> }) {
-  const entries = Object.entries(map)
-  if (entries.length === 0) return null
-  return (
-    <div>
-      <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">{title}</p>
-      <div className="flex flex-wrap gap-1.5">
-        {entries.map(([k, v]) => (
-          <span key={k} className="inline-flex items-baseline gap-1 rounded-md border bg-background px-2 py-0.5 text-xs">
-            <span className="font-semibold tabular-nums">{v}</span>
-            <span className="text-muted-foreground">{k}</span>
-          </span>
-        ))}
-      </div>
+    <div className={cn(
+      'rounded-md border bg-card px-3 py-2',
+      alert && 'border-destructive/50',
+    )}>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={cn('mt-0.5 text-xl font-semibold tabular-nums', alert && 'text-destructive')}>{value}</p>
     </div>
   )
 }

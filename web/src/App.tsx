@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { ScannerKind } from '@/lib/api'
 import { FindingsView } from '@/views/FindingsView'
 import { ComponentsView } from '@/views/ComponentsView'
 import { OverviewView } from '@/views/OverviewView'
@@ -10,6 +11,16 @@ type Tab = 'overview' | 'findings' | 'components'
 function App() {
   const [tab, setTab] = useState<Tab>('overview')
   const [search, setSearch] = useState('')
+  // Cross-tab nav: when the Overview donut is clicked, we land in the
+  // Findings tab with these scanners pre-selected. FindingsView seeds
+  // its local filter state from this on every change.
+  const [initialFindingsScanners, setInitialFindingsScanners] = useState<ScannerKind[]>([])
+
+  const goToFindings = (scanners: ScannerKind[]) => {
+    setInitialFindingsScanners(scanners)
+    setSearch('')
+    setTab('findings')
+  }
 
   return (
     <div className="min-h-svh bg-background text-foreground">
@@ -42,8 +53,8 @@ function App() {
       </header>
 
       <div className="mx-auto max-w-7xl px-6 py-6">
-        {tab === 'overview' && <OverviewView />}
-        {tab === 'findings' && <FindingsView search={search} />}
+        {tab === 'overview' && <OverviewView onDrillToFindings={goToFindings} />}
+        {tab === 'findings' && <FindingsView search={search} initialScanners={initialFindingsScanners} />}
         {tab === 'components' && <ComponentsView />}
       </div>
     </div>
