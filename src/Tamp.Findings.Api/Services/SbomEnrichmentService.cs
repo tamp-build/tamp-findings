@@ -4,11 +4,16 @@ using Tamp.Findings.Data;
 
 namespace Tamp.Findings.Api.Services;
 
-// Looks up the "latest published version" for each SbomComponent against
-// its native registry (nuget.org for pkg:nuget, registry.npmjs.org for
-// pkg:npm; other ecosystems skipped for v1) and updates the component's
-// LatestVersion + LatestReleasedAt. With that populated, the SBOM ring
-// on the Overview tab can show real yellow ("outdated, no CVE") share.
+// Looks up the "latest published version" + declared license for each
+// SbomComponent against its native registry (nuget.org for pkg:nuget,
+// registry.npmjs.org for pkg:npm; other ecosystems skipped for v1) and
+// updates the component's LatestVersion/LatestReleasedAt/License. With
+// those populated the SBOM ring on the Overview tab can show real
+// yellow ("outdated, no CVE") share AND the License ring can populate.
+//
+// Syft's lockfile catalogers don't carry license info — pnpm-lock and
+// packages.lock.json both omit it — so the registry call is the only
+// way to fill it without spelunking node_modules / .nuspec files.
 //
 // Per-call HTTP concurrency is bounded so the public registries aren't
 // hammered. Failures are logged and counted but don't fail the batch —
@@ -18,7 +23,10 @@ public sealed class SbomEnrichmentService(
     IHttpClientFactory httpFactory,
     ILogger<SbomEnrichmentService> log)
 {
-    public sealed record Result(int Checked, int Updated, int Cleared, int Skipped, int Errors);
+    public sealed record Result(int Checked, int Updated, int Cleared, int Skipped, int Errors, int LicensesFilled);
+
+    // Internal envelope so each lookup can return up to three signals.
+    private sealed record Lookup(string? Latest, DateTimeOffset? LatestAt, string? License);
 
     public async Task<Result> EnrichAsync(Guid? snapshotId, CancellationToken ct)
     {
@@ -35,6 +43,7 @@ public sealed class SbomEnrichmentService(
         var cleared = 0;
         var skipped = 0;
         var errors = 0;
+        var licensesFilled = 0;
 
         var sem = new SemaphoreSlim(initialCount: 8);
         var tasks = components.Select(async c =>
@@ -54,28 +63,36 @@ public sealed class SbomEnrichmentService(
                 {
                     "nuget" => await LookupNuGetAsync(http, c.Purl, ct),
                     "npm" => await LookupNpmAsync(http, c.Purl, ct),
-                    _ => (null, (DateTimeOffset?)null),
+                    _ => null,
                 };
-                var (latest, latestAt) = lookup;
-                if (latest is null) return; // registry returned no usable info
+                if (lookup is null) return;
 
-                if (string.Equals(latest, c.Version, StringComparison.OrdinalIgnoreCase))
+                if (lookup.Latest is { } latest)
                 {
-                    // Current IS latest — clear any stale annotation so the
-                    // outdated bucket doesn't lie. CurrentReleasedAt could
-                    // be filled the same way; not critical for the ring.
-                    if (c.LatestVersion is not null || c.LatestReleasedAt is not null)
+                    if (string.Equals(latest, c.Version, StringComparison.OrdinalIgnoreCase))
                     {
-                        c.LatestVersion = null;
-                        c.LatestReleasedAt = null;
-                        Interlocked.Increment(ref cleared);
+                        if (c.LatestVersion is not null || c.LatestReleasedAt is not null)
+                        {
+                            c.LatestVersion = null;
+                            c.LatestReleasedAt = null;
+                            Interlocked.Increment(ref cleared);
+                        }
+                    }
+                    else
+                    {
+                        c.LatestVersion = latest;
+                        c.LatestReleasedAt = lookup.LatestAt;
+                        Interlocked.Increment(ref updated);
                     }
                 }
-                else
+
+                // License: only fill if the SBOM didn't carry one. Don't
+                // overwrite — the SBOM emitter (Syft / dotnet-CycloneDX)
+                // is the better source when present.
+                if (string.IsNullOrWhiteSpace(c.License) && !string.IsNullOrWhiteSpace(lookup.License))
                 {
-                    c.LatestVersion = latest;
-                    c.LatestReleasedAt = latestAt;
-                    Interlocked.Increment(ref updated);
+                    c.License = lookup.License;
+                    Interlocked.Increment(ref licensesFilled);
                 }
             }
             catch (Exception ex)
@@ -91,7 +108,7 @@ public sealed class SbomEnrichmentService(
 
         await Task.WhenAll(tasks);
         await db.SaveChangesAsync(ct);
-        return new Result(checkedCount, updated, cleared, skipped, errors);
+        return new Result(checkedCount, updated, cleared, skipped, errors, licensesFilled);
     }
 
     // ----- ecosystem detection ------------------------------------------------
@@ -122,34 +139,90 @@ public sealed class SbomEnrichmentService(
 
     // ----- NuGet lookup -------------------------------------------------------
 
-    private async Task<(string? Latest, DateTimeOffset? LatestAt)> LookupNuGetAsync(
+    private async Task<Lookup?> LookupNuGetAsync(
         HttpClient http, string purl, CancellationToken ct)
     {
         var (name, _) = ParsePurl(purl, "pkg:nuget/");
-        if (string.IsNullOrWhiteSpace(name)) return (null, null);
+        if (string.IsNullOrWhiteSpace(name)) return null;
 
-        // v3 flatcontainer is the cheapest way to enumerate versions; it
-        // returns a sorted ascending versions array. We don't get release
-        // dates here — a follow-up could hit registration5-semver1 for
-        // each newer version to get `published`, but for the yellow ring
-        // we only need the version string.
-        var url = $"https://api.nuget.org/v3-flatcontainer/{name.ToLowerInvariant()}/index.json";
+        // azuresearch returns both the latest stable version AND the
+        // license info in one call — cheaper than flatcontainer + a
+        // second registration5-semver1 round-trip for license.
+        var url = $"https://azuresearch-usnc.nuget.org/query?q=PackageId:{Uri.EscapeDataString(name)}&take=1&semVerLevel=2.0.0";
         using var resp = await http.GetAsync(url, ct);
-        if (!resp.IsSuccessStatusCode) return (null, null);
+        if (!resp.IsSuccessStatusCode) return null;
         using var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-        if (!doc.RootElement.TryGetProperty("versions", out var arr) || arr.ValueKind != JsonValueKind.Array)
-            return (null, null);
 
-        string? latestStable = null;
-        foreach (var v in arr.EnumerateArray())
+        if (!doc.RootElement.TryGetProperty("data", out var data) ||
+            data.ValueKind != JsonValueKind.Array ||
+            data.GetArrayLength() == 0)
+            return null;
+
+        var entry = data[0];
+        string? latest = null;
+        if (entry.TryGetProperty("version", out var versionEl) &&
+            versionEl.GetString() is { Length: > 0 } v &&
+            !IsPrerelease(v))
         {
-            var s = v.GetString();
-            if (string.IsNullOrEmpty(s)) continue;
-            if (IsPrerelease(s)) continue;
-            latestStable = s; // array is ascending; last stable wins
+            latest = v;
         }
-        return (latestStable, null);
+
+        // NuGet has three different fields depending on package age:
+        //   licenseExpression — SPDX expression, new style (preferred)
+        //   license           — string, legacy
+        //   licenseUrl        — URL (last resort, often a generic page)
+        string? license = null;
+        if (entry.TryGetProperty("licenseExpression", out var lex) && lex.GetString() is { Length: > 0 } l1) license = l1;
+        else if (entry.TryGetProperty("license", out var lic) && lic.GetString() is { Length: > 0 } l2) license = l2;
+
+        // Microsoft / 1ES-published packages only set licenseUrl in the
+        // search index. The actual licenseExpression lives in the catalog
+        // entry, reached via registration5-semver1 → catalogEntry URL.
+        // Two extra calls per missing-license package, gated on having
+        // a known latest version.
+        if (license is null && latest is not null)
+        {
+            license = await TryFetchNuGetLicenseFromCatalogAsync(http, name, latest, ct);
+        }
+
+        return new Lookup(latest, null, license);
+    }
+
+    private async Task<string?> TryFetchNuGetLicenseFromCatalogAsync(
+        HttpClient http, string name, string version, CancellationToken ct)
+    {
+        try
+        {
+            var regUrl = $"https://api.nuget.org/v3/registration5-semver1/{name.ToLowerInvariant()}/{version.ToLowerInvariant()}.json";
+            using var regResp = await http.GetAsync(regUrl, ct);
+            if (!regResp.IsSuccessStatusCode) return null;
+            using var regStream = await regResp.Content.ReadAsStreamAsync(ct);
+            using var regDoc = await JsonDocument.ParseAsync(regStream, cancellationToken: ct);
+
+            if (!regDoc.RootElement.TryGetProperty("catalogEntry", out var catEl)) return null;
+            // catalogEntry is a URL string referencing the canonical
+            // catalog data for this (id, version). Has to be fetched
+            // separately — NuGet does not embed it inline at this layer.
+            var catalogUrl = catEl.GetString();
+            if (string.IsNullOrEmpty(catalogUrl)) return null;
+
+            using var catResp = await http.GetAsync(catalogUrl, ct);
+            if (!catResp.IsSuccessStatusCode) return null;
+            using var catStream = await catResp.Content.ReadAsStreamAsync(ct);
+            using var catDoc = await JsonDocument.ParseAsync(catStream, cancellationToken: ct);
+
+            if (catDoc.RootElement.TryGetProperty("licenseExpression", out var lex) &&
+                lex.GetString() is { Length: > 0 } l)
+            {
+                return l;
+            }
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     // SemVer prerelease has a '-' before any qualifier (e.g., "1.0.0-alpha").
@@ -161,21 +234,20 @@ public sealed class SbomEnrichmentService(
 
     // ----- npm lookup ---------------------------------------------------------
 
-    private async Task<(string? Latest, DateTimeOffset? LatestAt)> LookupNpmAsync(
+    private async Task<Lookup?> LookupNpmAsync(
         HttpClient http, string purl, CancellationToken ct)
     {
         var (name, _) = ParsePurl(purl, "pkg:npm/");
-        if (string.IsNullOrWhiteSpace(name)) return (null, null);
+        if (string.IsNullOrWhiteSpace(name)) return null;
 
         // npm registry expects scoped names URL-encoded; @ → %40 and / → %2F.
-        // Tooling-friendly: just encode the whole name conservatively.
         var encoded = name.Contains('/')
             ? name.Replace("@", "%40").Replace("/", "%2F")
             : Uri.EscapeDataString(name);
 
         var url = $"https://registry.npmjs.org/{encoded}";
         using var resp = await http.GetAsync(url, ct);
-        if (!resp.IsSuccessStatusCode) return (null, null);
+        if (!resp.IsSuccessStatusCode) return null;
         using var stream = await resp.Content.ReadAsStreamAsync(ct);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
 
@@ -185,7 +257,7 @@ public sealed class SbomEnrichmentService(
         {
             latest = latestEl.GetString();
         }
-        if (string.IsNullOrEmpty(latest)) return (null, null);
+        if (string.IsNullOrEmpty(latest)) return null;
 
         DateTimeOffset? releasedAt = null;
         if (doc.RootElement.TryGetProperty("time", out var time) &&
@@ -195,6 +267,39 @@ public sealed class SbomEnrichmentService(
         {
             releasedAt = parsed;
         }
-        return (latest, releasedAt);
+
+        // npm license can be either a string ("MIT") or — for older packages
+        // — a "licenses" array of { type, url }. Prefer the per-latest-
+        // version metadata if available since some packages relicense over
+        // time; fall back to the root level.
+        string? license = null;
+        if (doc.RootElement.TryGetProperty("versions", out var versions) &&
+            versions.TryGetProperty(latest, out var verMeta))
+        {
+            license = ExtractNpmLicense(verMeta);
+        }
+        license ??= ExtractNpmLicense(doc.RootElement);
+
+        return new Lookup(latest, releasedAt, license);
+    }
+
+    private static string? ExtractNpmLicense(JsonElement el)
+    {
+        if (el.TryGetProperty("license", out var lic))
+        {
+            if (lic.ValueKind == JsonValueKind.String)
+                return lic.GetString();
+            if (lic.ValueKind == JsonValueKind.Object && lic.TryGetProperty("type", out var t))
+                return t.GetString();
+        }
+        if (el.TryGetProperty("licenses", out var arr) && arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
+        {
+            var first = arr[0];
+            if (first.ValueKind == JsonValueKind.Object && first.TryGetProperty("type", out var t))
+                return t.GetString();
+            if (first.ValueKind == JsonValueKind.String)
+                return first.GetString();
+        }
+        return null;
     }
 }
