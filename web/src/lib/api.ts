@@ -74,6 +74,8 @@ export type SbomComponentListItem = {
   kind: string | null
   ecosystem: 'nuget' | 'npm' | 'other' | string
   license: string | null
+  latestVersion: string | null
+  latestReleasedAt: string | null
   vulnerabilityCount: number
   componentVersionId: string
   versionString: string
