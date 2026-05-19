@@ -63,6 +63,7 @@ app.MapFindingsQuery();
 app.MapFindingsList();
 app.MapSbomComponents();
 app.MapSuppressions();
+app.MapRoleAssignments();
 
 app.Run();
 
