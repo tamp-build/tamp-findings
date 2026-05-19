@@ -35,6 +35,7 @@ public static class SbomComponentsEndpoints
         Guid? projectId = null,
         string? ecosystem = null,
         string? search = null,
+        bool latest = true,
         int skip = 0,
         int take = 100)
     {
@@ -48,6 +49,23 @@ public static class SbomComponentsEndpoints
         if (componentVersionId is { } cv) q = q.Where(c => c.SbomSnapshot!.ComponentVersionId == cv);
         if (projectId is { } prj) q = q.Where(c => c.SbomSnapshot!.ComponentVersion!.Component!.ProjectId == prj);
         if (clientId is { } cli) q = q.Where(c => c.SbomSnapshot!.ComponentVersion!.Component!.Project!.ClientId == cli);
+
+        // Default: only the most recent snapshot per (Component, Flavor).
+        // Collapses historical versions of the same component to the current
+        // SBOM. Pass latest=false to see every ingested snapshot — useful
+        // for diffing dep trees across builds.
+        if (latest)
+        {
+            var latestSnapshotIds = await db.SbomSnapshots
+                .GroupBy(s => new
+                {
+                    s.ComponentVersion!.ComponentId,
+                    FlavorKey = s.ComponentVersion.FlavorId ?? Guid.Empty,
+                })
+                .Select(g => g.OrderByDescending(s => s.IngestedAt).First().Id)
+                .ToListAsync(ct);
+            q = q.Where(c => latestSnapshotIds.Contains(c.SbomSnapshotId));
+        }
 
         // Filter by ecosystem via PURL prefix. Done in-DB so paging is honest.
         if (!string.IsNullOrWhiteSpace(ecosystem))

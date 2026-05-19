@@ -100,6 +100,7 @@ export type SbomComponentsFilters = {
   componentVersionId?: string
   ecosystem?: string
   search?: string
+  latest?: boolean
   skip?: number
   take?: number
 }
@@ -109,6 +110,7 @@ export async function fetchSbomComponents(filters: SbomComponentsFilters = {}): 
   if (filters.componentVersionId) params.set('componentVersionId', filters.componentVersionId)
   if (filters.ecosystem) params.set('ecosystem', filters.ecosystem)
   if (filters.search) params.set('search', filters.search)
+  if (filters.latest === false) params.set('latest', 'false')
   if (filters.skip != null) params.set('skip', String(filters.skip))
   if (filters.take != null) params.set('take', String(filters.take))
   const r = await fetch(`${API_BASE}/sbom-components?${params.toString()}`)
