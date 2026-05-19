@@ -31,6 +31,15 @@
     <PackageReference Include="Tamp.DotNetCoverage.V18" />
     <PackageReference Include="Tamp.Coverlet.V6" />
     <PackageReference Include="Tamp.ReportGenerator.V5" />
+    <PackageReference Include="Tamp.Syft.V1" />
+    <PackageReference Include="Tamp.Grype" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Domain provides ScannerKind / Severity / FindingStatus shared with
+         the API contract. We deliberately do not reference Tamp.Findings.Api
+         so the build script can talk to the API only over HTTP. -->
+    <ProjectReference Include="..\src\Tamp.Findings.Domain\Tamp.Findings.Domain.csproj" />
   </ItemGroup>
 
 </Project>

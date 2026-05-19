@@ -1,5 +1,9 @@
 using Tamp;
+using Tamp.Findings.Build.Adapters;
+using Tamp.Findings.Build.Ingest;
 using Tamp.NetCli.V10;
+using Tamp.Sarif;
+using Tamp.Sbom;
 using Tamp.Security.Pipeline;
 
 // tamp.findings self-hosted build script. Run with:
@@ -15,6 +19,9 @@ class Build : SecurityPipelineBuild
     [Solution] readonly Solution Solution = null!;
     [GitRepository] readonly GitRepository Git = null!;
 
+    [Parameter("tamp.findings API URL", EnvironmentVariable = "TAMP_FINDINGS_URL")]
+    readonly string IngestUrl = "http://localhost:5080";
+
     AbsolutePath Artifacts => RootDirectory / "artifacts";
     AbsolutePath CoverageDir => Artifacts / "coverage";
     AbsolutePath TestResults => Artifacts / "test-results";
@@ -23,6 +30,34 @@ class Build : SecurityPipelineBuild
 
     protected override string SecurityProductName => "tamp.findings";
     protected override string SecuritySolutionPath => Solution.Path;
+
+    // OpenGrep CLI install on Windows is upstream-blocked (TAM-262).
+    // No-op the target so the dependency chain still runs; SecurityScan
+    // will merge whatever SARIFs exist.
+    protected override Target SecurityScanOpenGrep => _ => _
+        .Description("OpenGrep skipped pending TAM-262 (CLI not winget/scoop/pipx-installable on Windows).")
+        .Executes(() => Console.WriteLine("[security] OpenGrep skipped — see TAM-262"));
+
+    // Roslyn analyzer scan must skip the build project itself: dotnet build
+    // of the whole solution would try to overwrite our own Build.exe while
+    // we're running. Restricting to src/ also keeps test projects out of the
+    // SARIF (Directory.Build.props condition handles IsTestProject).
+    protected override Target SecurityScanRoslyn => _ => _
+        .Description("Roslyn SARIF leg — builds each src/ project with /p:IncludeSecurityAnalyzers=true. Excludes build/ to avoid the build orchestrator overwriting itself; excludes tests/ via Directory.Build.props condition.")
+        .DependsOn(SbomDependencies)
+        .Executes(() =>
+        {
+            SecurityArtifactsDir.CreateDirectory();
+            SecuritySarifRoslynDir.CreateDirectory();
+            foreach (var f in SecuritySarifRoslynDir.GlobFiles("*.sarif")) f.Delete();
+
+            return (RootDirectory / "src").GlobFiles("**/*.csproj")
+                .Select(proj => DotNet.Build(s => s
+                    .SetProject(proj)
+                    .SetProperty("IncludeSecurityAnalyzers", "true")
+                    .SetProperty("TreatWarningsAsErrors", "false")
+                    .SetNoIncremental(true)));
+        });
 
     // ----- .NET-side targets ----------------------------------------------
 
@@ -36,6 +71,7 @@ class Build : SecurityPipelineBuild
             Console.WriteLine($"  Configuration: {Configuration}");
             Console.WriteLine($"  Solution:      {Solution.Name} ({Solution.Projects.Count} project{(Solution.Projects.Count == 1 ? "" : "s")})");
             Console.WriteLine($"  Local build:   {IsLocalBuild}");
+            Console.WriteLine($"  Ingest URL:    {IngestUrl}");
         });
 
     Target Clean => _ => _
@@ -72,12 +108,88 @@ class Build : SecurityPipelineBuild
         .Executes(() =>
         {
             CoverageDir.CreateDirectory();
-            // Per-project coverage XML lives under artifacts/test-results/<guid>/coverage.opencover.xml
-            // — leave aggregation to ReportGenerator when we wire it in.
             Console.WriteLine($"  Coverage outputs landed under {TestResults.Value}");
         });
 
+    // ----- Ingestion -------------------------------------------------------
+
+    Target Ingest => _ => _
+        .Description("POST every artifact under artifacts/security/ to the running tamp.findings API. Run ScanAll first to produce the artifacts; the API process must be up.")
+        .Executes(async () =>
+        {
+            var ctx = BuildIngestContext();
+            Console.WriteLine($"[ingest] target: {IngestUrl}  context: {ctx.Client}/{ctx.Project}/{ctx.Component} {ctx.Version} @{ctx.CommitSha?[..7]}");
+
+            var client = new IngestClient(IngestUrl);
+
+            // SBOM first so subsequent SARIF posts attach to an existing
+            // ComponentVersion in the most predictable order.
+            if (File.Exists(SecuritySbomFile))
+            {
+                var bom = SbomReader.LoadFromFile(SecuritySbomFile);
+                var payload = SbomIngestMapper.Map(bom, ctx);
+                var resp = await client.PostSbomAsync(payload);
+                Console.WriteLine($"[ingest] SBOM       → snapshot {resp.GetProperty("sbomSnapshotId")}  components={resp.GetProperty("componentsCount")}  deps={resp.GetProperty("dependenciesCount")}");
+            }
+            else
+            {
+                Console.WriteLine($"[ingest] SBOM       — file not found at {SecuritySbomFile.Value}, skipping");
+            }
+
+            await PostSarifAsync(client, ctx, SecuritySarifSastFile, "SAST");
+            await PostSarifAsync(client, ctx, SecuritySarifCveFile, "CVE");
+            await PostSarifAsync(client, ctx, SecuritySarifTrivyFile, "Trivy");
+        });
+
+    Target ScanAll => _ => _
+        .DependsOn(nameof(Sbom), nameof(SecurityScan), nameof(SecurityScanCveSbom), nameof(SecurityScanTrivy))
+        .Description("Run every scan in artifacts/security/. The API process MUST be stopped first — the Roslyn scan rebuilds with /p:NoIncremental=true and will fight a running API for the DLL locks. Follow up with the Ingest target after the API is back up.");
+
     Target Ci => _ => _
         .DependsOn(nameof(Info), nameof(Compile), nameof(Test), nameof(Coverage))
-        .Description("Local CI: build, test, coverage. Security target runs separately for now (needs scanner CLIs).");
+        .Description("Local CI: build, test, coverage. Run ScanAll for the full ingestion sweep.");
+
+    // ----- Helpers ---------------------------------------------------------
+
+    IngestBuildContext BuildIngestContext()
+    {
+        // Walking up the solution → per-csproj decomposition is V2 work.
+        // For now, treat the whole repo as one ingestable component named
+        // "tamp.findings"; specific scanners can override at adapter time
+        // if their output addresses individual projects.
+        var sha = Git.Commit;
+        var version = $"0.1.0-alpha+{(sha is null ? "local" : sha[..7])}";
+        return new IngestBuildContext(
+            Client: "BrewingCoder",
+            Project: "tamp.findings",
+            Component: "Solution",
+            ComponentKind: "solution",
+            Flavor: "net10",
+            Version: version,
+            CommitSha: sha,
+            Branch: Git.Branch,
+            BuildId: IsLocalBuild ? "local" : Environment.GetEnvironmentVariable("CI_BUILD_ID"),
+            PullRequestRef: null);
+    }
+
+    static async Task PostSarifAsync(IngestClient client, IngestBuildContext ctx, AbsolutePath path, string label)
+    {
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"[ingest] {label,-10} — file not found at {path.Value}, skipping");
+            return;
+        }
+        var log = SarifReader.LoadFromFile(path);
+        var totalPosted = 0;
+        foreach (var payload in SarifIngestMapper.Map(log, ctx))
+        {
+            var resp = await client.PostFindingsAsync(payload);
+            totalPosted += resp.GetProperty("findingsInserted").GetInt32() + resp.GetProperty("findingsUpdated").GetInt32();
+            Console.WriteLine($"[ingest] {label,-10} → scanner={payload.Scanner,-12} inserted={resp.GetProperty("findingsInserted")}  updated={resp.GetProperty("findingsUpdated")}");
+        }
+        if (totalPosted == 0)
+        {
+            Console.WriteLine($"[ingest] {label,-10} — file present but no findings to post");
+        }
+    }
 }

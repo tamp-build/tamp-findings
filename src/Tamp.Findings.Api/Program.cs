@@ -58,6 +58,7 @@ app.MapGet("/version", () => Results.Ok(new
    .WithSummary("Build version");
 
 app.MapIngest();
+app.MapSbomIngest();
 app.MapFindingsQuery();
 
 app.Run();

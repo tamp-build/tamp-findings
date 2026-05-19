@@ -35,6 +35,9 @@
     <PackageVersion Include="Tamp.ReportGenerator.V5" Version="0.1.1" />
     <!-- EF Core wrapper for migrations from the build script. -->
     <PackageVersion Include="Tamp.EFCore.V10" Version="0.4.0" />
+    <!-- SBOM + CVE scanners (not in Security.Pipeline meta yet). -->
+    <PackageVersion Include="Tamp.Syft.V1" Version="1.11.0" />
+    <PackageVersion Include="Tamp.Grype" Version="0.1.0" />
   </ItemGroup>
 
   <ItemGroup Label="Roslyn security analyzers (TFND-14 — TAM-248 pattern; gated by /p:IncludeSecurityAnalyzers=true)">
