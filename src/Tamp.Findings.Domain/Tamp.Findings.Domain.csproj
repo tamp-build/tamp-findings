@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tamp.Findings.Domain</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <Description>POCOs and domain rules for tamp.findings — the aggregator's entity model is intentionally free of EF or framework references so the same types can be consumed from API, MCP, and any future hosts.</Description>
+  </PropertyGroup>
+
+</Project>

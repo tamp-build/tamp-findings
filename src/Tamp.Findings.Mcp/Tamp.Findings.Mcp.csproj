@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tamp.Findings.Mcp</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <Description>In-process MCP server stub for tamp.findings. Will host read-only retrieval tools so agents can pull aggregated findings and code context for remediation (TFND-12 / F11).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tamp.Findings.Domain\Tamp.Findings.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

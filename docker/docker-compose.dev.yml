@@ -1,0 +1,27 @@
+# tamp.findings — dev convenience compose.
+#
+# Brings up only the bits a contributor doesn't run locally: Postgres.
+# The API runs from `dotnet run` and the SPA from `pnpm dev` so debuggers
+# and hot-reload stay snappy. Production adopters point the API at their
+# own Postgres via a connection string (TFND-4 / F3.2).
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: tamp-findings-postgres
+    environment:
+      POSTGRES_DB: tamp_findings
+      POSTGRES_USER: tamp
+      POSTGRES_PASSWORD: tamp
+      # Locale + encoding so JSONB and full-text search behave predictably.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./.data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tamp -d tamp_findings"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
