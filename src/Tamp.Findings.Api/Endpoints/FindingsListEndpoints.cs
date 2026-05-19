@@ -40,6 +40,7 @@ public static class FindingsListEndpoints
         string? scanner = null,
         string? status = null,
         string? search = null,
+        bool latest = true,
         int skip = 0,
         int take = 100)
     {
@@ -60,11 +61,35 @@ public static class FindingsListEndpoints
         if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli);
         if (severities.Count > 0) q = q.Where(f => severities.Contains(f.Severity));
         if (scanners.Count > 0) q = q.Where(f => scanners.Contains(f.Scanner));
+
+        // Status filter defaults to Open only — the Inbox is for "what
+        // currently needs attention". Pass status=Open,Suppressed to peek
+        // at the suppressed pile, or include Fixed for historical review.
         if (statuses.Count > 0) q = q.Where(f => statuses.Contains(f.Status));
+        else q = q.Where(f => f.Status == FindingStatus.Open);
+
         if (!string.IsNullOrWhiteSpace(search))
         {
             var s = search.Trim();
             q = q.Where(f => EF.Functions.ILike(f.Title, $"%{s}%") || EF.Functions.ILike(f.RuleId, $"%{s}%"));
+        }
+
+        // Default: scope to the latest ComponentVersion per (Component,
+        // Flavor). Without this, every historical commit's findings pile
+        // up in the Inbox forever — auto-close only acts within a single
+        // ComponentVersion, not across them. Pass latest=false to see
+        // everything across builds.
+        if (latest)
+        {
+            var latestCvIds = await db.ComponentVersions
+                .GroupBy(v => new
+                {
+                    v.ComponentId,
+                    FlavorKey = v.FlavorId ?? Guid.Empty,
+                })
+                .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
+                .ToListAsync(ct);
+            q = q.Where(f => latestCvIds.Contains(f.ComponentVersionId));
         }
 
         var total = await q.CountAsync(ct);
