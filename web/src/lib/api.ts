@@ -150,6 +150,70 @@ export async function fetchSbomComponent(id: string): Promise<SbomComponentDetai
   return r.json()
 }
 
+// ----- Hierarchy lookups + aggregates ------------------------------------
+
+export type ClientListItem = { id: string; name: string; projectCount: number }
+export type ProjectListItem = { id: string; name: string; clientId: string; clientName: string; componentCount: number }
+export type ComponentListItem = { id: string; name: string; kind: string | null; projectId: string; projectName: string; clientId: string; clientName: string; versionCount: number }
+
+export async function fetchClients(): Promise<ClientListItem[]> {
+  const r = await fetch(`${API_BASE}/clients`)
+  if (!r.ok) throw new Error(`GET /clients failed: ${r.status}`)
+  return r.json()
+}
+
+export async function fetchProjects(clientId?: string): Promise<ProjectListItem[]> {
+  const qs = clientId ? `?clientId=${clientId}` : ''
+  const r = await fetch(`${API_BASE}/projects${qs}`)
+  if (!r.ok) throw new Error(`GET /projects failed: ${r.status}`)
+  return r.json()
+}
+
+export async function fetchComponents(projectId?: string): Promise<ComponentListItem[]> {
+  const qs = projectId ? `?projectId=${projectId}` : ''
+  const r = await fetch(`${API_BASE}/components${qs}`)
+  if (!r.ok) throw new Error(`GET /components failed: ${r.status}`)
+  return r.json()
+}
+
+export type AggregateScope = {
+  clientName: string | null
+  projectName: string | null
+  componentName: string | null
+  label: string
+  level: 'All' | 'Client' | 'Project' | 'Component'
+}
+
+export type AggregatesResponse = {
+  scope: AggregateScope
+  findings: {
+    counts: SeverityCounts
+    byScanner: Record<string, number>
+    byStatus: Record<string, number>
+  }
+  sbom: {
+    componentsCount: number
+    vulnerabilitiesCount: number
+    byEcosystem: Record<string, number>
+  }
+}
+
+export type AggregatesFilters = {
+  clientId?: string
+  projectId?: string
+  componentId?: string
+}
+
+export async function fetchAggregates(filters: AggregatesFilters = {}): Promise<AggregatesResponse> {
+  const params = new URLSearchParams()
+  if (filters.clientId) params.set('clientId', filters.clientId)
+  if (filters.projectId) params.set('projectId', filters.projectId)
+  if (filters.componentId) params.set('componentId', filters.componentId)
+  const r = await fetch(`${API_BASE}/aggregates?${params.toString()}`)
+  if (!r.ok) throw new Error(`GET /aggregates failed: ${r.status}`)
+  return r.json()
+}
+
 // ----- Findings -----------------------------------------------------------
 
 export async function fetchFindings(filters: FindingsListFilters = {}): Promise<FindingsListResponse> {

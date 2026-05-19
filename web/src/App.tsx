@@ -3,11 +3,12 @@ import { Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FindingsView } from '@/views/FindingsView'
 import { ComponentsView } from '@/views/ComponentsView'
+import { OverviewView } from '@/views/OverviewView'
 
-type Tab = 'findings' | 'components'
+type Tab = 'overview' | 'findings' | 'components'
 
 function App() {
-  const [tab, setTab] = useState<Tab>('findings')
+  const [tab, setTab] = useState<Tab>('overview')
   const [search, setSearch] = useState('')
 
   return (
@@ -16,6 +17,9 @@ function App() {
         <div className="mx-auto flex max-w-7xl items-center gap-4 px-6 py-4">
           <h1 className="text-xl font-semibold tracking-tight">tamp.findings</h1>
           <nav className="flex items-center gap-1">
+            <TabButton active={tab === 'overview'} onClick={() => { setTab('overview'); setSearch('') }}>
+              Overview
+            </TabButton>
             <TabButton active={tab === 'findings'} onClick={() => { setTab('findings'); setSearch('') }}>
               Findings
             </TabButton>
@@ -38,7 +42,9 @@ function App() {
       </header>
 
       <div className="mx-auto max-w-7xl px-6 py-6">
-        {tab === 'findings' ? <FindingsView search={search} /> : <ComponentsView />}
+        {tab === 'overview' && <OverviewView />}
+        {tab === 'findings' && <FindingsView search={search} />}
+        {tab === 'components' && <ComponentsView />}
       </div>
     </div>
   )
