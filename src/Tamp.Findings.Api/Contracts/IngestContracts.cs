@@ -33,4 +33,10 @@ public sealed record IngestFinding(
 public sealed record IngestResponse(
     Guid ComponentVersionId,
     int FindingsInserted,
-    int FindingsUpdated);
+    int FindingsUpdated,
+    // TFND-6 / F5.4 — lifecycle transitions effected by this batch.
+    // Reopened: existing Fixed/Accepted findings whose hash reappeared.
+    // Closed: existing Open findings whose hash disappeared from this
+    // scanner's results for this component version.
+    int FindingsReopened,
+    int FindingsClosed);

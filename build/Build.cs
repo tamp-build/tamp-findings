@@ -266,7 +266,7 @@ class Build : SecurityPipelineBuild
             else
             {
                 var resp = await client.PostFindingsAsync(trufflehog);
-                Console.WriteLine($"[ingest] TruffleHog → inserted={resp.GetProperty("findingsInserted")}  updated={resp.GetProperty("findingsUpdated")}");
+                Console.WriteLine($"[ingest] TruffleHog → +{resp.GetProperty("findingsInserted")} ~{resp.GetProperty("findingsUpdated")} ↺{resp.GetProperty("findingsReopened")} ✓{resp.GetProperty("findingsClosed")}");
             }
         });
 
@@ -314,7 +314,7 @@ class Build : SecurityPipelineBuild
         {
             var resp = await client.PostFindingsAsync(payload);
             totalPosted += resp.GetProperty("findingsInserted").GetInt32() + resp.GetProperty("findingsUpdated").GetInt32();
-            Console.WriteLine($"[ingest] {label,-10} → scanner={payload.Scanner,-12} inserted={resp.GetProperty("findingsInserted")}  updated={resp.GetProperty("findingsUpdated")}");
+            Console.WriteLine($"[ingest] {label,-10} → scanner={payload.Scanner,-12} +{resp.GetProperty("findingsInserted")} ~{resp.GetProperty("findingsUpdated")} ↺{resp.GetProperty("findingsReopened")} ✓{resp.GetProperty("findingsClosed")}");
         }
         if (totalPosted == 0)
         {

@@ -3,6 +3,7 @@ using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Hashing;
+using Tamp.Findings.Domain.Values;
 
 namespace Tamp.Findings.Api.Endpoints;
 
@@ -95,31 +96,48 @@ public static class IngestEndpoints
         // when we query existing findings for this version.
         await db.SaveChangesAsync(ct);
 
+        // Scope to (componentVersion, scanner) — auto-close logic below
+        // only acts on findings from THIS scanner; we never close a Roslyn
+        // finding because Trivy didn't see it.
         var existing = await db.Findings
-            .Where(f => f.ComponentVersionId == version.Id)
+            .Where(f => f.ComponentVersionId == version.Id && f.Scanner == req.Scanner)
             .ToDictionaryAsync(f => f.Hash, ct);
 
         // In-batch dedup: a single scanner run may emit the same effective
         // finding twice (e.g., overlapping OpenGrep rule patterns). Collapse
         // them so the unique index doesn't reject the SaveChanges.
         var pendingInsert = new Dictionary<string, Finding>(StringComparer.Ordinal);
+        var incomingHashes = new HashSet<string>(StringComparer.Ordinal);
 
         var now = DateTimeOffset.UtcNow;
         var inserted = 0;
         var updated = 0;
+        var reopened = 0;
+        var closed = 0;
 
         foreach (var f in req.Findings)
         {
             var hash = FindingHasher.Compute(req.Scanner, f.RuleId, f.FilePath, f.Snippet, f.Line);
+            incomingHashes.Add(hash);
 
             if (existing.TryGetValue(hash, out var current))
             {
+                var wasResolved = current.Status is FindingStatus.Fixed;
                 current.LastSeen = now;
                 current.Severity = f.Severity;
                 current.Title = f.Title;
                 current.Description = f.Description;
                 current.Line = f.Line;
                 current.Snippet = f.Snippet;
+                // Reopen if previously auto-closed and the finding came back.
+                // Deliberately don't touch Suppressed or Accepted — those are
+                // explicit decisions by named roles (F10) and shouldn't be
+                // undone by a re-scan.
+                if (wasResolved)
+                {
+                    current.Status = FindingStatus.Open;
+                    reopened++;
+                }
                 updated++;
             }
             else if (pendingInsert.TryGetValue(hash, out var queued))
@@ -156,7 +174,20 @@ public static class IngestEndpoints
             }
         }
 
+        // Auto-close: any existing Open finding for this (componentVersion,
+        // scanner) whose hash wasn't in the incoming batch is now Fixed.
+        // LastSeen is left untouched so consumers can see when it last
+        // appeared. Status==Suppressed / Accepted are deliberately skipped.
+        foreach (var (hash, current) in existing)
+        {
+            if (current.Status == FindingStatus.Open && !incomingHashes.Contains(hash))
+            {
+                current.Status = FindingStatus.Fixed;
+                closed++;
+            }
+        }
+
         await db.SaveChangesAsync(ct);
-        return Results.Ok(new IngestResponse(version.Id, inserted, updated));
+        return Results.Ok(new IngestResponse(version.Id, inserted, updated, reopened, closed));
     }
 }
