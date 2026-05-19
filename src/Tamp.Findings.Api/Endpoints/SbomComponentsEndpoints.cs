@@ -34,6 +34,7 @@ public static class SbomComponentsEndpoints
         Guid? clientId = null,
         Guid? projectId = null,
         string? ecosystem = null,
+        string? status = null,
         string? search = null,
         bool latest = true,
         int skip = 0,
@@ -72,6 +73,33 @@ public static class SbomComponentsEndpoints
         {
             var eco = ecosystem.Trim();
             q = q.Where(c => c.Purl.StartsWith($"pkg:{eco}/"));
+        }
+
+        // Health-bucket filter matching the SBOM ring on the Overview tab:
+        // vulnerable / outdated / current. Mirrors the bucket definitions
+        // in /aggregates so the row-click drill-throughs land on the same
+        // population the user just clicked on.
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            switch (status.Trim().ToLowerInvariant())
+            {
+                case "vulnerable":
+                    q = q.Where(c => c.Vulnerabilities.Any());
+                    break;
+                case "outdated":
+                    q = q.Where(c => !c.Vulnerabilities.Any()
+                                  && c.LatestVersion != null
+                                  && c.LatestVersion != c.Version);
+                    break;
+                case "current":
+                    q = q.Where(c => !c.Vulnerabilities.Any()
+                                  && (c.LatestVersion == null || c.LatestVersion == c.Version));
+                    break;
+                default:
+                    // unknown bucket → ignore the filter so the response
+                    // doesn't silently 200 with zero rows.
+                    break;
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(search))

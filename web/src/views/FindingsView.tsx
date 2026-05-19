@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { AlertCircle, X } from 'lucide-react'
 import { fetchFindings } from '@/lib/api'
-import type { FindingListItem, Severity, ScannerKind } from '@/lib/api'
+import type { FindingListItem, Severity, ScannerKind, FindingStatus } from '@/lib/api'
+import type { FindingsPreset } from '@/App'
 import { SeverityBadge } from '@/components/SeverityBadge'
 import { SeverityCountsBar } from '@/components/SeverityCountsBar'
 import { cn } from '@/lib/utils'
@@ -13,32 +14,39 @@ const ALL_SCANNERS: ScannerKind[] = [
   'Oasdiff', 'Cosign', 'NetArchTest', 'DependencyCruiser', 'Stryker', 'Coverlet',
 ]
 
+const STATUS_OPTIONS: FindingStatus[] = ['Open', 'Suppressed', 'Fixed', 'Accepted']
+
 export function FindingsView({
   search,
-  initialScanners = [],
+  preset,
 }: {
   search: string
-  initialScanners?: ScannerKind[]
+  preset: FindingsPreset
 }) {
   const [activeSeverities, setActiveSeverities] = useState<Set<Severity>>(new Set())
-  const [activeScanners, setActiveScanners] = useState<Set<ScannerKind>>(new Set(initialScanners))
+  const [activeScanners, setActiveScanners] = useState<Set<ScannerKind>>(new Set())
+  // Default to no explicit status filter — the server applies Status=Open
+  // when this set is empty. A preset can land us here with statuses set
+  // (e.g. clicking the "Closed" row on Overview).
+  const [activeStatuses, setActiveStatuses] = useState<Set<FindingStatus>>(new Set())
   const [selected, setSelected] = useState<FindingListItem | null>(null)
 
-  // When the parent passes a new initialScanners (e.g. from a donut-drill
-  // click on the Overview tab), seed the local filter state. The user can
-  // still toggle scanners off after the seed; we don't re-sync downstream.
+  // When the parent bumps `preset.nonce` (the Overview's row-drill or
+  // donut-drill click) seed local state from the new preset payload.
+  // Replaces rather than merges so previous clicks don't ghost.
   useEffect(() => {
-    if (initialScanners.length > 0) {
-      setActiveScanners(new Set(initialScanners))
-    }
-  }, [initialScanners])
+    setActiveScanners(new Set(preset.scanners ?? []))
+    setActiveSeverities(new Set(preset.severities ?? []))
+    setActiveStatuses(new Set(preset.statuses ?? []))
+  }, [preset.nonce])
 
   const filters = useMemo(() => ({
     severities: [...activeSeverities],
     scanners: [...activeScanners],
+    statuses: [...activeStatuses],
     search: search.trim() || undefined,
     take: 200,
-  }), [activeSeverities, activeScanners, search])
+  }), [activeSeverities, activeScanners, activeStatuses, search])
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['findings', filters],
@@ -55,6 +63,13 @@ export function FindingsView({
   }
   const toggleScanner = (s: ScannerKind) => {
     setActiveScanners(prev => {
+      const next = new Set(prev)
+      if (next.has(s)) next.delete(s); else next.add(s)
+      return next
+    })
+  }
+  const toggleStatus = (s: FindingStatus) => {
+    setActiveStatuses(prev => {
       const next = new Set(prev)
       if (next.has(s)) next.delete(s); else next.add(s)
       return next
@@ -102,6 +117,39 @@ export function FindingsView({
               className="mt-2 text-xs text-muted-foreground hover:text-foreground"
             >
               Clear scanners
+            </button>
+          )}
+        </section>
+
+        <section>
+          <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</h2>
+          <ul className="space-y-1">
+            {STATUS_OPTIONS.map(s => {
+              const checked = activeStatuses.has(s)
+              return (
+                <li key={s}>
+                  <button
+                    type="button"
+                    onClick={() => toggleStatus(s)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted/60',
+                      checked && 'bg-muted',
+                    )}
+                  >
+                    <span className={cn('size-3.5 rounded border', checked ? 'bg-primary border-primary' : 'border-input')} />
+                    <span>{s}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+          {activeStatuses.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setActiveStatuses(new Set())}
+              className="mt-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              Clear status (defaults to Open)
             </button>
           )}
         </section>

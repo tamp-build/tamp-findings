@@ -1,27 +1,41 @@
 import { useState } from 'react'
 import { Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ScannerKind } from '@/lib/api'
+import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import { FindingsView } from '@/views/FindingsView'
 import { ComponentsView } from '@/views/ComponentsView'
 import { OverviewView } from '@/views/OverviewView'
 
 type Tab = 'overview' | 'findings' | 'components'
 
+// Cross-tab presets — set by Overview row/donut clicks, consumed once
+// by the destination view's effect that seeds its local filter state.
+// A simple `nonce` counter forces the effect to re-fire even when the
+// payload happens to match the previous one.
+export type FindingsPreset = {
+  nonce: number
+  scanners?: ScannerKind[]
+  severities?: Severity[]
+  statuses?: FindingStatus[]
+}
+export type ComponentsPreset = {
+  nonce: number
+  sbomStatus?: SbomHealthStatus
+}
+
 function App() {
   const [tab, setTab] = useState<Tab>('overview')
   const [search, setSearch] = useState('')
-  // Cross-tab nav: when the Overview donut is clicked, we land in the
-  // Findings tab with these scanners pre-selected. FindingsView seeds
-  // its local filter state from this on every change.
-  const [initialFindingsScanners, setInitialFindingsScanners] = useState<ScannerKind[]>([])
+  const [findingsPreset, setFindingsPreset] = useState<FindingsPreset>({ nonce: 0 })
+  const [componentsPreset, setComponentsPreset] = useState<ComponentsPreset>({ nonce: 0 })
 
-  const goToFindings = (scanners: ScannerKind[]) => {
-    setInitialFindingsScanners(scanners)
+  const goToFindings = (preset: Omit<FindingsPreset, 'nonce'>) => {
+    setFindingsPreset(p => ({ nonce: p.nonce + 1, ...preset }))
     setSearch('')
     setTab('findings')
   }
-  const goToComponents = () => {
+  const goToComponents = (preset: Omit<ComponentsPreset, 'nonce'> = {}) => {
+    setComponentsPreset(p => ({ nonce: p.nonce + 1, ...preset }))
     setSearch('')
     setTab('components')
   }
@@ -58,8 +72,8 @@ function App() {
 
       <div className="mx-auto max-w-7xl px-6 py-6">
         {tab === 'overview' && <OverviewView onDrillToFindings={goToFindings} onDrillToComponents={goToComponents} />}
-        {tab === 'findings' && <FindingsView search={search} initialScanners={initialFindingsScanners} />}
-        {tab === 'components' && <ComponentsView />}
+        {tab === 'findings' && <FindingsView search={search} preset={findingsPreset} />}
+        {tab === 'components' && <ComponentsView preset={componentsPreset} />}
       </div>
     </div>
   )
