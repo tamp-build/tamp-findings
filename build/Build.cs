@@ -405,6 +405,19 @@ class Build : SecurityPipelineBuild
                 Console.WriteLine($"[ingest] CoverageSPA → {spaCoverage.SequenceCoverage:F1}% sequence  ({resp.GetProperty("modulesCount")} modules, {spaCoverage.CoveredSequences}/{spaCoverage.TotalSequences} points)");
             }
 
+            // Test results (TFND-20): TRX → TestRunReport. Same artifacts dir
+            // as coverage; same replace-on-ingest semantic.
+            var trxPayload = TestResultsIngestMapper.Map(TestResults.Value, ctx);
+            if (trxPayload is null)
+            {
+                Console.WriteLine($"[ingest] TestResults — no *.trx under {TestResults.Value}, skipping");
+            }
+            else
+            {
+                var resp = await client.PostTestResultsAsync(trxPayload);
+                Console.WriteLine($"[ingest] TestResults → {trxPayload.PassedCount}p / {trxPayload.FailedCount}f / {trxPayload.SkippedCount}s ({resp.GetProperty("suitesCount")} suites, {resp.GetProperty("casesCount")} cases)");
+            }
+
             // Scan-run receipts (TFND-15): one row per scanner that left an
             // artifact on disk, regardless of whether it found anything. The
             // dashboard uses these to distinguish "ran clean" from "never ran".

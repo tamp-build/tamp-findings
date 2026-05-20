@@ -6,8 +6,9 @@ import { FindingsView } from '@/views/FindingsView'
 import { ComponentsView } from '@/views/ComponentsView'
 import { OverviewView } from '@/views/OverviewView'
 import { CoverageView } from '@/views/CoverageView'
+import { TestsView } from '@/views/TestsView'
 
-type Tab = 'overview' | 'findings' | 'components' | 'coverage'
+type Tab = 'overview' | 'findings' | 'components' | 'coverage' | 'tests'
 
 // Cross-tab presets — set by Overview row/donut clicks, consumed once
 // by the destination view's effect that seeds its local filter state.
@@ -60,6 +61,9 @@ function App() {
             <TabButton active={tab === 'coverage'} onClick={() => { setTab('coverage'); setSearch('') }}>
               Coverage
             </TabButton>
+            <TabButton active={tab === 'tests'} onClick={() => { setTab('tests'); setSearch('') }}>
+              Tests
+            </TabButton>
           </nav>
           {tab === 'findings' && (
             <div className="relative w-full sm:ml-auto sm:w-72">
@@ -80,6 +84,7 @@ function App() {
         {tab === 'findings' && <FindingsView search={search} preset={findingsPreset} />}
         {tab === 'components' && <ComponentsView preset={componentsPreset} />}
         {tab === 'coverage' && <CoverageView />}
+        {tab === 'tests' && <TestsView />}
       </div>
     </div>
   )

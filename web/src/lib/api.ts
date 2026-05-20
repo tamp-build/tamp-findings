@@ -390,6 +390,76 @@ export async function fetchFindingsFile(path: string): Promise<FindingsFileRespo
   return r.json()
 }
 
+// ----- Test results (TRX) --------------------------------------------------
+
+export type TestOutcome = 'Passed' | 'Failed' | 'Skipped' | 'Inconclusive'
+
+export type TestTreeSuite = {
+  id: string
+  className: string
+  totalCount: number
+  passedCount: number
+  failedCount: number
+  skippedCount: number
+}
+
+export type TestTreeAssembly = {
+  name: string
+  totalCount: number
+  passedCount: number
+  failedCount: number
+  skippedCount: number
+  suites: TestTreeSuite[]
+}
+
+export type TestResultsTreeResponse = {
+  measured: boolean
+  totalCount: number
+  passedCount: number
+  failedCount: number
+  skippedCount: number
+  inconclusiveCount: number
+  durationMs: number
+  completedAt: string | null
+  assemblies: TestTreeAssembly[]
+}
+
+export type TestCaseDetail = {
+  name: string
+  outcome: TestOutcome
+  durationMs: number
+  errorMessage: string | null
+  errorStackTrace: string | null
+}
+
+export type TestSuiteDetail = {
+  id: string
+  assemblyName: string
+  className: string
+  totalCount: number
+  passedCount: number
+  failedCount: number
+  skippedCount: number
+  durationMs: number
+  cases: TestCaseDetail[]
+}
+
+export async function fetchTestResultsTree(filters: AggregatesFilters = {}): Promise<TestResultsTreeResponse> {
+  const params = new URLSearchParams()
+  if (filters.clientId) params.set('clientId', filters.clientId)
+  if (filters.projectId) params.set('projectId', filters.projectId)
+  if (filters.componentId) params.set('componentId', filters.componentId)
+  const r = await fetch(`${API_BASE}/test-results/tree?${params.toString()}`)
+  if (!r.ok) throw new Error(`GET /test-results/tree failed: ${r.status}`)
+  return r.json()
+}
+
+export async function fetchTestSuite(id: string): Promise<TestSuiteDetail> {
+  const r = await fetch(`${API_BASE}/test-results/suite/${id}`)
+  if (!r.ok) throw new Error(`GET /test-results/suite/${id} failed: ${r.status}`)
+  return r.json()
+}
+
 export async function fetchCoverageClass(id: string): Promise<CoverageClassDetail> {
   const r = await fetch(`${API_BASE}/coverage/class/${id}`)
   if (!r.ok) throw new Error(`GET /coverage/class/${id} failed: ${r.status}`)

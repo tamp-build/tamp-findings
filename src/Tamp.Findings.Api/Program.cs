@@ -79,6 +79,7 @@ app.MapSbomIngest();
 app.MapCoverageIngest();
 app.MapCoverageDetail();
 app.MapScanRunIngest();
+app.MapTestResults();
 app.MapFindingsQuery();
 app.MapFindingsList();
 app.MapFindingsTree();

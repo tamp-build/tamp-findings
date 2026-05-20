@@ -23,6 +23,9 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<CoverageSourceFile> CoverageSourceFiles => Set<CoverageSourceFile>();
     public DbSet<CoverageClass> CoverageClasses => Set<CoverageClass>();
     public DbSet<ScanRunReceipt> ScanRunReceipts => Set<ScanRunReceipt>();
+    public DbSet<TestRunReport> TestRunReports => Set<TestRunReport>();
+    public DbSet<TestSuiteResult> TestSuiteResults => Set<TestSuiteResult>();
+    public DbSet<TestCaseResult> TestCaseResults => Set<TestCaseResult>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -193,6 +196,35 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.SourceText).HasColumnType("text").IsRequired();
             e.HasOne(x => x.Report).WithMany(r => r.SourceFiles).HasForeignKey(x => x.CoverageReportId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.CoverageReportId, x.RelativePath }).IsUnique();
+        });
+
+        b.Entity<TestRunReport>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ToolName).HasMaxLength(128).IsRequired();
+            e.Property(x => x.ToolVersion).HasMaxLength(64);
+            e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
+            // Replace-on-ingest: one report per CV.
+            e.HasIndex(x => x.ComponentVersionId).IsUnique();
+        });
+
+        b.Entity<TestSuiteResult>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.AssemblyName).HasMaxLength(512).IsRequired();
+            e.Property(x => x.ClassName).HasMaxLength(1024).IsRequired();
+            e.HasOne(x => x.Report).WithMany(r => r.Suites).HasForeignKey(x => x.TestRunReportId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.TestRunReportId, x.ClassName }).IsUnique();
+        });
+
+        b.Entity<TestCaseResult>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(1024).IsRequired();
+            e.Property(x => x.ErrorMessage).HasColumnType("text");
+            e.Property(x => x.ErrorStackTrace).HasColumnType("text");
+            e.HasOne(x => x.Suite).WithMany(s => s.Cases).HasForeignKey(x => x.TestSuiteResultId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.TestSuiteResultId, x.Name });
         });
 
         b.Entity<ScanRunReceipt>(e =>

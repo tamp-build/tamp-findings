@@ -6,6 +6,7 @@ import {
   fetchProjects,
   fetchComponents,
   fetchAggregates,
+  fetchTestResultsTree,
 } from '@/lib/api'
 import type { AggregatesFilters, ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import type { FindingsPreset, ComponentsPreset } from '@/App'
@@ -52,6 +53,10 @@ export function OverviewView({
   const aggregates = useQuery({
     queryKey: ['aggregates', selection],
     queryFn: () => fetchAggregates(toFilters(selection)),
+  })
+  const tests = useQuery({
+    queryKey: ['test-results-tree', selection],
+    queryFn: () => fetchTestResultsTree(toFilters(selection)),
   })
 
   return (
@@ -156,10 +161,23 @@ export function OverviewView({
               </div>
             </section>
 
-            <section className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+            <section className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <ContextTile label="Open findings (all scanners)" value={aggregates.data.findings.counts.total} />
               <ContextTile label="SBOM components" value={aggregates.data.sbom.componentsCount} />
               <ContextTile label="Known CVEs" value={aggregates.data.sbom.vulnerabilitiesCount} alert={aggregates.data.sbom.vulnerabilitiesCount > 0} />
+              {/* Tests tile shows passed/total when measured, "no runs" when not.
+                  Failed > 0 → red border to draw the eye. */}
+              {tests.data?.measured ? (
+                <ContextTile
+                  label={tests.data.failedCount > 0
+                    ? `Tests · ${tests.data.failedCount} failed`
+                    : 'Tests'}
+                  value={`${tests.data.passedCount} / ${tests.data.totalCount}`}
+                  alert={tests.data.failedCount > 0}
+                />
+              ) : (
+                <ContextTile label="Tests" value="—" />
+              )}
             </section>
           </>
         )}
@@ -334,7 +352,7 @@ function TreeRow({
   )
 }
 
-function ContextTile({ label, value, alert }: { label: string; value: number; alert?: boolean }) {
+function ContextTile({ label, value, alert }: { label: string; value: number | string; alert?: boolean }) {
   return (
     <div className={cn(
       'rounded-md border bg-card px-3 py-2',
