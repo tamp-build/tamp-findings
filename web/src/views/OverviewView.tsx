@@ -55,7 +55,7 @@ export function OverviewView({
   })
 
   return (
-    <div className="grid grid-cols-[300px_1fr] gap-6">
+    <div className="grid grid-cols-[240px_1fr] gap-4">
       <aside>
         <HierarchyTree selection={selection} onSelect={setSelection} />
       </aside>
@@ -83,7 +83,7 @@ export function OverviewView({
               </h2>
             </header>
 
-            <section className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-6 rounded-md border bg-card p-6">
+            <section className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-4 rounded-md border bg-card p-4">
               <RingChart
                 scannerDetails={aggregates.data.findings.byScannerDetail}
                 sbomHealth={aggregates.data.sbom.health}
@@ -100,7 +100,7 @@ export function OverviewView({
                 onIacClick={() => onDrillToFindings?.({ scanners: ['Trivy'] })}
                 onCoverageClick={() => onDrillToCoverage?.()}
               />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div id="coverage-table" className="rounded-md transition-shadow">
                   <CoverageTable coverage={aggregates.data.coverage} />
                 </div>
