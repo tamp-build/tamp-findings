@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { coverageTierColor, pickPrimaryScanner, tierForLicense } from './RingChart'
+import { coverageTierColor, aggregateSastCounts, tierForLicense } from './RingChart'
 import type { ScannerDetail } from '@/lib/api'
 
 // Pure-function tests for the helpers powering the Overview rings.
@@ -58,34 +58,48 @@ describe('tierForLicense', () => {
   })
 })
 
-describe('pickPrimaryScanner', () => {
-  const empty = { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 }
-  const sd = (scanner: string, total: number): ScannerDetail => ({
-    scanner,
-    open: { ...empty, total },
-    closed: 0,
-    suppressed: 0,
-    accepted: 0,
-  })
+describe('aggregateSastCounts', () => {
+  const sd = (
+    scanner: string,
+    open: Partial<{ critical: number; high: number; medium: number; low: number; info: number }> = {},
+    closed = 0,
+  ): ScannerDetail => {
+    const o = { critical: 0, high: 0, medium: 0, low: 0, info: 0, ...open }
+    const total = o.critical + o.high + o.medium + o.low + o.info
+    return { scanner, open: { ...o, total }, closed, suppressed: 0, accepted: 0 }
+  }
 
   it('returns null on empty list', () => {
-    expect(pickPrimaryScanner([])).toBeNull()
+    expect(aggregateSastCounts([])).toBeNull()
   })
-  it('prefers OpenGrep over Roslyn when both have findings', () => {
-    const result = pickPrimaryScanner([sd('Roslyn', 5), sd('OpenGrep', 3)])
-    expect(result?.scanner).toBe('OpenGrep')
+  it('sums severities across every SAST scanner', () => {
+    const agg = aggregateSastCounts([
+      sd('ReSharper', { medium: 200, low: 180 }),
+      sd('Roslyn',    { medium: 7,   low: 14 }),
+      sd('OpenGrep',  {}),
+    ])
+    expect(agg?.scanner).toBe('Code Quality')
+    expect(agg?.open.medium).toBe(207)
+    expect(agg?.open.low).toBe(194)
+    expect(agg?.open.total).toBe(207 + 194)
   })
-  it('falls back to Roslyn when OpenGrep has 0 findings', () => {
-    const result = pickPrimaryScanner([sd('OpenGrep', 0), sd('Roslyn', 5)])
-    expect(result?.scanner).toBe('Roslyn')
+  it('ignores non-SAST scanners (TruffleHog, Trivy, etc.)', () => {
+    const agg = aggregateSastCounts([
+      sd('Roslyn',     { high: 3 }),
+      sd('TruffleHog', { critical: 99 }),
+      sd('Trivy',      { high: 99 }),
+    ])
+    expect(agg?.open.high).toBe(3)
+    expect(agg?.open.critical).toBe(0)
   })
-  it('picks any nonzero scanner before zero ones outside the preference list', () => {
-    const result = pickPrimaryScanner([sd('Trivy', 7), sd('TruffleHog', 0)])
-    expect(result?.scanner).toBe('Trivy')
+  it('returns null when SAST scanners exist but all are empty', () => {
+    expect(aggregateSastCounts([sd('Roslyn', {}), sd('OpenGrep', {})])).toBeNull()
   })
-  it('returns the first detail when nothing has findings', () => {
-    const result = pickPrimaryScanner([sd('OpenGrep', 0), sd('Roslyn', 0)])
-    // pickPrimaryScanner ends with `?? details[0] ?? null` so the first one wins
-    expect(result?.scanner).toBe('OpenGrep')
+  it('rolls up lifecycle (closed/suppressed/accepted) across SAST scanners', () => {
+    const agg = aggregateSastCounts([
+      sd('Roslyn',    { medium: 5 }, 10),
+      sd('ReSharper', { medium: 1 }, 3),
+    ])
+    expect(agg?.closed).toBe(13)
   })
 })

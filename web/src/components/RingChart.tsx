@@ -21,10 +21,10 @@ import { cn } from '@/lib/utils'
 // Centralising the geometry + buckets here keeps the visual coherent
 // even as the data widens.
 
-// ReSharper InspectCode is the strongest .NET analyzer we currently ingest
-// (~2200 inspections vs Roslyn's analyzer pack ~few hundred). Prefer it over
-// Roslyn so the Code Quality ring shows the deepest scanner that has data.
-const SAST_PREFERENCE = ['ReSharper', 'OpenGrep', 'Roslyn', 'CodeQL'] as const
+// The Code Quality ring is scanner-agnostic: anything in SAST_SCANNERS
+// folds into one "Code Quality" bucket. Adding a new SAST tool means
+// listing it here — no other dashboard surface needs to know about it.
+export const SAST_SCANNERS = ['ReSharper', 'Roslyn', 'OpenGrep', 'CodeQL'] as const
 
 const SEGMENT_COLORS = {
   critical:   '#dc2626',  high:       '#f97316',  medium:     '#f59e0b',
@@ -107,12 +107,32 @@ const IAC_SEVERITY_LABELS: Record<IacSevKey, string> = {
 
 // ----- shared helpers ----------------------------------------------------
 
-export function pickPrimaryScanner(details: ScannerDetail[]): ScannerDetail | null {
-  for (const preferred of SAST_PREFERENCE) {
-    const hit = details.find(d => d.scanner === preferred)
-    if (hit && totalOf(hit) > 0) return hit
+// Sum severity + lifecycle counts across every SAST scanner so the Code
+// Quality ring/table reads as one bucket. Returns null when nothing in
+// SAST_SCANNERS has any data (so the ring renders empty rather than a
+// fake zero row).
+export function aggregateSastCounts(details: ScannerDetail[]): ScannerDetail | null {
+  const sast = details.filter(d => (SAST_SCANNERS as readonly string[]).includes(d.scanner))
+  if (sast.length === 0) return null
+  const agg: ScannerDetail = {
+    scanner: 'Code Quality',
+    open: { critical: 0, high: 0, medium: 0, low: 0, info: 0, total: 0 },
+    closed: 0,
+    suppressed: 0,
+    accepted: 0,
   }
-  return details.find(d => totalOf(d) > 0) ?? details[0] ?? null
+  for (const d of sast) {
+    agg.open.critical += d.open.critical
+    agg.open.high     += d.open.high
+    agg.open.medium   += d.open.medium
+    agg.open.low      += d.open.low
+    agg.open.info     += d.open.info
+    agg.open.total    += d.open.total
+    agg.closed        += d.closed
+    agg.suppressed    += d.suppressed
+    agg.accepted      += d.accepted
+  }
+  return totalOf(agg) === 0 ? null : agg
 }
 function totalOf(d: ScannerDetail): number {
   return d.open.total + d.closed + d.suppressed + d.accepted
@@ -265,10 +285,13 @@ export function RingChart({
       )
     : []
 
-  const primary = pickPrimaryScanner(scannerDetails)
-  const outerTotal = primary ? totalOf(primary) : 0
+  // Code Quality ring is scanner-agnostic — sum severities + lifecycle
+  // counts across every SAST scanner so the visual reads as "Code Quality"
+  // rather than "whichever single tool happened to win the preference race".
+  const sastAgg = aggregateSastCounts(scannerDetails)
+  const outerTotal = sastAgg ? totalOf(sastAgg) : 0
   const codeQualityArcs = buildArcs(
-    SEGMENT_ORDER.map(k => ({ key: k, count: primary ? countFor(primary, k) : 0, color: SEGMENT_COLORS[k] })),
+    SEGMENT_ORDER.map(k => ({ key: k, count: sastAgg ? countFor(sastAgg, k) : 0, color: SEGMENT_COLORS[k] })),
     outerTotal,
     RINGS.upper.radius,
   )
@@ -319,11 +342,6 @@ export function RingChart({
       <div className="text-center">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Risk rings</p>
         <p className="text-base font-semibold">Coverage · Code Quality · SBOM · Secrets · Licenses · IaC</p>
-        {primary && primary.scanner !== 'OpenGrep' && (
-          <p className="text-[11px] text-muted-foreground">
-            quality via {primary.scanner} · OpenGrep pending TAM-262
-          </p>
-        )}
       </div>
 
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mt-2 w-full max-w-[360px]" role="img" aria-label="Risk rings: coverage, code quality, SBOM, secrets, licenses, IaC">
@@ -337,8 +355,10 @@ export function RingChart({
         <ConcentricRing
           slot="upper"
           arcs={codeQualityArcs}
-          onClick={onScannerClick && primary ? () => onScannerClick(primary.scanner) : undefined}
-          ariaLabel={primary ? `Open ${primary.scanner} findings` : undefined}
+          // Sentinel scanner name 'CodeQuality' tells the Findings view to
+          // OR-filter across every SAST scanner rather than match a single one.
+          onClick={onScannerClick && outerTotal > 0 ? () => onScannerClick('CodeQuality') : undefined}
+          ariaLabel={outerTotal > 0 ? 'Browse code-quality findings' : undefined}
         />
         <ConcentricRing
           slot="middle"
@@ -494,12 +514,14 @@ export function FindingsTypeTable({
   onRowClick,
 }: {
   scannerDetails: ScannerDetail[]
+  // Second arg used to be the primary scanner name; we now pass the sentinel
+  // 'CodeQuality' so the Findings view OR-filters across every SAST scanner.
   onRowClick?: (segment: SegKey, scanner: string) => void
 }) {
-  const primary = pickPrimaryScanner(scannerDetails)
-  const total = primary ? totalOf(primary) : 0
+  const sastAgg = aggregateSastCounts(scannerDetails)
+  const total = sastAgg ? totalOf(sastAgg) : 0
   const rows = SEGMENT_ORDER
-    .map(k => ({ k, count: primary ? countFor(primary, k) : 0 }))
+    .map(k => ({ k, count: sastAgg ? countFor(sastAgg, k) : 0 }))
     .filter(r => r.count > 0)
 
   return (
@@ -512,7 +534,7 @@ export function FindingsTypeTable({
           label={SEGMENT_LABELS[k]}
           count={count}
           pct={total > 0 ? (count / total) * 100 : 0}
-          onClick={primary && onRowClick ? () => onRowClick(k, primary.scanner) : undefined}
+          onClick={onRowClick ? () => onRowClick(k, 'CodeQuality') : undefined}
         />
       ))}
       <TotalRow total={total} />

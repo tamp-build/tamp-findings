@@ -9,7 +9,7 @@ import {
 } from '@/lib/api'
 import type { AggregatesFilters, ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import type { FindingsPreset, ComponentsPreset } from '@/App'
-import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable, LicenseTable, IacHealthTable, CoverageTable } from '@/components/RingChart'
+import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable, LicenseTable, IacHealthTable, CoverageTable, SAST_SCANNERS } from '@/components/RingChart'
 
 // Which Findings filter does a Code-Quality table row map to? Severities
 // fold into the severity filter (default-status Open); the lifecycle
@@ -91,9 +91,14 @@ export function OverviewView({
                 licenseTiers={aggregates.data.licenses.tiers}
                 iac={aggregates.data.iac}
                 coverage={aggregates.data.coverage}
-                onScannerClick={(scanner) =>
-                  onDrillToFindings?.({ scanners: [scanner as ScannerKind] })
-                }
+                onScannerClick={(scanner) => {
+                  // Sentinel 'CodeQuality' fans out to every SAST scanner so
+                  // the Findings view doesn't pretend one tool is canonical.
+                  const scanners = scanner === 'CodeQuality'
+                    ? [...SAST_SCANNERS] as ScannerKind[]
+                    : [scanner as ScannerKind]
+                  onDrillToFindings?.({ scanners })
+                }}
                 onSbomClick={() => onDrillToComponents?.()}
                 onSecretsClick={() => onDrillToFindings?.({ scanners: ['TruffleHog'] })}
                 onLicenseClick={() => onDrillToComponents?.()}
@@ -109,8 +114,11 @@ export function OverviewView({
                   onRowClick={(segment, scanner) => {
                     const sev = SEVERITY_FROM_SEGMENT[segment]
                     const status = STATUS_FROM_SEGMENT[segment]
+                    const scanners = scanner === 'CodeQuality'
+                      ? [...SAST_SCANNERS] as ScannerKind[]
+                      : [scanner as ScannerKind]
                     onDrillToFindings?.({
-                      scanners: [scanner as ScannerKind],
+                      scanners,
                       severities: sev ? [sev] : [],
                       statuses: status ? [status] : [],
                     })
