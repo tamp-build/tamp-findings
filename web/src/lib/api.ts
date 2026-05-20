@@ -322,6 +322,60 @@ export async function fetchCoverageTree(filters: AggregatesFilters = {}): Promis
   return r.json()
 }
 
+// ----- Findings tree (file-based detail view) -----------------------------
+
+export type FindingsTreeFile = {
+  relativePath: string
+  counts: SeverityCounts
+  maxSeverity: Severity
+}
+
+export type FindingsTreeModule = {
+  name: string
+  counts: SeverityCounts
+  files: FindingsTreeFile[]
+}
+
+export type FindingsTreeResponse = {
+  totalCount: number
+  counts: SeverityCounts
+  modules: FindingsTreeModule[]
+  noPathCount: number
+}
+
+export type FindingsFileItem = {
+  id: string
+  scanner: ScannerKind
+  ruleId: string
+  severity: Severity
+  title: string
+  description: string | null
+  line: number | null
+}
+
+export type FindingsFileResponse = {
+  relativePath: string
+  sourceAvailable: boolean
+  sourceText: string
+  findings: FindingsFileItem[]
+}
+
+export async function fetchFindingsTree(filters: AggregatesFilters = {}): Promise<FindingsTreeResponse> {
+  const params = new URLSearchParams()
+  if (filters.clientId) params.set('clientId', filters.clientId)
+  if (filters.projectId) params.set('projectId', filters.projectId)
+  if (filters.componentId) params.set('componentId', filters.componentId)
+  const r = await fetch(`${API_BASE}/findings/tree?${params.toString()}`)
+  if (!r.ok) throw new Error(`GET /findings/tree failed: ${r.status}`)
+  return r.json()
+}
+
+export async function fetchFindingsFile(path: string): Promise<FindingsFileResponse> {
+  const r = await fetch(`${API_BASE}/findings/file?path=${encodeURIComponent(path)}`)
+  if (!r.ok) throw new Error(`GET /findings/file failed: ${r.status}`)
+  return r.json()
+}
+
 export async function fetchCoverageClass(id: string): Promise<CoverageClassDetail> {
   const r = await fetch(`${API_BASE}/coverage/class/${id}`)
   if (!r.ok) throw new Error(`GET /coverage/class/${id} failed: ${r.status}`)
