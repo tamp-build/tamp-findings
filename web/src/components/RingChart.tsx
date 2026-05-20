@@ -473,12 +473,14 @@ export function CoverageTable({
         </tr>
       ) : (
         <tr className={cn('bg-muted/30 font-semibold')}>
-          <td className="flex items-center gap-2 px-3 py-1.5">
-            <span className="inline-block size-2.5 rounded-sm" style={{ background: coverageTierColor(overall) }} />
-            Overall
+          <td className="px-2 py-1.5 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="inline-block size-2.5 shrink-0 rounded-sm" style={{ background: coverageTierColor(overall) }} />
+              <span className="truncate">Overall</span>
+            </div>
           </td>
-          <td className="px-3 py-1.5 text-right tabular-nums text-xs">{coverage.coveredSequences} / {coverage.totalSequences}</td>
-          <td className="w-14 px-3 py-1.5 text-right text-xs tabular-nums">{overall.toFixed(1)}%</td>
+          <td className="w-20 px-2 py-1.5 text-right tabular-nums text-xs">{coverage.coveredSequences} / {coverage.totalSequences}</td>
+          <td className="w-14 px-2 py-1.5 text-right text-xs tabular-nums">{overall.toFixed(1)}%</td>
         </tr>
       )}
     </CompactTable>
@@ -634,12 +636,14 @@ export function LicenseTable({
       })}
       {restCount > 0 && (
         <tr className="border-b last:border-b-0 text-muted-foreground">
-          <td className="flex items-center gap-2 px-3 py-1.5">
-            <span className="inline-block size-2.5 rounded-sm border" />
-            <span className="italic">… {restLicenses} more</span>
+          <td className="px-2 py-1.5 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="inline-block size-2.5 shrink-0 rounded-sm border" />
+              <span className="italic truncate">… {restLicenses} more</span>
+            </div>
           </td>
-          <td className="px-3 py-1.5 text-right tabular-nums">{restCount}</td>
-          <td className="w-14 px-3 py-1.5 text-right text-xs tabular-nums">{total > 0 ? ((restCount / total) * 100).toFixed(1) : '0'}%</td>
+          <td className="w-12 px-2 py-1.5 text-right tabular-nums">{restCount}</td>
+          <td className="w-14 px-2 py-1.5 text-right text-xs tabular-nums">{total > 0 ? ((restCount / total) * 100).toFixed(1) : '0'}%</td>
         </tr>
       )}
       <TotalRow total={total} />
@@ -689,11 +693,14 @@ export function SecretsHealthTable({
 
 function CompactTable({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-md border bg-background">
-      <div className="border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="rounded-md border bg-background overflow-hidden">
+      <div className="border-b px-2 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground truncate">
         {title}
       </div>
-      <table className="w-full text-sm">
+      {/* table-layout:fixed honors the explicit w-12 / w-14 widths so the
+          label column gets the remainder and truncates instead of pushing
+          numbers outside the cell. */}
+      <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
         <tbody>{children}</tbody>
       </table>
     </div>
@@ -718,12 +725,15 @@ function Row({
         ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() } }
         : undefined}
     >
-      <td className="flex items-center gap-2 px-3 py-1.5">
-        <span className="inline-block size-2.5 rounded-sm" style={{ background: color }} />
-        {label}
+      {/* flex-in-td breaks normal table column sizing; flex on an inner div is safe. */}
+      <td className="px-2 py-1.5 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="inline-block size-2.5 shrink-0 rounded-sm" style={{ background: color }} />
+          <span className="truncate" title={label}>{label}</span>
+        </div>
       </td>
-      <td className="px-3 py-1.5 text-right tabular-nums">{count}</td>
-      <td className="w-14 px-3 py-1.5 text-right text-xs text-muted-foreground tabular-nums">{pct.toFixed(1)}%</td>
+      <td className="w-12 px-2 py-1.5 text-right tabular-nums">{count}</td>
+      <td className="w-14 px-2 py-1.5 text-right text-xs text-muted-foreground tabular-nums">{pct.toFixed(1)}%</td>
     </tr>
   )
 }
@@ -731,9 +741,9 @@ function Row({
 function TotalRow({ total }: { total: number }) {
   return (
     <tr className={cn('bg-muted/30 font-semibold')}>
-      <td className="px-3 py-1.5">Total</td>
-      <td className="px-3 py-1.5 text-right tabular-nums">{total}</td>
-      <td className="px-3 py-1.5 text-right text-xs text-muted-foreground tabular-nums">{total > 0 ? '100.0%' : '—'}</td>
+      <td className="px-2 py-1.5">Total</td>
+      <td className="w-12 px-2 py-1.5 text-right tabular-nums">{total}</td>
+      <td className="w-14 px-2 py-1.5 text-right text-xs text-muted-foreground tabular-nums">{total > 0 ? '100.0%' : '—'}</td>
     </tr>
   )
 }
