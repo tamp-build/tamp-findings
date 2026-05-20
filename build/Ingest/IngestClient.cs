@@ -58,6 +58,12 @@ public sealed class IngestClient(string baseUrl)
         return await ReadResponseAsync(resp, ct);
     }
 
+    public async Task<JsonElement> PostOsvVulnerabilityUpsertAsync<TPayload>(TPayload payload, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("/sbom-vulnerabilities/upsert", payload, JsonOptions, ct);
+        return await ReadResponseAsync(resp, ct);
+    }
+
     private static async Task<JsonElement> ReadResponseAsync(HttpResponseMessage resp, CancellationToken ct)
     {
         var body = await resp.Content.ReadAsStringAsync(ct);
