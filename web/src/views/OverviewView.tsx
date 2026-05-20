@@ -55,7 +55,7 @@ export function OverviewView({
   })
 
   return (
-    <div className="grid grid-cols-[240px_1fr] gap-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
       <aside>
         <HierarchyTree selection={selection} onSelect={setSelection} />
       </aside>
@@ -83,7 +83,7 @@ export function OverviewView({
               </h2>
             </header>
 
-            <section className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-4 rounded-md border bg-card p-4">
+            <section className="grid grid-cols-1 items-start gap-4 rounded-md border bg-card p-4 lg:grid-cols-[auto_minmax(0,1fr)]">
               <RingChart
                 scannerDetails={aggregates.data.findings.byScannerDetail}
                 sbomHealth={aggregates.data.sbom.health}
@@ -105,7 +105,7 @@ export function OverviewView({
                 onIacClick={() => onDrillToFindings?.({ scanners: ['Trivy'] })}
                 onCoverageClick={() => onDrillToCoverage?.()}
               />
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div id="coverage-table" className="rounded-md transition-shadow">
                   <CoverageTable coverage={aggregates.data.coverage} />
                 </div>
@@ -155,7 +155,7 @@ export function OverviewView({
               </div>
             </section>
 
-            <section className="grid grid-cols-3 gap-3 text-sm">
+            <section className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
               <ContextTile label="Open findings (all scanners)" value={aggregates.data.findings.counts.total} />
               <ContextTile label="SBOM components" value={aggregates.data.sbom.componentsCount} />
               <ContextTile label="Known CVEs" value={aggregates.data.sbom.vulnerabilitiesCount} alert={aggregates.data.sbom.vulnerabilitiesCount > 0} />

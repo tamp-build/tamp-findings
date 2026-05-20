@@ -83,7 +83,7 @@ export function FindingsView({
   }, [data, activeScanners])
 
   return (
-    <div className="grid grid-cols-[220px_1fr] gap-6">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:gap-6">
       <aside className="space-y-6">
         <section>
           <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Scanner</h2>
@@ -244,7 +244,7 @@ function FindingsTable({
 
 function DetailPanel({ finding, onClose }: { finding: FindingListItem; onClose: () => void }) {
   return (
-    <aside className="fixed inset-y-0 right-0 w-[460px] border-l border-border bg-card shadow-xl">
+    <aside className="fixed inset-y-0 right-0 w-full max-w-[460px] overflow-y-auto border-l border-border bg-card shadow-xl">
       <div className="flex items-center justify-between border-b px-4 py-3">
         <div className="flex items-center gap-2">
           <SeverityBadge severity={finding.severity} />

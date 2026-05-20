@@ -61,7 +61,7 @@ export function CoverageView() {
   const overall = tree.data.sequenceCoverage ?? 0
 
   return (
-    <div className="grid grid-cols-[320px_1fr] gap-4">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-[320px_minmax(0,1fr)]">
       <aside className="space-y-2">
         <header className="rounded-md border bg-card p-3">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">Test coverage</p>
