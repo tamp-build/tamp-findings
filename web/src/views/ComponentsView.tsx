@@ -214,7 +214,7 @@ function ComponentDetailPanel({ id, onClose }: { id: string; onClose: () => void
   })
 
   return (
-    <aside className="fixed inset-y-0 right-0 w-[520px] overflow-y-auto border-l border-border bg-card shadow-xl">
+    <aside className="fixed inset-y-0 right-0 w-full max-w-[520px] overflow-y-auto border-l border-border bg-card shadow-xl">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-card px-4 py-3">
         <div className="flex items-center gap-2">
           {data && <EcosystemBadge ecosystem={data.ecosystem} />}

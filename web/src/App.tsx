@@ -45,9 +45,9 @@ function App() {
   return (
     <div className="min-h-svh bg-background text-foreground">
       <header className="border-b border-border bg-card/50">
-        <div className="mx-auto flex max-w-7xl items-center gap-4 px-6 py-4">
-          <h1 className="text-xl font-semibold tracking-tight">tamp.findings</h1>
-          <nav className="flex items-center gap-1">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:gap-4 sm:py-4">
+          <h1 className="text-lg font-semibold tracking-tight sm:text-xl">tamp.findings</h1>
+          <nav className="flex flex-wrap items-center gap-1">
             <TabButton active={tab === 'overview'} onClick={() => { setTab('overview'); setSearch('') }}>
               Overview
             </TabButton>
@@ -62,7 +62,7 @@ function App() {
             </TabButton>
           </nav>
           {tab === 'findings' && (
-            <div className="relative ml-auto w-72">
+            <div className="relative w-full sm:ml-auto sm:w-72">
               <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
               <input
                 value={search}
@@ -75,7 +75,7 @@ function App() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 py-6">
+      <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-6">
         {tab === 'overview' && <OverviewView onDrillToFindings={goToFindings} onDrillToComponents={goToComponents} onDrillToCoverage={() => setTab('coverage')} />}
         {tab === 'findings' && <FindingsView search={search} preset={findingsPreset} />}
         {tab === 'components' && <ComponentsView preset={componentsPreset} />}
