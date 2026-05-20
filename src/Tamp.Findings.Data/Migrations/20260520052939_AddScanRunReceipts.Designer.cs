@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Tamp.Findings.Data;
@@ -11,9 +12,11 @@ using Tamp.Findings.Data;
 namespace Tamp.Findings.Data.Migrations
 {
     [DbContext(typeof(FindingsDbContext))]
-    partial class FindingsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260520052939_AddScanRunReceipts")]
+    partial class AddScanRunReceipts
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

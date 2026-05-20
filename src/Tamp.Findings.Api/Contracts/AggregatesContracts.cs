@@ -11,7 +11,12 @@ public sealed record AggregatesResponse(
     SecretsAggregate Secrets,
     LicensesAggregate Licenses,
     IacAggregate Iac,
-    CoverageAggregate Coverage);
+    CoverageAggregate Coverage,
+    // One entry per scanner that's run against any latest CV in scope.
+    // Empty means no scanners have reported in. Used by the SPA to render
+    // "scanned · clean" (green) vs "never ran" (grey) on rings whose finding
+    // count is zero — TFND-15.
+    IReadOnlyList<ScanRunSummaryDto> ScanRuns);
 
 // Secrets ring (innermost concentric) — verified credentials are the
 // closest thing we can render to "actively exploitable right now".

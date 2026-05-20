@@ -91,6 +91,7 @@ export function OverviewView({
                 licenseTiers={aggregates.data.licenses.tiers}
                 iac={aggregates.data.iac}
                 coverage={aggregates.data.coverage}
+                scanRuns={aggregates.data.scanRuns}
                 onScannerClick={(scanner) => {
                   // Sentinel 'CodeQuality' fans out to every SAST scanner so
                   // the Findings view doesn't pretend one tool is canonical.
