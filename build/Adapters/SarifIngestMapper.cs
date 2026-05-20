@@ -80,6 +80,9 @@ public static class SarifIngestMapper
         if (n.Contains("codeql")) return ScannerKind.CodeQL;
         if (n.Contains("osv")) return ScannerKind.OsvScanner;
         if (n.Contains("checkov")) return ScannerKind.Checkov;
+        // JetBrains InspectCode (CLI of ReSharper). Emits SARIF with
+        // tool.driver.name typically "InspectCode" or "ReSharper".
+        if (n.Contains("inspectcode") || n.Contains("resharper") || n.Contains("jetbrains")) return ScannerKind.ReSharper;
         if (n.Contains("sonar") || n.Contains("roslyn") || n.Contains("roslynator")) return ScannerKind.Roslyn;
         // Roslyn analyzers (SonarAnalyzer.CSharp, Roslynator, etc.) emit SARIF
         // through the C# compiler; tool.driver.name is always the compiler.
