@@ -225,6 +225,21 @@ export type AggregatesResponse = {
     counts: SeverityCounts
     scanned: boolean
   }
+  coverage: {
+    measured: boolean
+    sequenceCoverage: number | null
+    branchCoverage: number | null
+    coveredSequences: number
+    totalSequences: number
+    modules: CoverageModuleSummary[]
+  }
+}
+
+export type CoverageModuleSummary = {
+  name: string
+  sequenceCoverage: number
+  coveredSequences: number
+  totalSequences: number
 }
 
 export type SbomHealthCounts = {
