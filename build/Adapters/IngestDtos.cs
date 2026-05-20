@@ -28,7 +28,8 @@ public sealed record IngestFindingDto(
     string? Description,
     string? FilePath,
     int? Line,
-    string? Snippet);
+    string? Snippet,
+    string? SubCategory = null);
 
 public sealed record SbomIngestRequestDto(
     string Client,
@@ -46,7 +47,9 @@ public sealed record SbomIngestRequestDto(
     string? ToolName,
     string? ToolVersion,
     IReadOnlyList<SbomComponentDto> Components,
-    IReadOnlyList<SbomDependencyDto> Dependencies);
+    IReadOnlyList<SbomDependencyDto> Dependencies,
+    // TFND-21: full CycloneDX metadata.tools shape, list of property bags.
+    IReadOnlyList<Dictionary<string, string?>>? MetadataTools = null);
 
 public sealed record SbomComponentDto(
     string Purl,
@@ -54,7 +57,9 @@ public sealed record SbomComponentDto(
     string Version,
     string? Kind,
     string? License,
-    IReadOnlyList<VulnerabilityDto> Vulnerabilities);
+    IReadOnlyList<VulnerabilityDto> Vulnerabilities,
+    // TFND-21: algorithm → hash value map (SHA-256, SHA-1, etc.).
+    IReadOnlyDictionary<string, string>? Hashes = null);
 
 public sealed record VulnerabilityDto(
     string AdvisoryId,

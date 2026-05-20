@@ -28,7 +28,12 @@ public sealed record IngestFinding(
     string? Description,
     string? FilePath,
     int? Line,
-    string? Snippet);
+    string? Snippet,
+    // TFND-17: scanner-internal sub-category (e.g. Trivy's secret /
+    // misconfiguration / vulnerability). Null when the scanner doesn't
+    // sub-categorise; the server stores it on Finding.SubCategory so
+    // aggregates can route to the right ring.
+    string? SubCategory = null);
 
 public sealed record IngestResponse(
     Guid ComponentVersionId,

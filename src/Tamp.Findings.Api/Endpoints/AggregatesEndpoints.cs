@@ -177,12 +177,28 @@ public static class AggregatesEndpoints
                      && c.LatestVersion != c.Version)
             .CountAsync(ct);
         var current = compsCount - vulnerable - outdated;
+        // TFND-22: "stale" = outdated AND latest release is more than 180 days
+        // ago. Sub-bucket of outdated so the user can see how much of the
+        // outdated pile has actually been sitting for a while vs. dropped
+        // behind in the last few weeks.
+        var staleCutoff = DateTimeOffset.UtcNow.AddDays(-180);
+        var stale = await sq
+            .Where(c => !c.Vulnerabilities.Any()
+                     && c.LatestVersion != null
+                     && c.LatestVersion != c.Version
+                     && c.LatestReleasedAt != null
+                     && c.LatestReleasedAt < staleCutoff)
+            .CountAsync(ct);
 
         // Secrets ring: TruffleHog Critical = verified, High = unverified.
-        // Scoped same as the other finding metrics (open + latest CV).
+        // TFND-17 expands this to also count Trivy findings tagged
+        // SubCategory="secret" alongside TruffleHog so the ring reflects
+        // every secret regardless of which tool spotted it.
         var secretsBase = db.Findings
             .AsNoTracking()
-            .Where(f => f.Scanner == ScannerKind.TruffleHog && f.Status == FindingStatus.Open);
+            .Where(f => f.Status == FindingStatus.Open
+                     && (f.Scanner == ScannerKind.TruffleHog
+                         || (f.Scanner == ScannerKind.Trivy && f.SubCategory == "secret")));
         if (componentId is { } cmp4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.ComponentId == cmp4);
         if (projectId is { } prj4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.Component!.ProjectId == prj4);
         if (clientId is { } cli4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli4);
@@ -219,13 +235,15 @@ public static class AggregatesEndpoints
             }
         }
 
-        // IaC bullseye: Trivy findings bucketed by severity. Scanned status
-        // now comes from ScanRunReceipts (TFND-15) — a Trivy receipt in scope
-        // means the scanner ran. Falls back to the old heuristic ("any Trivy
-        // finding in scope") so older ingests without receipts still work.
+        // IaC bullseye: Trivy findings bucketed by severity. TFND-17 narrows
+        // this to only Trivy(misconfiguration) — Trivy(secret) feeds the
+        // Secrets ring, Trivy(vulnerability) flows through the SBOM ring
+        // via the OSV-style upsert. Findings ingested before SubCategory
+        // existed have null and still count here (back-compat).
         var iacBase = db.Findings
             .AsNoTracking()
-            .Where(f => f.Scanner == ScannerKind.Trivy && f.Status == FindingStatus.Open);
+            .Where(f => f.Scanner == ScannerKind.Trivy && f.Status == FindingStatus.Open
+                     && (f.SubCategory == null || f.SubCategory == "misconfiguration"));
         if (componentId is { } cmp5) iacBase = iacBase.Where(f => f.ComponentVersion!.ComponentId == cmp5);
         if (projectId is { } prj5) iacBase = iacBase.Where(f => f.ComponentVersion!.Component!.ProjectId == prj5);
         if (clientId is { } cli5) iacBase = iacBase.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli5);
@@ -350,7 +368,7 @@ public static class AggregatesEndpoints
             new FindingAggregate(counts, byScanner, byStatus, byScannerDetail, byRule),
             new SbomAggregate(
                 compsCount, vulnsCount, byEcosystem,
-                new SbomHealthCounts(current, outdated, vulnerable)),
+                new SbomHealthCounts(current, outdated, vulnerable, stale)),
             new SecretsAggregate(new SecretsHealthCounts(verifiedSecrets, unverifiedSecrets)),
             new LicensesAggregate(
                 new LicenseTierCounts(perm, weak, strong, denied, unknown),

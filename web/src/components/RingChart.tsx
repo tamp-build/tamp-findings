@@ -612,16 +612,24 @@ export function SbomHealthTable({
   return (
     <CompactTable title="SBOM dep health">
       {rows.length === 0 && <EmptyRow />}
-      {rows.map(({ k, count }) => (
-        <Row
-          key={k}
-          color={SBOM_COLORS[k]}
-          label={SBOM_LABELS[k]}
-          count={count}
-          pct={total > 0 ? (count / total) * 100 : 0}
-          onClick={onRowClick ? () => onRowClick(k) : undefined}
-        />
-      ))}
+      {rows.map(({ k, count }) => {
+        // TFND-22: annotate the outdated row with how many of those have
+        // been outdated for more than 180 days. Lets the user see "12 of
+        // 66 outdated are stale" at a glance.
+        const label = k === 'outdated' && health && health.stale > 0
+          ? `${SBOM_LABELS[k]} · ${health.stale} stale >180d`
+          : SBOM_LABELS[k]
+        return (
+          <Row
+            key={k}
+            color={SBOM_COLORS[k]}
+            label={label}
+            count={count}
+            pct={total > 0 ? (count / total) * 100 : 0}
+            onClick={onRowClick ? () => onRowClick(k) : undefined}
+          />
+        )
+      })}
       <TotalRow total={total} />
     </CompactTable>
   )

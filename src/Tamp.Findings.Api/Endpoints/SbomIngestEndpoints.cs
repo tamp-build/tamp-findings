@@ -43,6 +43,8 @@ public static class SbomIngestEndpoints
             SpecVersion = req.SpecVersion,
             ToolName = req.ToolName,
             ToolVersion = req.ToolVersion,
+            // TFND-21: persist the verbatim metadata.tools record(s).
+            MetadataTools = req.MetadataTools is null ? new() : req.MetadataTools.ToList(),
             IngestedAt = DateTimeOffset.UtcNow,
         };
         db.SbomSnapshots.Add(snapshot);
@@ -65,6 +67,8 @@ public static class SbomIngestEndpoints
                 Version = c.Version,
                 Kind = c.Kind,
                 License = c.License,
+                // TFND-21: per-component hash map (algorithm → value).
+                Hashes = c.Hashes is null ? new() : c.Hashes.ToDictionary(kv => kv.Key, kv => kv.Value),
             };
             db.SbomComponents.Add(comp);
             purlToId[c.Purl] = comp.Id;

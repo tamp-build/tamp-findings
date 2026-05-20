@@ -25,7 +25,10 @@ public sealed record SbomIngestRequest(
     string? ToolVersion,
     // Graph
     IReadOnlyList<SbomComponentDto> Components,
-    IReadOnlyList<SbomDependencyDto> Dependencies);
+    IReadOnlyList<SbomDependencyDto> Dependencies,
+    // TFND-21: CycloneDX metadata.tools captured verbatim as a list of
+    // property bags (vendor, name, version, …). Null means "not provided".
+    IReadOnlyList<Dictionary<string, string?>>? MetadataTools = null);
 
 public sealed record SbomComponentDto(
     string Purl,
@@ -33,7 +36,9 @@ public sealed record SbomComponentDto(
     string Version,
     string? Kind,
     string? License,
-    IReadOnlyList<VulnerabilityDto> Vulnerabilities);
+    IReadOnlyList<VulnerabilityDto> Vulnerabilities,
+    // TFND-21: algorithm → hash value map (SHA-256, SHA-1, …).
+    IReadOnlyDictionary<string, string>? Hashes = null);
 
 public sealed record VulnerabilityDto(
     string AdvisoryId,

@@ -21,6 +21,11 @@ public sealed class Finding
     public int? Line { get; set; }
     public string? Snippet { get; set; }
 
+    // TFND-17: Trivy emits secrets / misconfigurations / vulnerabilities all
+    // under one scanner name. SARIF rule tags distinguish them; the value
+    // here is null for scanners that don't sub-categorise.
+    public string? SubCategory { get; set; }
+
     public FindingStatus Status { get; set; } = FindingStatus.Open;
 
     public DateTimeOffset FirstSeen { get; set; } = DateTimeOffset.UtcNow;

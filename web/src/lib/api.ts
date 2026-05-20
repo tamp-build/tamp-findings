@@ -268,6 +268,8 @@ export type SbomHealthCounts = {
   current: number     // green
   outdated: number    // yellow
   vulnerable: number  // red
+  // TFND-22: sub-count of outdated where LatestReleasedAt > 180 days ago.
+  stale: number
 }
 
 export type SecretsHealthCounts = {

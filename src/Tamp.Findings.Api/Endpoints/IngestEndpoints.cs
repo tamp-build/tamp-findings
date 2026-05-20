@@ -142,6 +142,7 @@ public static class IngestEndpoints
                 current.Description = f.Description;
                 current.Line = f.Line;
                 current.Snippet = f.Snippet;
+                current.SubCategory = f.SubCategory;
 
                 if (prev == FindingStatus.Accepted)
                 {
@@ -172,6 +173,7 @@ public static class IngestEndpoints
                 queued.Description = f.Description;
                 queued.Line = f.Line;
                 queued.Snippet = f.Snippet;
+                queued.SubCategory = f.SubCategory;
                 updated++;
             }
             else
@@ -188,6 +190,7 @@ public static class IngestEndpoints
                     FilePath = f.FilePath,
                     Line = f.Line,
                     Snippet = f.Snippet,
+                    SubCategory = f.SubCategory,
                     FirstSeen = now,
                     LastSeen = now,
                 };
