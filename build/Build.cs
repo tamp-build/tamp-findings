@@ -10,6 +10,7 @@ using Tamp.Syft.V1;
 using Tamp.TruffleHog.V3;
 using SyftCli = Tamp.Syft.V1.Syft;
 using TrufflehogCli = Tamp.TruffleHog.V3.TruffleHog;
+using OpenGrepCli = Tamp.OpenGrep.OpenGrep;
 
 // tamp.findings self-hosted build script. Run with:
 //   dotnet run --project build -- <target>
@@ -82,12 +83,52 @@ class Build : SecurityPipelineBuild
                 .SetWorkingDirectory(RootDirectory));
         });
 
-    // OpenGrep CLI install on Windows is upstream-blocked (TAM-262).
-    // No-op the target so the dependency chain still runs; SecurityScan
-    // will merge whatever SARIFs exist.
+    // TAM-262 update: OpenGrep v1.22.0 (2026-05-19) ships an official
+    // standalone Windows binary + install.ps1; resolves as `opengrep` once
+    // %USERPROFILE%\.opengrep\cli\latest is on PATH. We let the base class
+    // SecurityScanOpenGrep run — it builds the CommandPlan via Tool.FromPath
+    // and ProcessRunner.Execute. The override is kept defensive in case the
+    // binary disappears: if Tool.TryFromPath returns null, no-op like before.
     protected override Target SecurityScanOpenGrep => _ => _
-        .Description("OpenGrep skipped pending TAM-262 (CLI not winget/scoop/pipx-installable on Windows).")
-        .Executes(() => Console.WriteLine("[security] OpenGrep skipped — see TAM-262"));
+        .Description("OpenGrep SAST scan (SARIF). Skipped only when opengrep.exe is not on PATH.")
+        .Executes(() =>
+        {
+            var resolved = Tool.TryFromPath("opengrep", RootDirectory.Value);
+            if (resolved is null)
+            {
+                Console.WriteLine("[security] OpenGrep skipped — opengrep.exe not on PATH (install via https://github.com/opengrep/opengrep install.ps1)");
+                return;
+            }
+            SecurityArtifactsDir.CreateDirectory();
+            // Policy packs: `auto` is the language-detection baseline, then we
+            // stack security-focused packs to broaden coverage for the langs
+            // we actually ship. p/csharp + p/dotnet for the API/Data/Domain
+            // tree; p/typescript + p/javascript for the SPA; the cross-cutters
+            // (security-audit, owasp-top-ten, cwe-top-25, secrets, sql-
+            // injection, jwt) catch patterns that aren't language-specific.
+            var plan = OpenGrepCli.Scan(s => s
+                .AddTarget((RootDirectory / "src").Value)
+                .AddTarget((RootDirectory / "web" / "src").Value)
+                .AddConfig("auto")
+                .AddConfig("p/security-audit")
+                .AddConfig("p/owasp-top-ten")
+                .AddConfig("p/cwe-top-25")
+                .AddConfig("p/csharp")
+                // p/dotnet is a 404 on semgrep.dev — p/csharp is the closest peer.
+                .AddConfig("p/typescript")
+                .AddConfig("p/javascript")
+                .AddConfig("p/secrets")
+                .AddConfig("p/sql-injection")
+                .AddConfig("p/jwt")
+                .SetSarif(true)
+                .SetOutputFile(SecuritySarifOpenGrepFile.Value)
+                .SetQuiet(true)
+                .SetDisableVersionCheck(true)
+                .SetWorkingDirectory(RootDirectory.Value));
+            var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
+            // opengrep exits 0 = clean, 1 = findings reported, both fine for ingest.
+            if (rc != 0 && rc != 1) throw new Exception($"opengrep exited with {rc}");
+        });
 
     // Roslyn analyzer scan must skip the build project itself: dotnet build
     // of the whole solution would try to overwrite our own Build.exe while
