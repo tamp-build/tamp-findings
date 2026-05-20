@@ -1,4 +1,4 @@
-import type { ScannerDetail, SbomHealthCounts, SecretsHealthCounts, LicenseTierCounts, SeverityCounts, CoverageModuleSummary } from '@/lib/api'
+import type { ScannerDetail, SbomHealthCounts, SecretsHealthCounts, LicenseTierCounts, SeverityCounts, CoverageModuleSummary, FindingRuleSummary, Severity } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 // Three concentric segmented donuts driving the Overview tab. Moving
@@ -523,6 +523,44 @@ export function CoverageTable({
           <td className="w-14 px-2 py-1.5 text-right text-xs tabular-nums">{overall.toFixed(1)}%</td>
         </tr>
       )}
+    </CompactTable>
+  )
+}
+
+// TFND-18: Top rules table — bridge between Overview and FindingsView. The
+// ring shows ALL SAST findings by severity, the FindingsTypeTable shows
+// severity-by-severity; this fills the third dimension by surfacing which
+// SPECIFIC rules drive the volume so the user can triage by "fix this rule
+// first" rather than wading through 397 individual rows.
+const TOP_RULES_SEV_DOT: Record<Severity, string> = {
+  Critical: '#dc2626',
+  High:     '#f97316',
+  Medium:   '#f59e0b',
+  Low:      '#facc15',
+  Info:     '#38bdf8',
+}
+export function TopRulesTable({
+  rules,
+  onRowClick,
+}: {
+  rules?: FindingRuleSummary[]
+  onRowClick?: (ruleId: string) => void
+}) {
+  const list = rules ?? []
+  const total = list.reduce((s, r) => s + r.count, 0)
+  return (
+    <CompactTable title="Top Code Quality rules">
+      {list.length === 0 && <EmptyRow />}
+      {list.map(r => (
+        <Row
+          key={r.ruleId}
+          color={TOP_RULES_SEV_DOT[r.severity]}
+          label={r.ruleId}
+          count={r.count}
+          pct={total > 0 ? (r.count / total) * 100 : 0}
+          onClick={onRowClick ? () => onRowClick(r.ruleId) : undefined}
+        />
+      ))}
     </CompactTable>
   )
 }

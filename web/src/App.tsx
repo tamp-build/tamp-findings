@@ -19,6 +19,8 @@ export type FindingsPreset = {
   scanners?: ScannerKind[]
   severities?: Severity[]
   statuses?: FindingStatus[]
+  // TFND-18: drill from Overview's "Top rules" filters to a single ruleId.
+  ruleId?: string
 }
 export type ComponentsPreset = {
   nonce: number

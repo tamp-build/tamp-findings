@@ -211,6 +211,13 @@ export type ScanRunSummary = {
   toolVersion: string | null
 }
 
+export type FindingRuleSummary = {
+  ruleId: string
+  count: number
+  severity: Severity
+  scanner: ScannerKind
+}
+
 export type AggregatesResponse = {
   scope: AggregateScope
   findings: {
@@ -218,6 +225,7 @@ export type AggregatesResponse = {
     byScanner: Record<string, number>
     byStatus: Record<string, number>
     byScannerDetail: ScannerDetail[]
+    byRule: FindingRuleSummary[]
   }
   sbom: {
     componentsCount: number
@@ -374,18 +382,23 @@ export type FindingsFileResponse = {
   findings: FindingsFileItem[]
 }
 
-export async function fetchFindingsTree(filters: AggregatesFilters = {}): Promise<FindingsTreeResponse> {
+export type FindingsTreeFilters = AggregatesFilters & { ruleId?: string }
+
+export async function fetchFindingsTree(filters: FindingsTreeFilters = {}): Promise<FindingsTreeResponse> {
   const params = new URLSearchParams()
   if (filters.clientId) params.set('clientId', filters.clientId)
   if (filters.projectId) params.set('projectId', filters.projectId)
   if (filters.componentId) params.set('componentId', filters.componentId)
+  if (filters.ruleId) params.set('ruleId', filters.ruleId)
   const r = await fetch(`${API_BASE}/findings/tree?${params.toString()}`)
   if (!r.ok) throw new Error(`GET /findings/tree failed: ${r.status}`)
   return r.json()
 }
 
-export async function fetchFindingsFile(path: string): Promise<FindingsFileResponse> {
-  const r = await fetch(`${API_BASE}/findings/file?path=${encodeURIComponent(path)}`)
+export async function fetchFindingsFile(path: string, ruleId?: string): Promise<FindingsFileResponse> {
+  const params = new URLSearchParams({ path })
+  if (ruleId) params.set('ruleId', ruleId)
+  const r = await fetch(`${API_BASE}/findings/file?${params.toString()}`)
   if (!r.ok) throw new Error(`GET /findings/file failed: ${r.status}`)
   return r.json()
 }

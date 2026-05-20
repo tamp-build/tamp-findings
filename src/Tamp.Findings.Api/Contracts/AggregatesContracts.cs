@@ -1,3 +1,5 @@
+using Tamp.Findings.Domain.Values;
+
 namespace Tamp.Findings.Api.Contracts;
 
 // Single-shot summary for the hierarchy ring view. Calling without
@@ -66,7 +68,16 @@ public sealed record FindingAggregate(
     // for the scanner has a slot. Always returns every scanner the user
     // currently has data for, sorted alphabetically; the SPA decides
     // which one to render as the outer ring.
-    IReadOnlyList<ScannerDetail> ByScannerDetail);
+    IReadOnlyList<ScannerDetail> ByScannerDetail,
+    // TFND-18: Top-N rules by count. Powers the "Top rules" table on
+    // Overview and the rule-drill from there into FindingsView.
+    IReadOnlyList<FindingRuleSummaryDto> ByRule);
+
+public sealed record FindingRuleSummaryDto(
+    string RuleId,
+    int Count,
+    Severity Severity,
+    ScannerKind Scanner);
 
 public sealed record ScannerDetail(
     string Scanner,

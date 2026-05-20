@@ -33,9 +33,10 @@ public static class FindingsTreeEndpoints
         Guid? clientId = null,
         Guid? projectId = null,
         Guid? componentId = null,
+        string? ruleId = null,
         bool latest = true)
     {
-        var ids = await ScopedFindingsAsync(db, clientId, projectId, componentId, latest, ct);
+        var ids = await ScopedFindingsAsync(db, clientId, projectId, componentId, latest, ruleId, ct);
         if (ids.Count == 0)
         {
             return Results.Ok(new FindingsTreeResponse(
@@ -102,6 +103,7 @@ public static class FindingsTreeEndpoints
         Guid? clientId = null,
         Guid? projectId = null,
         Guid? componentId = null,
+        string? ruleId = null,
         bool latest = true)
     {
         if (string.IsNullOrWhiteSpace(path)) return Results.BadRequest("path is required");
@@ -114,7 +116,7 @@ public static class FindingsTreeEndpoints
             .OrderByDescending(f => f.Id)
             .FirstOrDefaultAsync(ct);
 
-        var ids = await ScopedFindingsAsync(db, clientId, projectId, componentId, latest, ct);
+        var ids = await ScopedFindingsAsync(db, clientId, projectId, componentId, latest, ruleId, ct);
         var findings = await db.Findings.AsNoTracking()
             .Where(f => ids.Contains(f.Id))
             .Select(f => new { f.Id, f.Scanner, f.RuleId, f.Severity, f.Title, f.Description, f.FilePath, f.Line, f.Status })
@@ -208,12 +210,14 @@ public static class FindingsTreeEndpoints
         Guid? projectId,
         Guid? componentId,
         bool latest,
+        string? ruleId,
         CancellationToken ct)
     {
         var q = db.Findings.AsNoTracking().Where(f => f.Status == FindingStatus.Open);
         if (componentId is { } cmp) q = q.Where(f => f.ComponentVersion!.ComponentId == cmp);
         if (projectId is { } prj) q = q.Where(f => f.ComponentVersion!.Component!.ProjectId == prj);
         if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli);
+        if (!string.IsNullOrWhiteSpace(ruleId)) q = q.Where(f => f.RuleId == ruleId);
         if (latest)
         {
             var latestCvIds = await db.ComponentVersions
