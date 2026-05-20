@@ -157,8 +157,14 @@ function ClassRow({
   selected: boolean
   onClick: () => void
 }) {
-  // Strip namespace for the row label; the full name shows on hover.
-  const short = cls.fullName.split('.').pop() ?? cls.fullName
+  // Two FullName shapes coexist in the tree:
+  //   .NET namespace: "Tamp.Findings.Api.Endpoints.FindingsListEndpoints"
+  //      → last dot-segment
+  //   SPA file path:  "web/src/components/RingChart.tsx"
+  //      → last slash-segment (extension preserved so .ts/.tsx is visible)
+  const short = cls.fullName.includes('/')
+    ? cls.fullName.split('/').pop() ?? cls.fullName
+    : cls.fullName.split('.').pop() ?? cls.fullName
   return (
     <button
       type="button"
