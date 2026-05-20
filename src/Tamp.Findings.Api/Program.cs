@@ -88,6 +88,7 @@ app.MapSuppressions();
 app.MapRoleAssignments();
 app.MapAggregates();
 app.MapSbomEnrich();
+app.MapSbomVulnerabilities();
 
 app.Run();
 

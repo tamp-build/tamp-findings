@@ -353,6 +353,25 @@ class Build : SecurityPipelineBuild
                 // component failures that don't stop the batch.
                 var enrichResp = await client.EnrichSbomVersionsAsync(snapshotId);
                 Console.WriteLine($"[ingest] Enrich     → checked={enrichResp.GetProperty("checked")} updated={enrichResp.GetProperty("updated")} cleared={enrichResp.GetProperty("cleared")} skipped={enrichResp.GetProperty("skipped")} errors={enrichResp.GetProperty("errors")}");
+
+                // TFND-16: OsvScanner SARIF → Vulnerability upserts. After
+                // Grype already enriched the SBOM, OSV-Scanner's findings get
+                // matched back to SbomComponents by (Name, Version) so the
+                // SBOM ring's "vulnerable" bucket reflects every known CVE,
+                // not just the Grype-matched ones.
+                var osvVulns = OsvScannerCveSarifMapper.Map(SecuritySarifCveFile.Value);
+                if (osvVulns.Count > 0)
+                {
+                    var osvPayload = new OsvVulnerabilityUpsertRequestDto(
+                        SnapshotId: snapshotId,
+                        Vulnerabilities: osvVulns);
+                    var osvResp = await client.PostOsvVulnerabilityUpsertAsync(osvPayload);
+                    Console.WriteLine($"[ingest] OsvCveMatch → matched {osvResp.GetProperty("matched")} / {osvVulns.Count}  inserted {osvResp.GetProperty("inserted")}  updated {osvResp.GetProperty("updated")}  unmatched {osvResp.GetProperty("unmatched")}");
+                }
+                else
+                {
+                    Console.WriteLine("[ingest] OsvCveMatch — no parseable CVE rows in cve.sarif (clean scan or 0 matches)");
+                }
             }
             else
             {
