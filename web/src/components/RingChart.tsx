@@ -1,4 +1,4 @@
-import type { ScannerDetail, SbomHealthCounts, SecretsHealthCounts, LicenseTierCounts, SeverityCounts } from '@/lib/api'
+import type { ScannerDetail, SbomHealthCounts, SecretsHealthCounts, LicenseTierCounts, SeverityCounts, CoverageModuleSummary } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 // Three concentric segmented donuts driving the Overview tab. Moving
@@ -67,6 +67,23 @@ const LICENSE_COLORS = {
 const LICENSE_ORDER = ['permissive', 'weakCopyleft', 'strongCopyleft', 'denied', 'unknown'] as const
 type LicenseKey = (typeof LICENSE_ORDER)[number]
 
+// Coverage outermost ring. Two segments: covered (sized to %, colored by
+// tier) + uncovered (light grey for the remaining %). Unmeasured = solid
+// grey, matching the IaC bullseye's grey-vs-green honesty rule.
+const COVERAGE_COLORS = {
+  good:       '#22c55e',  // green-500   — ≥80%
+  acceptable: '#f59e0b',  // amber-500   — 60..80%
+  poor:       '#dc2626',  // red-600     — <60%
+  uncovered:  '#e5e7eb',  // gray-200    — the gap
+  unmeasured: '#9ca3af',  // gray-400    — no coverage data at all
+} as const
+
+function coverageTierColor(pct: number): string {
+  if (pct >= 80) return COVERAGE_COLORS.good
+  if (pct >= 60) return COVERAGE_COLORS.acceptable
+  return COVERAGE_COLORS.poor
+}
+
 // IaC bullseye — same severity palette as the outer Code Quality ring.
 // Grey ("unscanned") fill takes over when the API says no Trivy signal
 // has ever landed in scope; that's the user's explicit "no containers/
@@ -106,13 +123,14 @@ function countFor(d: ScannerDetail, k: SegKey): number {
 
 // ----- geometry ----------------------------------------------------------
 
-const SIZE = 380
+const SIZE = 400
 const RINGS = {
-  outer:    { radius: 158, width: 22 },
-  upper:    { radius: 124, width: 20 },
-  middle:   { radius: 92,  width: 18 },
-  lower:    { radius: 62,  width: 16 },
-  inner:    { radius: 34,  width: 14 },
+  outer:    { radius: 180, width: 22 },  // Coverage
+  upper:    { radius: 144, width: 18 },  // Code Quality
+  middle:   { radius: 112, width: 18 },  // SBOM
+  innerHi:  { radius: 82,  width: 16 },  // Secrets
+  innerMid: { radius: 56,  width: 14 },  // Licenses
+  inner:    { radius: 32,  width: 12 },  // IaC bullseye
 } as const
 type RingSlot = keyof typeof RINGS
 
@@ -204,41 +222,64 @@ export function RingChart({
   secretsHealth,
   licenseTiers,
   iac,
+  coverage,
   onScannerClick,
   onSbomClick,
   onSecretsClick,
   onLicenseClick,
   onIacClick,
+  onCoverageClick,
 }: {
   scannerDetails: ScannerDetail[]
   sbomHealth?: SbomHealthCounts
   secretsHealth?: SecretsHealthCounts
   licenseTiers?: LicenseTierCounts
   iac?: { counts: SeverityCounts; scanned: boolean }
+  coverage?: { measured: boolean; sequenceCoverage: number | null; coveredSequences: number; totalSequences: number }
   onScannerClick?: (scanner: string) => void
   onSbomClick?: () => void
   onSecretsClick?: () => void
   onLicenseClick?: () => void
   onIacClick?: () => void
+  onCoverageClick?: () => void
 }) {
+  // Coverage (outermost). Three states mirror the IaC bullseye honesty rule:
+  //   unmeasured (no coverage report)  → solid grey, no segments
+  //   measured 0% (no covered points)  → solid red tier, single arc not built
+  //   measured >0%                     → covered arc (tier color) + uncovered arc (light grey)
+  const coverageMeasured = coverage?.measured ?? false
+  const coveragePct = coverageMeasured ? (coverage?.sequenceCoverage ?? 0) : 0
+  const coverageColor = coverageMeasured ? coverageTierColor(coveragePct) : COVERAGE_COLORS.unmeasured
+  const coverageCleanFill = !coverageMeasured ? COVERAGE_COLORS.unmeasured : undefined
+  const coverageArcs = coverageMeasured && (coverage?.totalSequences ?? 0) > 0
+    ? buildArcs(
+        [
+          { key: 'covered',   count: coverage!.coveredSequences,                                   color: coverageColor },
+          { key: 'uncovered', count: coverage!.totalSequences - coverage!.coveredSequences,        color: COVERAGE_COLORS.uncovered },
+        ],
+        coverage!.totalSequences,
+        RINGS.outer.radius,
+      )
+    : []
+
   const primary = pickPrimaryScanner(scannerDetails)
   const outerTotal = primary ? totalOf(primary) : 0
-  const outerArcs = buildArcs(
+  const codeQualityArcs = buildArcs(
     SEGMENT_ORDER.map(k => ({ key: k, count: primary ? countFor(primary, k) : 0, color: SEGMENT_COLORS[k] })),
     outerTotal,
-    RINGS.outer.radius,
+    RINGS.upper.radius,
   )
 
   const sbomTotal = sbomHealth ? sbomHealth.current + sbomHealth.outdated + sbomHealth.vulnerable : 0
   const sbomArcs = sbomHealth
-    ? buildArcs(SBOM_ORDER.map(k => ({ key: k, count: sbomHealth[k], color: SBOM_COLORS[k] })), sbomTotal, RINGS.upper.radius)
+    ? buildArcs(SBOM_ORDER.map(k => ({ key: k, count: sbomHealth[k], color: SBOM_COLORS[k] })), sbomTotal, RINGS.middle.radius)
     : []
 
   const secretsTotal = secretsHealth ? secretsHealth.verified + secretsHealth.unverified : 0
   const secretsArcs = secretsHealth
-    ? buildArcs(SECRETS_ORDER.map(k => ({ key: k, count: secretsHealth[k], color: SECRETS_COLORS[k] })), secretsTotal, RINGS.lower.radius)
+    ? buildArcs(SECRETS_ORDER.map(k => ({ key: k, count: secretsHealth[k], color: SECRETS_COLORS[k] })), secretsTotal, RINGS.innerHi.radius)
     : []
-  const lowerCleanFill = secretsHealth && secretsTotal === 0 ? SECRETS_COLORS.clean : undefined
+  const secretsCleanFill = secretsHealth && secretsTotal === 0 ? SECRETS_COLORS.clean : undefined
 
   const licenseTotal = licenseTiers
     ? licenseTiers.permissive + licenseTiers.weakCopyleft + licenseTiers.strongCopyleft + licenseTiers.denied + licenseTiers.unknown
@@ -247,7 +288,7 @@ export function RingChart({
     ? buildArcs(
         LICENSE_ORDER.map(k => ({ key: k, count: licenseTiers[k], color: LICENSE_COLORS[k] })),
         licenseTotal,
-        RINGS.lower.radius,
+        RINGS.innerMid.radius,
       )
     : []
 
@@ -274,36 +315,43 @@ export function RingChart({
     <div className="flex flex-col items-center">
       <div className="text-center">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Risk rings</p>
-        <p className="text-base font-semibold">Code Quality · SBOM · Secrets · Licenses · IaC</p>
+        <p className="text-base font-semibold">Coverage · Code Quality · SBOM · Secrets · Licenses · IaC</p>
         {primary && primary.scanner !== 'OpenGrep' && (
           <p className="text-[11px] text-muted-foreground">
-            outer via {primary.scanner} · OpenGrep pending TAM-262
+            quality via {primary.scanner} · OpenGrep pending TAM-262
           </p>
         )}
       </div>
 
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mt-2 w-full max-w-[340px]" role="img" aria-label="Risk rings: code quality, SBOM, secrets, licenses, IaC">
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="mt-2 w-full max-w-[360px]" role="img" aria-label="Risk rings: coverage, code quality, SBOM, secrets, licenses, IaC">
         <ConcentricRing
           slot="outer"
-          arcs={outerArcs}
+          arcs={coverageArcs}
+          cleanFill={coverageCleanFill}
+          onClick={onCoverageClick && coverageMeasured ? onCoverageClick : undefined}
+          ariaLabel={coverageMeasured ? `Coverage ${coveragePct.toFixed(1)}%` : 'Coverage not measured'}
+        />
+        <ConcentricRing
+          slot="upper"
+          arcs={codeQualityArcs}
           onClick={onScannerClick && primary ? () => onScannerClick(primary.scanner) : undefined}
           ariaLabel={primary ? `Open ${primary.scanner} findings` : undefined}
         />
         <ConcentricRing
-          slot="upper"
+          slot="middle"
           arcs={sbomArcs}
           onClick={onSbomClick}
           ariaLabel="Browse SBOM components"
         />
         <ConcentricRing
-          slot="middle"
+          slot="innerHi"
           arcs={secretsArcs}
-          cleanFill={lowerCleanFill}
+          cleanFill={secretsCleanFill}
           onClick={secretsHealth && secretsTotal > 0 ? onSecretsClick : undefined}
           ariaLabel={secretsTotal > 0 ? 'Open TruffleHog findings' : undefined}
         />
         <ConcentricRing
-          slot="lower"
+          slot="innerMid"
           arcs={licenseArcs}
           onClick={onLicenseClick && licenseTotal > 0 ? onLicenseClick : undefined}
           ariaLabel="Browse license breakdown"
@@ -316,17 +364,30 @@ export function RingChart({
           ariaLabel={iac?.scanned && iacTotal > 0 ? 'Open Trivy IaC findings' : undefined}
         />
 
-        {/* Compact center text */}
-        <text x={SIZE / 2} y={SIZE / 2 - 3} textAnchor="middle" fontSize="20" fontWeight="700" className="fill-foreground">
-          {outerTotal}
-        </text>
-        <text x={SIZE / 2} y={SIZE / 2 + 11} textAnchor="middle" fontSize="8" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
-          findings
-        </text>
+        {/* Compact center text — coverage% when we have it, else fall back to findings count */}
+        {coverageMeasured ? (
+          <>
+            <text x={SIZE / 2} y={SIZE / 2 - 3} textAnchor="middle" fontSize="22" fontWeight="700" className="fill-foreground">
+              {coveragePct.toFixed(0)}%
+            </text>
+            <text x={SIZE / 2} y={SIZE / 2 + 11} textAnchor="middle" fontSize="8" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
+              coverage
+            </text>
+          </>
+        ) : (
+          <>
+            <text x={SIZE / 2} y={SIZE / 2 - 3} textAnchor="middle" fontSize="20" fontWeight="700" className="fill-foreground">
+              {outerTotal}
+            </text>
+            <text x={SIZE / 2} y={SIZE / 2 + 11} textAnchor="middle" fontSize="8" letterSpacing="0.05em" className="fill-muted-foreground uppercase">
+              findings
+            </text>
+          </>
+        )}
       </svg>
 
       <div className="mt-2 text-center text-[11px] text-muted-foreground">
-        outer → findings · 2 → components · 3 → secrets · 4 → licenses · 5 → IaC
+        outer → coverage · 2 → code quality · 3 → components · 4 → secrets · 5 → licenses · 6 → IaC
       </div>
     </div>
   )
@@ -387,6 +448,64 @@ export function IacHealthTable({
 }
 
 // ----- right-hand tables -------------------------------------------------
+
+// Coverage table — per-module rows + Overall row. Swatch color tracks the
+// same red/amber/green tier as the outer ring so eye can map module ↔ ring
+// instantly. When no coverage data is present in scope, render a single
+// neutral row that says so (same honesty rule as IaC bullseye unscanned).
+export function CoverageTable({
+  coverage,
+}: {
+  coverage?: { measured: boolean; sequenceCoverage: number | null; coveredSequences: number; totalSequences: number; modules: CoverageModuleSummary[] }
+}) {
+  if (!coverage) return null
+  const overall = coverage.sequenceCoverage ?? 0
+  const mods = [...coverage.modules].sort((a, b) => b.totalSequences - a.totalSequences)
+  // Strip a common project prefix (e.g. "Tamp.Findings.") so the table reads
+  // as "Api / Data / Domain" instead of three near-identical strings.
+  const shortName = (n: string) => {
+    const parts = n.split('.')
+    return parts.length > 1 ? parts[parts.length - 1] : n
+  }
+
+  return (
+    <CompactTable title="Test coverage">
+      {!coverage.measured && (
+        <tr>
+          <td colSpan={3} className="px-3 py-3 text-center text-xs">
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              <span className="inline-block size-2.5 rounded-sm" style={{ background: COVERAGE_COLORS.unmeasured }} />
+              No coverage report in scope
+            </span>
+          </td>
+        </tr>
+      )}
+      {coverage.measured && mods.length === 0 && <EmptyRow />}
+      {coverage.measured && mods.map(m => (
+        <tr key={m.name} className="border-b last:border-b-0">
+          <td className="flex items-center gap-2 px-3 py-1.5">
+            <span className="inline-block size-2.5 rounded-sm" style={{ background: coverageTierColor(m.sequenceCoverage) }} />
+            <span title={m.name}>{shortName(m.name)}</span>
+          </td>
+          <td className="px-3 py-1.5 text-right tabular-nums text-xs text-muted-foreground">
+            {m.coveredSequences} / {m.totalSequences}
+          </td>
+          <td className="w-14 px-3 py-1.5 text-right text-xs tabular-nums">{m.sequenceCoverage.toFixed(1)}%</td>
+        </tr>
+      ))}
+      {coverage.measured && (
+        <tr className={cn('bg-muted/30 font-semibold')}>
+          <td className="flex items-center gap-2 px-3 py-1.5">
+            <span className="inline-block size-2.5 rounded-sm" style={{ background: coverageTierColor(overall) }} />
+            Overall
+          </td>
+          <td className="px-3 py-1.5 text-right tabular-nums text-xs">{coverage.coveredSequences} / {coverage.totalSequences}</td>
+          <td className="w-14 px-3 py-1.5 text-right text-xs tabular-nums">{overall.toFixed(1)}%</td>
+        </tr>
+      )}
+    </CompactTable>
+  )
+}
 
 export function FindingsTypeTable({
   scannerDetails,

@@ -18,6 +18,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<SbomComponent> SbomComponents => Set<SbomComponent>();
     public DbSet<SbomDependency> SbomDependencies => Set<SbomDependency>();
     public DbSet<Vulnerability> Vulnerabilities => Set<Vulnerability>();
+    public DbSet<CoverageReport> CoverageReports => Set<CoverageReport>();
+    public DbSet<CoverageModule> CoverageModules => Set<CoverageModule>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -158,6 +160,24 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasOne(x => x.SbomComponent).WithMany(c => c.Vulnerabilities).HasForeignKey(x => x.SbomComponentId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.SbomComponentId, x.AdvisoryId }).IsUnique();
             e.HasIndex(x => x.Severity);
+        });
+
+        b.Entity<CoverageReport>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ToolName).HasMaxLength(128).IsRequired();
+            e.Property(x => x.ToolVersion).HasMaxLength(64);
+            e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
+            // Replace-on-ingest: one report per CV.
+            e.HasIndex(x => x.ComponentVersionId).IsUnique();
+        });
+
+        b.Entity<CoverageModule>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(512).IsRequired();
+            e.HasOne(x => x.Report).WithMany(r => r.Modules).HasForeignKey(x => x.CoverageReportId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.CoverageReportId, x.Name }).IsUnique();
         });
     }
 }

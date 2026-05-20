@@ -276,6 +276,19 @@ class Build : SecurityPipelineBuild
                 var resp = await client.PostFindingsAsync(trufflehog);
                 Console.WriteLine($"[ingest] TruffleHog → +{resp.GetProperty("findingsInserted")} ~{resp.GetProperty("findingsUpdated")} ↺{resp.GetProperty("findingsReopened")} ✓{resp.GetProperty("findingsClosed")} ⊘{resp.GetProperty("findingsSuppressed")}");
             }
+
+            // Coverage: scan every opencover.xml under artifacts/test-results,
+            // aggregate, POST. Skips when the Test target hasn't run.
+            var coverage = CoverageIngestMapper.Map(TestResults.Value, ctx);
+            if (coverage is null)
+            {
+                Console.WriteLine($"[ingest] Coverage   — no opencover.xml under {TestResults.Value}, skipping");
+            }
+            else
+            {
+                var resp = await client.PostCoverageAsync(coverage);
+                Console.WriteLine($"[ingest] Coverage   → {coverage.SequenceCoverage:F1}% sequence  ({resp.GetProperty("modulesCount")} modules, {coverage.CoveredSequences}/{coverage.TotalSequences} points)");
+            }
         });
 
     Target ScanAll => _ => _

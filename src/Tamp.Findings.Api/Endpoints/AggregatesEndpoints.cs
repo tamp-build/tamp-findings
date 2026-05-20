@@ -229,6 +229,57 @@ public static class AggregatesEndpoints
             .AsNoTracking()
             .AnyAsync(f => f.Scanner == ScannerKind.Trivy, ct);
 
+        // Coverage rollup: latest CoverageReport per CV in scope, sum the
+        // covered/total counts, recompute the percentage. If no report
+        // exists for any CV in scope, Measured=false → SPA renders grey.
+        var coverageQ = db.CoverageReports.AsNoTracking();
+        if (componentId is { } cmp6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.ComponentId == cmp6);
+        if (projectId is { } prj6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.Component!.ProjectId == prj6);
+        if (clientId is { } cli6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.Component!.Project!.ClientId == cli6);
+        if (latest)
+        {
+            var latestCvIds5 = await db.ComponentVersions
+                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
+                .ToListAsync(ct);
+            coverageQ = coverageQ.Where(r => latestCvIds5.Contains(r.ComponentVersionId));
+        }
+        var coverageReports = await coverageQ.Include(r => r.Modules).ToListAsync(ct);
+        CoverageAggregate coverage;
+        if (coverageReports.Count == 0)
+        {
+            coverage = new CoverageAggregate(Measured: false, null, null, 0, 0, []);
+        }
+        else
+        {
+            var totSeq = coverageReports.Sum(r => r.TotalSequences);
+            var covSeq = coverageReports.Sum(r => r.CoveredSequences);
+            var totBr = coverageReports.Sum(r => r.TotalBranches);
+            var covBr = coverageReports.Sum(r => r.CoveredBranches);
+            // Module-level: aggregate by module name across reports (in scope
+            // multiple reports may share a module — e.g., when both test
+            // projects cover the same domain assembly).
+            var moduleAgg = coverageReports
+                .SelectMany(r => r.Modules)
+                .GroupBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new CoverageModuleSummary(
+                    g.Key,
+                    SequenceCoverage: g.Sum(m => m.TotalSequences) == 0
+                        ? 0
+                        : 100.0 * g.Sum(m => m.CoveredSequences) / g.Sum(m => m.TotalSequences),
+                    CoveredSequences: g.Sum(m => m.CoveredSequences),
+                    TotalSequences: g.Sum(m => m.TotalSequences)))
+                .OrderBy(m => m.SequenceCoverage)   // worst first → draws eye to the gaps
+                .ToList();
+            coverage = new CoverageAggregate(
+                Measured: true,
+                SequenceCoverage: totSeq == 0 ? 0 : 100.0 * covSeq / totSeq,
+                BranchCoverage: totBr == 0 ? 0 : 100.0 * covBr / totBr,
+                CoveredSequences: covSeq,
+                TotalSequences: totSeq,
+                Modules: moduleAgg);
+        }
+
         return TypedResults.Ok(new AggregatesResponse(
             scope,
             new FindingAggregate(counts, byScanner, byStatus, byScannerDetail),
@@ -239,7 +290,8 @@ public static class AggregatesEndpoints
             new LicensesAggregate(
                 new LicenseTierCounts(perm, weak, strong, denied, unknown),
                 byLicense),
-            new IacAggregate(iacCounts, Scanned: trivySeenAnywhere)));
+            new IacAggregate(iacCounts, Scanned: trivySeenAnywhere),
+            coverage));
     }
 
     private static async Task<AggregateScope> ResolveScopeAsync(

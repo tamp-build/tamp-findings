@@ -9,7 +9,7 @@ import {
 } from '@/lib/api'
 import type { AggregatesFilters, ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import type { FindingsPreset, ComponentsPreset } from '@/App'
-import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable, LicenseTable, IacHealthTable } from '@/components/RingChart'
+import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable, LicenseTable, IacHealthTable, CoverageTable } from '@/components/RingChart'
 
 // Which Findings filter does a Code-Quality table row map to? Severities
 // fold into the severity filter (default-status Open); the lifecycle
@@ -88,6 +88,7 @@ export function OverviewView({
                 secretsHealth={aggregates.data.secrets.health}
                 licenseTiers={aggregates.data.licenses.tiers}
                 iac={aggregates.data.iac}
+                coverage={aggregates.data.coverage}
                 onScannerClick={(scanner) =>
                   onDrillToFindings?.({ scanners: [scanner as ScannerKind] })
                 }
@@ -97,6 +98,7 @@ export function OverviewView({
                 onIacClick={() => onDrillToFindings?.({ scanners: ['Trivy'] })}
               />
               <div className="grid grid-cols-2 gap-4">
+                <CoverageTable coverage={aggregates.data.coverage} />
                 <FindingsTypeTable
                   scannerDetails={aggregates.data.findings.byScannerDetail}
                   onRowClick={(segment, scanner) => {

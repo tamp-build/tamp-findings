@@ -10,7 +10,8 @@ public sealed record AggregatesResponse(
     SbomAggregate Sbom,
     SecretsAggregate Secrets,
     LicensesAggregate Licenses,
-    IacAggregate Iac);
+    IacAggregate Iac,
+    CoverageAggregate Coverage);
 
 // Secrets ring (innermost concentric) — verified credentials are the
 // closest thing we can render to "actively exploitable right now".
@@ -100,3 +101,22 @@ public sealed record SbomHealthCounts(
 public sealed record IacAggregate(
     SeverityCounts Counts,
     bool Scanned);
+
+// Outermost ring — line coverage. `Measured` is the equivalent of
+// IacAggregate.Scanned: false means no CoverageReport exists in scope
+// (render grey). When measured, SequenceCoverage drives the tier color
+// and the ring is split into a covered-percent slice (tier color) plus
+// an uncovered-percent slice (light grey).
+public sealed record CoverageAggregate(
+    bool Measured,
+    double? SequenceCoverage,
+    double? BranchCoverage,
+    int CoveredSequences,
+    int TotalSequences,
+    IReadOnlyList<CoverageModuleSummary> Modules);
+
+public sealed record CoverageModuleSummary(
+    string Name,
+    double SequenceCoverage,
+    int CoveredSequences,
+    int TotalSequences);
