@@ -80,7 +80,7 @@ const COVERAGE_COLORS = {
   poor:       '#dc2626',  // red-600     — <60%
 } as const
 
-function coverageTierColor(pct: number): string {
+export function coverageTierColor(pct: number): string {
   if (pct >= 80) return COVERAGE_COLORS.good
   if (pct >= 60) return COVERAGE_COLORS.acceptable
   return COVERAGE_COLORS.poor
@@ -104,7 +104,7 @@ const IAC_SEVERITY_LABELS: Record<IacSevKey, string> = {
 
 // ----- shared helpers ----------------------------------------------------
 
-function pickPrimaryScanner(details: ScannerDetail[]): ScannerDetail | null {
+export function pickPrimaryScanner(details: ScannerDetail[]): ScannerDetail | null {
   for (const preferred of SAST_PREFERENCE) {
     const hit = details.find(d => d.scanner === preferred)
     if (hit && totalOf(hit) > 0) return hit
@@ -549,7 +549,7 @@ export function SbomHealthTable({
 
 // License classifier mirroring the server's LicensePolicy.Classify — keeps
 // each row's swatch color in lockstep with the tier it'd land in.
-function tierForLicense(spdx: string): LicenseKey {
+export function tierForLicense(spdx: string): LicenseKey {
   const norm = spdx.trim()
   if (!norm || norm === '(unknown)') return 'unknown'
   // Exact SPDX-id matches — covers virtually every row on a normal repo.

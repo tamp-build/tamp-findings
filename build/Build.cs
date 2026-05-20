@@ -53,6 +53,8 @@ class Build : SecurityPipelineBuild
     AbsolutePath Artifacts => RootDirectory / "artifacts";
     AbsolutePath CoverageDir => Artifacts / "coverage";
     AbsolutePath TestResults => Artifacts / "test-results";
+    AbsolutePath SpaTestResults => Artifacts / "test-results-spa";
+    AbsolutePath SpaProjectDir => RootDirectory / "web";
 
     // ----- SecurityPipelineBuild overrides --------------------------------
 
@@ -194,6 +196,31 @@ class Build : SecurityPipelineBuild
             .SetSettings((RootDirectory / "build" / "coverlet.runsettings").Value)
             .SetResultsDirectory(TestResults)));
 
+    Target TestSpa => _ => _
+        .Description("Run the Vitest suite in web/ with coverage. Output: artifacts/test-results-spa/lcov.info, consumed by VitestCoverageIngestMapper at Ingest time.")
+        .Executes(() =>
+        {
+            // Vitest's pnpm script is configured (in web/package.json) to drop
+            // lcov + json-summary + html under ../artifacts/test-results-spa.
+            // pnpm on Windows is a .CMD shim, so we invoke through cmd /c with
+            // direct stdio so the user sees the run + test output inline.
+            var isWindows = System.Runtime.InteropServices.RuntimeInformation
+                .IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows);
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = isWindows ? "cmd.exe" : "pnpm",
+                Arguments = isWindows ? "/c pnpm run test:coverage" : "run test:coverage",
+                WorkingDirectory = SpaProjectDir.Value,
+                UseShellExecute = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi)
+                ?? throw new Exception("Failed to launch pnpm — is it on PATH?");
+            proc.WaitForExit();
+            if (proc.ExitCode != 0) throw new Exception($"pnpm run test:coverage exited with {proc.ExitCode}");
+        });
+
     Target Coverage => _ => _
         .DependsOn(nameof(Test))
         .Description("Aggregate coverage reports across test projects into artifacts/coverage/.")
@@ -318,8 +345,9 @@ class Build : SecurityPipelineBuild
                 Console.WriteLine($"[ingest] TruffleHog → +{resp.GetProperty("findingsInserted")} ~{resp.GetProperty("findingsUpdated")} ↺{resp.GetProperty("findingsReopened")} ✓{resp.GetProperty("findingsClosed")} ⊘{resp.GetProperty("findingsSuppressed")}");
             }
 
-            // Coverage: scan every opencover.xml under artifacts/test-results,
-            // aggregate, POST. Skips when the Test target hasn't run.
+            // Coverage (.NET / Coverlet OpenCover): scan every opencover.xml
+            // under artifacts/test-results, aggregate, POST. Skips when the
+            // Test target hasn't run.
             var coverage = CoverageIngestMapper.Map(TestResults.Value, ctx, RootDirectory.Value);
             if (coverage is null)
             {
@@ -329,6 +357,21 @@ class Build : SecurityPipelineBuild
             {
                 var resp = await client.PostCoverageAsync(coverage);
                 Console.WriteLine($"[ingest] Coverage   → {coverage.SequenceCoverage:F1}% sequence  ({resp.GetProperty("modulesCount")} modules, {coverage.CoveredSequences}/{coverage.TotalSequences} points)");
+            }
+
+            // Coverage (SPA / Vitest lcov): same DTO shape, posts as a separate
+            // ComponentVersion via Flavor="web" so the dashboard rolls up both
+            // flavors but each is independently replaceable.
+            var lcov = SpaTestResults / "lcov.info";
+            var spaCoverage = VitestCoverageIngestMapper.Map(lcov.Value, ctx, RootDirectory.Value, SpaProjectDir.Value);
+            if (spaCoverage is null)
+            {
+                Console.WriteLine($"[ingest] CoverageSPA — no lcov.info at {lcov.Value}, skipping (run nuke TestSpa first)");
+            }
+            else
+            {
+                var resp = await client.PostCoverageAsync(spaCoverage);
+                Console.WriteLine($"[ingest] CoverageSPA → {spaCoverage.SequenceCoverage:F1}% sequence  ({resp.GetProperty("modulesCount")} modules, {spaCoverage.CoveredSequences}/{spaCoverage.TotalSequences} points)");
             }
         });
 
