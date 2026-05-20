@@ -50,13 +50,35 @@ public static class CoverageIngestEndpoints
         db.CoverageReports.Add(report);
         await db.SaveChangesAsync(ct);
 
-        // Modules deduped on name (some tools emit duplicates for re-instrumented builds).
+        // Source files first (deduped on relative path) so classes can FK to
+        // them by lookup. EF Core gives us the inserted Id after SaveChangesAsync.
+        var sourceFilesByPath = new Dictionary<string, CoverageSourceFile>(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in req.SourceFiles ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(f.RelativePath)) continue;
+            if (sourceFilesByPath.ContainsKey(f.RelativePath)) continue;
+            var sf = new CoverageSourceFile
+            {
+                CoverageReportId = report.Id,
+                RelativePath = f.RelativePath,
+                AbsolutePath = f.AbsolutePath,
+                SourceText = f.SourceText ?? "",
+                LineCount = (f.SourceText ?? "").Count(c => c == '\n') + 1,
+            };
+            db.CoverageSourceFiles.Add(sf);
+            sourceFilesByPath[f.RelativePath] = sf;
+        }
+        if (sourceFilesByPath.Count > 0) await db.SaveChangesAsync(ct);
+
+        // Modules + their classes. Deduped on module name first, then on
+        // (class FullName, source file) within the module.
         var seenModules = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var classCount = 0;
         foreach (var m in req.Modules)
         {
             if (string.IsNullOrWhiteSpace(m.Name)) continue;
             if (!seenModules.Add(m.Name)) continue;
-            db.CoverageModules.Add(new CoverageModule
+            var module = new CoverageModule
             {
                 CoverageReportId = report.Id,
                 Name = m.Name,
@@ -64,11 +86,38 @@ public static class CoverageIngestEndpoints
                 BranchCoverage = m.BranchCoverage,
                 CoveredSequences = m.CoveredSequences,
                 TotalSequences = m.TotalSequences,
-            });
-        }
-        await db.SaveChangesAsync(ct);
+            };
+            db.CoverageModules.Add(module);
+            await db.SaveChangesAsync(ct);
 
-        return Results.Ok(new CoverageIngestResponse(version.Id, report.Id, seenModules.Count));
+            if (m.Classes is null) continue;
+            var seenClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in m.Classes)
+            {
+                if (string.IsNullOrWhiteSpace(c.FullName) || string.IsNullOrWhiteSpace(c.SourceFileRelativePath)) continue;
+                if (!sourceFilesByPath.TryGetValue(c.SourceFileRelativePath, out var sf)) continue;
+                var classKey = $"{c.FullName}|{c.SourceFileRelativePath}";
+                if (!seenClasses.Add(classKey)) continue;
+                db.CoverageClasses.Add(new CoverageClass
+                {
+                    CoverageModuleId = module.Id,
+                    CoverageSourceFileId = sf.Id,
+                    FullName = c.FullName,
+                    SequenceCoverage = c.SequenceCoverage,
+                    BranchCoverage = c.BranchCoverage,
+                    CoveredSequences = c.CoveredSequences,
+                    TotalSequences = c.TotalSequences,
+                    CoveredBranches = c.CoveredBranches,
+                    TotalBranches = c.TotalBranches,
+                    VisitedLines = c.VisitedLines ?? [],
+                    UnvisitedLines = c.UnvisitedLines ?? [],
+                });
+                classCount++;
+            }
+            if (m.Classes.Count > 0) await db.SaveChangesAsync(ct);
+        }
+
+        return Results.Ok(new CoverageIngestResponse(version.Id, report.Id, seenModules.Count, classCount, sourceFilesByPath.Count));
     }
 
     private static async Task<ComponentVersion> ResolveCvAsync(FindingsDbContext db, CoverageIngestRequest req, CancellationToken ct)

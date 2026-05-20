@@ -20,6 +20,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<Vulnerability> Vulnerabilities => Set<Vulnerability>();
     public DbSet<CoverageReport> CoverageReports => Set<CoverageReport>();
     public DbSet<CoverageModule> CoverageModules => Set<CoverageModule>();
+    public DbSet<CoverageSourceFile> CoverageSourceFiles => Set<CoverageSourceFile>();
+    public DbSet<CoverageClass> CoverageClasses => Set<CoverageClass>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -178,6 +180,30 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.Name).HasMaxLength(512).IsRequired();
             e.HasOne(x => x.Report).WithMany(r => r.Modules).HasForeignKey(x => x.CoverageReportId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.CoverageReportId, x.Name }).IsUnique();
+        });
+
+        b.Entity<CoverageSourceFile>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.RelativePath).HasMaxLength(1024).IsRequired();
+            e.Property(x => x.AbsolutePath).HasMaxLength(1024);
+            // text column for source — these are typically a few KB but
+            // occasionally hit 100k+ on long file types like generated code.
+            e.Property(x => x.SourceText).HasColumnType("text").IsRequired();
+            e.HasOne(x => x.Report).WithMany(r => r.SourceFiles).HasForeignKey(x => x.CoverageReportId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.CoverageReportId, x.RelativePath }).IsUnique();
+        });
+
+        b.Entity<CoverageClass>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.FullName).HasMaxLength(1024).IsRequired();
+            // Native Postgres integer[] — Npgsql maps int[] without a converter.
+            e.Property(x => x.VisitedLines).HasColumnType("integer[]").IsRequired();
+            e.Property(x => x.UnvisitedLines).HasColumnType("integer[]").IsRequired();
+            e.HasOne(x => x.Module).WithMany(m => m.Classes).HasForeignKey(x => x.CoverageModuleId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.SourceFile).WithMany(f => f.Classes).HasForeignKey(x => x.CoverageSourceFileId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.CoverageModuleId, x.FullName, x.CoverageSourceFileId }).IsUnique();
         });
     }
 }

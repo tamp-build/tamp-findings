@@ -320,7 +320,7 @@ class Build : SecurityPipelineBuild
 
             // Coverage: scan every opencover.xml under artifacts/test-results,
             // aggregate, POST. Skips when the Test target hasn't run.
-            var coverage = CoverageIngestMapper.Map(TestResults.Value, ctx);
+            var coverage = CoverageIngestMapper.Map(TestResults.Value, ctx, RootDirectory.Value);
             if (coverage is null)
             {
                 Console.WriteLine($"[ingest] Coverage   — no opencover.xml under {TestResults.Value}, skipping");

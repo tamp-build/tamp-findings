@@ -23,4 +23,5 @@ public sealed class CoverageReport
 
     public ComponentVersion? ComponentVersion { get; set; }
     public ICollection<CoverageModule> Modules { get; set; } = [];
+    public ICollection<CoverageSourceFile> SourceFiles { get; set; } = [];
 }

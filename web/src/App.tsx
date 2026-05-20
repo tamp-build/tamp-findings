@@ -5,8 +5,9 @@ import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/l
 import { FindingsView } from '@/views/FindingsView'
 import { ComponentsView } from '@/views/ComponentsView'
 import { OverviewView } from '@/views/OverviewView'
+import { CoverageView } from '@/views/CoverageView'
 
-type Tab = 'overview' | 'findings' | 'components'
+type Tab = 'overview' | 'findings' | 'components' | 'coverage'
 
 // Cross-tab presets — set by Overview row/donut clicks, consumed once
 // by the destination view's effect that seeds its local filter state.
@@ -56,6 +57,9 @@ function App() {
             <TabButton active={tab === 'components'} onClick={() => { setTab('components'); setSearch('') }}>
               Components
             </TabButton>
+            <TabButton active={tab === 'coverage'} onClick={() => { setTab('coverage'); setSearch('') }}>
+              Coverage
+            </TabButton>
           </nav>
           {tab === 'findings' && (
             <div className="relative ml-auto w-72">
@@ -72,9 +76,10 @@ function App() {
       </header>
 
       <div className="mx-auto max-w-7xl px-6 py-6">
-        {tab === 'overview' && <OverviewView onDrillToFindings={goToFindings} onDrillToComponents={goToComponents} />}
+        {tab === 'overview' && <OverviewView onDrillToFindings={goToFindings} onDrillToComponents={goToComponents} onDrillToCoverage={() => setTab('coverage')} />}
         {tab === 'findings' && <FindingsView search={search} preset={findingsPreset} />}
         {tab === 'components' && <ComponentsView preset={componentsPreset} />}
+        {tab === 'coverage' && <CoverageView />}
       </div>
     </div>
   )

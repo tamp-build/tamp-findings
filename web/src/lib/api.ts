@@ -267,6 +267,67 @@ export type AggregatesFilters = {
   componentId?: string
 }
 
+// ----- Coverage detail (per-module / per-class) --------------------------
+
+export type CoverageTreeClass = {
+  id: string
+  fullName: string
+  sourceFileRelativePath: string
+  sequenceCoverage: number
+  coveredSequences: number
+  totalSequences: number
+}
+
+export type CoverageTreeModule = {
+  name: string
+  sequenceCoverage: number
+  branchCoverage: number
+  coveredSequences: number
+  totalSequences: number
+  classes: CoverageTreeClass[]
+}
+
+export type CoverageTreeResponse = {
+  measured: boolean
+  sequenceCoverage: number | null
+  branchCoverage: number | null
+  coveredSequences: number
+  totalSequences: number
+  modules: CoverageTreeModule[]
+}
+
+export type CoverageClassDetail = {
+  id: string
+  moduleName: string
+  fullName: string
+  sourceFileRelativePath: string
+  sequenceCoverage: number
+  branchCoverage: number
+  coveredSequences: number
+  totalSequences: number
+  coveredBranches: number
+  totalBranches: number
+  visitedLines: number[]
+  unvisitedLines: number[]
+  sourceText: string
+}
+
+export async function fetchCoverageTree(filters: AggregatesFilters = {}): Promise<CoverageTreeResponse> {
+  const params = new URLSearchParams()
+  if (filters.clientId) params.set('clientId', filters.clientId)
+  if (filters.projectId) params.set('projectId', filters.projectId)
+  if (filters.componentId) params.set('componentId', filters.componentId)
+  const r = await fetch(`${API_BASE}/coverage/tree?${params.toString()}`)
+  if (!r.ok) throw new Error(`GET /coverage/tree failed: ${r.status}`)
+  return r.json()
+}
+
+export async function fetchCoverageClass(id: string): Promise<CoverageClassDetail> {
+  const r = await fetch(`${API_BASE}/coverage/class/${id}`)
+  if (!r.ok) throw new Error(`GET /coverage/class/${id} failed: ${r.status}`)
+  return r.json()
+}
+
 export async function fetchAggregates(filters: AggregatesFilters = {}): Promise<AggregatesResponse> {
   const params = new URLSearchParams()
   if (filters.clientId) params.set('clientId', filters.clientId)

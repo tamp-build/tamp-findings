@@ -6,6 +6,12 @@ using Tamp.Findings.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Raise both the request-body limit (Kestrel) and the form value count limit
+// so coverage ingest, which bundles every source file in the scan scope, can
+// post a few MB of payload without the framework refusing it. 100 MB ceiling
+// is generous for a single-repo scan; cap stays well below shenanigan territory.
+builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 100L * 1024 * 1024);
+
 builder.Services.AddOpenApi();
 
 // Enums on the wire are strings, not ints — friendlier for hand-written
@@ -71,6 +77,7 @@ app.MapGet("/version", () => Results.Ok(new
 app.MapIngest();
 app.MapSbomIngest();
 app.MapCoverageIngest();
+app.MapCoverageDetail();
 app.MapFindingsQuery();
 app.MapFindingsList();
 app.MapSbomComponents();

@@ -41,9 +41,11 @@ function toFilters(sel: Selection): AggregatesFilters {
 export function OverviewView({
   onDrillToFindings,
   onDrillToComponents,
+  onDrillToCoverage,
 }: {
   onDrillToFindings?: (preset: Omit<FindingsPreset, 'nonce'>) => void
   onDrillToComponents?: (preset?: Omit<ComponentsPreset, 'nonce'>) => void
+  onDrillToCoverage?: () => void
 }) {
   const [selection, setSelection] = useState<Selection>({ kind: 'all' })
 
@@ -96,15 +98,7 @@ export function OverviewView({
                 onSecretsClick={() => onDrillToFindings?.({ scanners: ['TruffleHog'] })}
                 onLicenseClick={() => onDrillToComponents?.()}
                 onIacClick={() => onDrillToFindings?.({ scanners: ['Trivy'] })}
-                onCoverageClick={() => {
-                  const el = document.getElementById('coverage-table')
-                  if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                    // Brief highlight so the eye lands on the table even if no scroll happens.
-                    el.classList.add('ring-2', 'ring-primary/60')
-                    setTimeout(() => el.classList.remove('ring-2', 'ring-primary/60'), 1200)
-                  }
-                }}
+                onCoverageClick={() => onDrillToCoverage?.()}
               />
               <div className="grid grid-cols-2 gap-4">
                 <div id="coverage-table" className="rounded-md transition-shadow">

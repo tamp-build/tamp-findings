@@ -12,4 +12,5 @@ public sealed class CoverageModule
     public int TotalSequences { get; set; }
 
     public CoverageReport? Report { get; set; }
+    public ICollection<CoverageClass> Classes { get; set; } = [];
 }

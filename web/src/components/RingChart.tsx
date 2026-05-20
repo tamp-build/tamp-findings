@@ -67,15 +67,17 @@ const LICENSE_COLORS = {
 const LICENSE_ORDER = ['permissive', 'weakCopyleft', 'strongCopyleft', 'denied', 'unknown'] as const
 type LicenseKey = (typeof LICENSE_ORDER)[number]
 
-// Coverage outermost ring. Two segments: covered (sized to %, colored by
-// tier) + uncovered (light grey for the remaining %). Unmeasured = solid
-// grey, matching the IaC bullseye's grey-vs-green honesty rule.
+// Coverage outermost ring. Two segments: covered (green, sized to %) +
+// uncovered (red, sized to remaining %). Unmeasured = solid grey, matching
+// the IaC bullseye's grey-vs-green honesty rule (grey = "no data" not "ok").
+// Tier helpers retained for the table swatch & summary header coloring.
 const COVERAGE_COLORS = {
-  good:       '#22c55e',  // green-500   — ≥80%
+  covered:    '#22c55e',  // green-500   — executed lines
+  uncovered:  '#dc2626',  // red-600     — unexecuted lines
+  unmeasured: '#9ca3af',  // gray-400    — no coverage report in scope
+  good:       '#22c55e',  // green-500   — ≥80% (for summary text)
   acceptable: '#f59e0b',  // amber-500   — 60..80%
   poor:       '#dc2626',  // red-600     — <60%
-  uncovered:  '#e5e7eb',  // gray-200    — the gap
-  unmeasured: '#9ca3af',  // gray-400    — no coverage data at all
 } as const
 
 function coverageTierColor(pct: number): string {
@@ -243,18 +245,16 @@ export function RingChart({
   onIacClick?: () => void
   onCoverageClick?: () => void
 }) {
-  // Coverage (outermost). Three states mirror the IaC bullseye honesty rule:
+  // Coverage (outermost). Two states mirror the IaC bullseye honesty rule:
   //   unmeasured (no coverage report)  → solid grey, no segments
-  //   measured 0% (no covered points)  → solid red tier, single arc not built
-  //   measured >0%                     → covered arc (tier color) + uncovered arc (light grey)
+  //   measured                         → covered arc (green) + uncovered arc (red)
   const coverageMeasured = coverage?.measured ?? false
   const coveragePct = coverageMeasured ? (coverage?.sequenceCoverage ?? 0) : 0
-  const coverageColor = coverageMeasured ? coverageTierColor(coveragePct) : COVERAGE_COLORS.unmeasured
   const coverageCleanFill = !coverageMeasured ? COVERAGE_COLORS.unmeasured : undefined
   const coverageArcs = coverageMeasured && (coverage?.totalSequences ?? 0) > 0
     ? buildArcs(
         [
-          { key: 'covered',   count: coverage!.coveredSequences,                                   color: coverageColor },
+          { key: 'covered',   count: coverage!.coveredSequences,                                   color: COVERAGE_COLORS.covered },
           { key: 'uncovered', count: coverage!.totalSequences - coverage!.coveredSequences,        color: COVERAGE_COLORS.uncovered },
         ],
         coverage!.totalSequences,
@@ -449,10 +449,9 @@ export function IacHealthTable({
 
 // ----- right-hand tables -------------------------------------------------
 
-// Coverage table — per-module rows + Overall row. Swatch color tracks the
-// same red/amber/green tier as the outer ring so eye can map module ↔ ring
-// instantly. When no coverage data is present in scope, render a single
-// neutral row that says so (same honesty rule as IaC bullseye unscanned).
+// Coverage table on the Overview — single Overall row only. Per-module
+// breakdown lives in the detail view (Coverage tab) so the Overview stays
+// scannable at a glance. Unmeasured renders a neutral "no report" row.
 export function CoverageTable({
   coverage,
 }: {
@@ -460,17 +459,10 @@ export function CoverageTable({
 }) {
   if (!coverage) return null
   const overall = coverage.sequenceCoverage ?? 0
-  const mods = [...coverage.modules].sort((a, b) => b.totalSequences - a.totalSequences)
-  // Strip a common project prefix (e.g. "Tamp.Findings.") so the table reads
-  // as "Api / Data / Domain" instead of three near-identical strings.
-  const shortName = (n: string) => {
-    const parts = n.split('.')
-    return parts.length > 1 ? parts[parts.length - 1] : n
-  }
 
   return (
     <CompactTable title="Test coverage">
-      {!coverage.measured && (
+      {!coverage.measured ? (
         <tr>
           <td colSpan={3} className="px-3 py-3 text-center text-xs">
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
@@ -479,21 +471,7 @@ export function CoverageTable({
             </span>
           </td>
         </tr>
-      )}
-      {coverage.measured && mods.length === 0 && <EmptyRow />}
-      {coverage.measured && mods.map(m => (
-        <tr key={m.name} className="border-b last:border-b-0">
-          <td className="flex items-center gap-2 px-3 py-1.5">
-            <span className="inline-block size-2.5 rounded-sm" style={{ background: coverageTierColor(m.sequenceCoverage) }} />
-            <span title={m.name}>{shortName(m.name)}</span>
-          </td>
-          <td className="px-3 py-1.5 text-right tabular-nums text-xs text-muted-foreground">
-            {m.coveredSequences} / {m.totalSequences}
-          </td>
-          <td className="w-14 px-3 py-1.5 text-right text-xs tabular-nums">{m.sequenceCoverage.toFixed(1)}%</td>
-        </tr>
-      ))}
-      {coverage.measured && (
+      ) : (
         <tr className={cn('bg-muted/30 font-semibold')}>
           <td className="flex items-center gap-2 px-3 py-1.5">
             <span className="inline-block size-2.5 rounded-sm" style={{ background: coverageTierColor(overall) }} />
