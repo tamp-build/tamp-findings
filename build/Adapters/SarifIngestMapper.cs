@@ -36,6 +36,10 @@ public static class SarifIngestMapper
                 var loc = r.Locations?.FirstOrDefault();
                 var artifact = loc?.PhysicalLocation?.ArtifactLocation?.Uri;
                 var region = loc?.PhysicalLocation?.Region;
+                // TFND-17: Trivy folds three classes of findings under one
+                // scanner name. Tamp.Sarif doesn't expose rule.properties.tags,
+                // so we infer from RuleId prefix. Non-Trivy scanners get null.
+                var subCategory = InferTrivySubCategory(scanner, r.RuleId);
 
                 bucket.Add(new IngestFindingDto(
                     RuleId: r.RuleId ?? "(unknown)",
@@ -46,7 +50,8 @@ public static class SarifIngestMapper
                     Line: region?.StartLine,
                     // Tamp.Sarif's minimal model doesn't surface snippets;
                     // dedup will fall back to (scanner, rule, path) only.
-                    Snippet: null));
+                    Snippet: null,
+                    SubCategory: subCategory));
             }
         }
 
@@ -98,4 +103,21 @@ public static class SarifIngestMapper
         SarifLevel.Note => Severity.Low,
         _ => Severity.Info,
     };
+
+    // Trivy rule-id prefix → sub-category. Heuristic only; Tamp.Sarif doesn't
+    // expose the rule's `tags` property where Trivy explicitly marks
+    // {vulnerability,misconfiguration,secret,license}.
+    private static string? InferTrivySubCategory(ScannerKind scanner, string? ruleId)
+    {
+        if (scanner != ScannerKind.Trivy || string.IsNullOrEmpty(ruleId)) return null;
+        if (ruleId.StartsWith("CVE-", StringComparison.OrdinalIgnoreCase)) return "vulnerability";
+        if (ruleId.StartsWith("GHSA-", StringComparison.OrdinalIgnoreCase)) return "vulnerability";
+        if (ruleId.StartsWith("AVD-", StringComparison.OrdinalIgnoreCase)) return "misconfiguration";
+        if (ruleId.StartsWith("DS", StringComparison.OrdinalIgnoreCase)) return "misconfiguration"; // Dockerfile rules
+        if (ruleId.StartsWith("KSV", StringComparison.OrdinalIgnoreCase)) return "misconfiguration"; // K8s
+        // Trivy's built-in secret detector emits short alphabetic rule IDs
+        // ("aws-access-key-id", "github-pat", etc.). Default fallback for
+        // anything else under Trivy is secret.
+        return "secret";
+    }
 }

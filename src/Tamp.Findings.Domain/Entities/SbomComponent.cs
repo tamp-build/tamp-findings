@@ -22,6 +22,11 @@ public sealed class SbomComponent
     public DateTimeOffset? LatestReleasedAt { get; set; }
     public DateTimeOffset? CurrentReleasedAt { get; set; }
 
+    // TFND-21: CycloneDX component hashes — algorithm → value map, e.g.
+    // {"SHA-256":"abc…","SHA-1":"def…"}. Empty when the SBOM source didn't
+    // include them. jsonb so we can index per-algorithm later.
+    public Dictionary<string, string> Hashes { get; set; } = new();
+
     public SbomSnapshot? SbomSnapshot { get; set; }
     public ICollection<Vulnerability> Vulnerabilities { get; set; } = [];
 }

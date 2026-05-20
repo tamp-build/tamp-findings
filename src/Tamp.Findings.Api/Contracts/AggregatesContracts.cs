@@ -105,7 +105,11 @@ public sealed record SbomAggregate(
 public sealed record SbomHealthCounts(
     int Current,     // green: no vuln + (no LatestVersion OR LatestVersion == Version)
     int Outdated,    // yellow: no vuln + LatestVersion populated and != Version
-    int Vulnerable); // red: has any Vulnerability row
+    int Vulnerable,  // red: has any Vulnerability row
+    // TFND-22: sub-count of Outdated where LatestReleasedAt > 180 days ago.
+    // Lets the SPA highlight components that have been outdated for a long
+    // time vs. ones that dropped behind in the last few weeks.
+    int Stale);
 
 // Bullseye — IaC / container misconfig from Trivy. Bucketed by severity
 // like the outer Code Quality ring. `Scanned` distinguishes "we ran

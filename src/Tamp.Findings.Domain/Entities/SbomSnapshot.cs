@@ -15,6 +15,11 @@ public sealed class SbomSnapshot
 
     public DateTimeOffset IngestedAt { get; set; } = DateTimeOffset.UtcNow;
 
+    // TFND-21: CycloneDX metadata.tools — full provenance for which tool(s)
+    // generated the SBOM, captured as JSON since CycloneDX 1.5 changed the
+    // shape (object with components/services in 1.5, flat array in 1.4).
+    public List<Dictionary<string, string?>> MetadataTools { get; set; } = new();
+
     public ComponentVersion? ComponentVersion { get; set; }
     public ICollection<SbomComponent> Components { get; set; } = [];
     public ICollection<SbomDependency> Dependencies { get; set; } = [];

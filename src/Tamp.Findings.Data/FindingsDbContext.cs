@@ -86,6 +86,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.FilePath).HasMaxLength(1024);
             e.Property(x => x.Snippet).HasColumnType("text");
             e.Property(x => x.Description).HasColumnType("text");
+            // TFND-17: short tag (secret / misconfiguration / vulnerability).
+            e.Property(x => x.SubCategory).HasMaxLength(64);
             e.HasOne(x => x.ComponentVersion).WithMany(v => v.Findings).HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
             // Dedup invariant: a finding is unique per (component version + hash).
             e.HasIndex(x => new { x.ComponentVersionId, x.Hash }).IsUnique();
@@ -127,6 +129,9 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.SpecVersion).HasMaxLength(32);
             e.Property(x => x.ToolName).HasMaxLength(128);
             e.Property(x => x.ToolVersion).HasMaxLength(64);
+            // TFND-21: jsonb so we can keep the full metadata.tools record
+            // (multiple tools, both 1.4 array shape and 1.5 nested shape).
+            e.Property(x => x.MetadataTools).HasColumnType("jsonb");
             e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
             // Most-recent-wins: one snapshot per component version. Re-ingest
             // replaces, so a unique index here matches the service contract.
@@ -142,6 +147,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.Kind).HasMaxLength(32);
             e.Property(x => x.License).HasMaxLength(256);
             e.Property(x => x.LatestVersion).HasMaxLength(128);
+            // TFND-21: hashes stored as algorithm→value map (jsonb).
+            e.Property(x => x.Hashes).HasColumnType("jsonb");
             e.HasOne(x => x.SbomSnapshot).WithMany(s => s.Components).HasForeignKey(x => x.SbomSnapshotId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.SbomSnapshotId, x.Purl }).IsUnique();
         });

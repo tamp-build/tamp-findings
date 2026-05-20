@@ -26,6 +26,20 @@ public static class SbomIngestMapper
                     ? list
                     : [];
 
+                // TFND-21: collapse CycloneDX hashes (list of {alg, content})
+                // into algorithm→value map. Same algorithm appearing twice on
+                // one component is ignored after the first hit.
+                Dictionary<string, string>? hashes = null;
+                if (c.Hashes is { Count: > 0 })
+                {
+                    hashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var h in c.Hashes)
+                    {
+                        if (string.IsNullOrWhiteSpace(h.Alg) || string.IsNullOrWhiteSpace(h.Content)) continue;
+                        if (!hashes.ContainsKey(h.Alg)) hashes[h.Alg] = h.Content;
+                    }
+                }
+
                 components.Add(new SbomComponentDto(
                     Purl: c.Purl,
                     Name: string.IsNullOrWhiteSpace(c.Name) ? "(unnamed)" : c.Name,
@@ -34,7 +48,8 @@ public static class SbomIngestMapper
                     License: c.Licenses?.FirstOrDefault()?.License?.Id
                           ?? c.Licenses?.FirstOrDefault()?.License?.Name
                           ?? c.Licenses?.FirstOrDefault()?.Expression,
-                    Vulnerabilities: vulns));
+                    Vulnerabilities: vulns,
+                    Hashes: hashes));
             }
         }
 
@@ -76,7 +91,9 @@ public static class SbomIngestMapper
             SerialNumber: bom.SerialNumber,
             SpecVersion: bom.SpecVersion,
             // Tamp.Sbom's minimal CycloneDxMetadata doesn't expose the tools
-            // array; producer identity stays unknown for now.
+            // array — TFND-21 captures hashes today, metadata.tools is
+            // gated on a future Tamp.Sbom expose (TODO(TAM-NNN): widen
+            // CycloneDxMetadata to include Tools list/object).
             ToolName: null,
             ToolVersion: null,
             Components: components,
