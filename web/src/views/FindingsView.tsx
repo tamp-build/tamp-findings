@@ -1,285 +1,337 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { AlertCircle, X } from 'lucide-react'
-import { fetchFindings } from '@/lib/api'
-import type { FindingListItem, Severity, ScannerKind, FindingStatus } from '@/lib/api'
+import { useMemo, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { AlertCircle, ChevronRight, FileCode } from 'lucide-react'
+import { fetchFindingsTree, fetchFindingsFile } from '@/lib/api'
+import type { FindingsTreeModule, FindingsTreeFile, FindingsFileItem, Severity } from '@/lib/api'
 import type { FindingsPreset } from '@/App'
-import { SeverityBadge } from '@/components/SeverityBadge'
-import { SeverityCountsBar } from '@/components/SeverityCountsBar'
 import { cn } from '@/lib/utils'
 
-const ALL_SCANNERS: ScannerKind[] = [
-  'Roslyn', 'OpenGrep', 'TruffleHog', 'Trivy', 'CodeQL', 'OsvScanner',
-  'Syft', 'Grype', 'Checkov', 'Tfsec', 'Kics', 'Zap', 'Spectral',
-  'Oasdiff', 'Cosign', 'NetArchTest', 'DependencyCruiser', 'Stryker', 'Coverlet',
-]
+// FindingsView mirrors CoverageView's two-pane Test Explorer:
+//   left  — Module → File tree, each row colored by its worst finding's severity
+//   right — Source viewer with severity-tinted line backgrounds + a findings
+//           list below, ordered by line.
+//
+// Search and scanner-filter sidebars from the old list-based view are gone —
+// scanner-agnostic was the explicit design decision. Severity filtering is
+// expressed via tree row coloring (max severity per file) so the eye finds
+// the worst files first.
 
-const STATUS_OPTIONS: FindingStatus[] = ['Open', 'Suppressed', 'Fixed', 'Accepted']
+const SEV_BG: Record<Severity, string> = {
+  Critical: 'bg-red-600/25',
+  High:     'bg-orange-500/25',
+  Medium:   'bg-amber-500/25',
+  Low:      'bg-yellow-400/20',
+  Info:     'bg-sky-400/20',
+}
+const SEV_DOT: Record<Severity, string> = {
+  Critical: 'bg-red-600',
+  High:     'bg-orange-500',
+  Medium:   'bg-amber-500',
+  Low:      'bg-yellow-400',
+  Info:     'bg-sky-400',
+}
+const SEV_TEXT: Record<Severity, string> = {
+  Critical: 'text-red-700 dark:text-red-300',
+  High:     'text-orange-700 dark:text-orange-300',
+  Medium:   'text-amber-700 dark:text-amber-300',
+  Low:      'text-yellow-700 dark:text-yellow-300',
+  Info:     'text-sky-700 dark:text-sky-300',
+}
+const SEV_RANK: Record<Severity, number> = { Info: 0, Low: 1, Medium: 2, High: 3, Critical: 4 }
 
 export function FindingsView({
-  search,
-  preset,
+  search: _search,
+  preset: _preset,
 }: {
+  // Search + preset are retained on the props surface so App.tsx doesn't need
+  // to change shape; the tree-based view doesn't use either yet.
   search: string
   preset: FindingsPreset
 }) {
-  const [activeSeverities, setActiveSeverities] = useState<Set<Severity>>(new Set())
-  const [activeScanners, setActiveScanners] = useState<Set<ScannerKind>>(new Set())
-  // Default to no explicit status filter — the server applies Status=Open
-  // when this set is empty. A preset can land us here with statuses set
-  // (e.g. clicking the "Closed" row on Overview).
-  const [activeStatuses, setActiveStatuses] = useState<Set<FindingStatus>>(new Set())
-  const [selected, setSelected] = useState<FindingListItem | null>(null)
-
-  // When the parent bumps `preset.nonce` (the Overview's row-drill or
-  // donut-drill click) seed local state from the new preset payload.
-  // Replaces rather than merges so previous clicks don't ghost.
-  useEffect(() => {
-    setActiveScanners(new Set(preset.scanners ?? []))
-    setActiveSeverities(new Set(preset.severities ?? []))
-    setActiveStatuses(new Set(preset.statuses ?? []))
-  }, [preset.nonce])
-
-  const filters = useMemo(() => ({
-    severities: [...activeSeverities],
-    scanners: [...activeScanners],
-    statuses: [...activeStatuses],
-    search: search.trim() || undefined,
-    take: 200,
-  }), [activeSeverities, activeScanners, activeStatuses, search])
-
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['findings', filters],
-    queryFn: () => fetchFindings(filters),
-    placeholderData: keepPreviousData,
+  const tree = useQuery({
+    queryKey: ['findings-tree'],
+    queryFn: () => fetchFindingsTree(),
   })
 
-  const toggleSeverity = (s: Severity) => {
-    setActiveSeverities(prev => {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+
+  const toggleModule = (name: string) =>
+    setExpanded(prev => {
       const next = new Set(prev)
-      if (next.has(s)) next.delete(s); else next.add(s)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
       return next
     })
+
+  const detail = useQuery({
+    queryKey: ['findings-file', selectedPath],
+    queryFn: () => fetchFindingsFile(selectedPath!),
+    enabled: !!selectedPath,
+  })
+
+  if (tree.isLoading) return <p className="text-sm text-muted-foreground">Loading findings…</p>
+  if (tree.isError) {
+    return (
+      <div className="flex items-start gap-3 rounded-md border border-destructive/50 bg-card p-4">
+        <AlertCircle className="size-5 text-destructive" />
+        <div>
+          <p className="text-sm font-medium">Couldn't load findings tree</p>
+          <p className="text-xs text-muted-foreground">{(tree.error as Error)?.message}</p>
+        </div>
+      </div>
+    )
   }
-  const toggleScanner = (s: ScannerKind) => {
-    setActiveScanners(prev => {
-      const next = new Set(prev)
-      if (next.has(s)) next.delete(s); else next.add(s)
-      return next
-    })
-  }
-  const toggleStatus = (s: FindingStatus) => {
-    setActiveStatuses(prev => {
-      const next = new Set(prev)
-      if (next.has(s)) next.delete(s); else next.add(s)
-      return next
-    })
+  if (!tree.data || tree.data.totalCount === 0) {
+    return (
+      <div className="rounded-md border bg-card p-6 text-sm text-muted-foreground">
+        No findings in scope. Run <code>nuke ScanAll Ingest</code> to populate.
+      </div>
+    )
   }
 
-  const visibleScanners = useMemo(() => {
-    const seen = new Set<ScannerKind>()
-    data?.items?.forEach(f => seen.add(f.scanner))
-    return ALL_SCANNERS.filter(s => seen.has(s) || activeScanners.has(s))
-  }, [data, activeScanners])
+  const overall = tree.data.counts
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:gap-6">
-      <aside className="space-y-6">
-        <section>
-          <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Scanner</h2>
-          <ul className="space-y-1">
-            {visibleScanners.length === 0 && (
-              <li className="text-xs text-muted-foreground">No findings yet — run ScanAll + Ingest.</li>
-            )}
-            {visibleScanners.map(s => {
-              const checked = activeScanners.has(s)
-              return (
-                <li key={s}>
-                  <button
-                    type="button"
-                    onClick={() => toggleScanner(s)}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted/60',
-                      checked && 'bg-muted',
-                    )}
-                  >
-                    <span className={cn('size-3.5 rounded border', checked ? 'bg-primary border-primary' : 'border-input')} />
-                    <span>{s}</span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-          {activeScanners.size > 0 && (
-            <button
-              type="button"
-              onClick={() => setActiveScanners(new Set())}
-              className="mt-2 text-xs text-muted-foreground hover:text-foreground"
-            >
-              Clear scanners
-            </button>
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-[320px_minmax(0,1fr)]">
+      <aside className="space-y-2">
+        <header className="rounded-md border bg-card p-3">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Findings</p>
+          <p className="mt-0.5 text-2xl font-semibold tabular-nums">{tree.data.totalCount}</p>
+          <SeverityCountsRow counts={overall} />
+          {tree.data.noPathCount > 0 && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {tree.data.noPathCount} additional finding(s) without a file path.
+            </p>
           )}
-        </section>
+        </header>
 
-        <section>
-          <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</h2>
-          <ul className="space-y-1">
-            {STATUS_OPTIONS.map(s => {
-              const checked = activeStatuses.has(s)
-              return (
-                <li key={s}>
-                  <button
-                    type="button"
-                    onClick={() => toggleStatus(s)}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted/60',
-                      checked && 'bg-muted',
-                    )}
-                  >
-                    <span className={cn('size-3.5 rounded border', checked ? 'bg-primary border-primary' : 'border-input')} />
-                    <span>{s}</span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-          {activeStatuses.size > 0 && (
-            <button
-              type="button"
-              onClick={() => setActiveStatuses(new Set())}
-              className="mt-2 text-xs text-muted-foreground hover:text-foreground"
-            >
-              Clear status (defaults to Open)
-            </button>
-          )}
-        </section>
+        <div className="rounded-md border bg-card p-2 max-h-[calc(100vh-260px)] overflow-auto">
+          {tree.data.modules.map(m => (
+            <ModuleNode
+              key={m.name}
+              module={m}
+              expanded={expanded.has(m.name)}
+              onToggle={() => toggleModule(m.name)}
+              selectedPath={selectedPath}
+              onSelectFile={setSelectedPath}
+            />
+          ))}
+        </div>
       </aside>
 
-      <main className="space-y-4">
-        {data && (
-          <SeverityCountsBar
-            counts={data.counts}
-            active={activeSeverities}
-            onToggle={toggleSeverity}
-          />
+      <main className="rounded-md border bg-card min-h-[400px]">
+        {!selectedPath && (
+          <p className="p-6 text-sm text-muted-foreground">Select a file from the tree to view its source + findings.</p>
         )}
-
-        {isError && (
-          <div className="flex items-start gap-3 rounded-md border border-destructive/50 bg-card p-4">
-            <AlertCircle className="size-5 text-destructive" />
-            <div>
-              <p className="text-sm font-medium">Couldn't load findings</p>
-              <p className="text-xs text-muted-foreground">{(error as Error)?.message}</p>
-            </div>
-          </div>
+        {selectedPath && detail.isLoading && (
+          <p className="p-6 text-sm text-muted-foreground">Loading source…</p>
         )}
-
-        <FindingsTable
-          isLoading={isLoading}
-          items={data?.items ?? []}
-          totalCount={data?.totalCount ?? 0}
-          selectedId={selected?.id ?? null}
-          onSelect={setSelected}
-        />
-
-        {selected && (
-          <DetailPanel finding={selected} onClose={() => setSelected(null)} />
+        {selectedPath && detail.isError && (
+          <p className="p-6 text-sm text-destructive">Couldn't load source: {(detail.error as Error)?.message}</p>
+        )}
+        {selectedPath && detail.data && (
+          <FileDetail detail={detail.data} />
         )}
       </main>
     </div>
   )
 }
 
-function FindingsTable({
-  isLoading, items, totalCount, selectedId, onSelect,
+function ModuleNode({
+  module,
+  expanded,
+  onToggle,
+  selectedPath,
+  onSelectFile,
 }: {
-  isLoading: boolean
-  items: FindingListItem[]
-  totalCount: number
-  selectedId: string | null
-  onSelect: (f: FindingListItem) => void
+  module: FindingsTreeModule
+  expanded: boolean
+  onToggle: () => void
+  selectedPath: string | null
+  onSelectFile: (path: string) => void
 }) {
+  const maxSev = module.files.reduce<Severity>(
+    (worst, f) => (SEV_RANK[f.maxSeverity] > SEV_RANK[worst] ? f.maxSeverity : worst),
+    'Info',
+  )
   return (
-    <div className="rounded-md border bg-card">
-      <div className="border-b px-4 py-2 text-xs text-muted-foreground">
-        {isLoading ? 'Loading…' : `Showing ${items.length} of ${totalCount}`}
-      </div>
-      <div className="divide-y">
-        {items.map(f => (
-          <button
-            key={f.id}
-            type="button"
-            onClick={() => onSelect(f)}
-            className={cn(
-              'flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40',
-              selectedId === f.id && 'bg-muted/60',
-            )}
-          >
-            <SeverityBadge severity={f.severity} className="mt-0.5" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-baseline gap-2">
-                <span className="font-mono text-xs text-muted-foreground">{f.ruleId}</span>
-                <span className="truncate font-medium">{f.title}</span>
-              </div>
-              <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                {f.filePath ?? '(no file)'}{f.line != null && <span>:{f.line}</span>}
-                <span className="mx-2 opacity-50">·</span>
-                {f.clientName} / {f.projectName} / {f.componentName} @ {f.versionString}
-              </div>
-            </div>
-            <span className="shrink-0 self-center text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {f.scanner}
-            </span>
-          </button>
-        ))}
-        {!isLoading && items.length === 0 && (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No findings match the current filters.
-          </div>
-        )}
-      </div>
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-muted/40"
+      >
+        <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
+        <span className={cn('inline-block size-2 rounded-full', SEV_DOT[maxSev])} />
+        <span className="flex-1 truncate text-left font-medium">{module.name}</span>
+        <span className="ml-auto text-[11px] tabular-nums text-muted-foreground">
+          {module.counts.total}
+        </span>
+      </button>
+      {expanded && (
+        <div className="ml-6 mt-0.5 space-y-0.5">
+          {module.files.map(f => (
+            <FileRow
+              key={f.relativePath}
+              file={f}
+              selected={f.relativePath === selectedPath}
+              onClick={() => onSelectFile(f.relativePath)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-function DetailPanel({ finding, onClose }: { finding: FindingListItem; onClose: () => void }) {
+function FileRow({
+  file, selected, onClick,
+}: {
+  file: FindingsTreeFile
+  selected: boolean
+  onClick: () => void
+}) {
+  // Strip the leading "src/<module>/" or "web/" prefix so the row reads as
+  // the path within its module: "Endpoints/FindingsListEndpoints.cs".
+  const short = file.relativePath.replace(/^src\/[^/]+\//, '').replace(/^web\//, '')
   return (
-    <aside className="fixed inset-y-0 right-0 w-full max-w-[460px] overflow-y-auto border-l border-border bg-card shadow-xl">
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex items-center gap-2">
-          <SeverityBadge severity={finding.severity} />
-          <span className="font-mono text-sm">{finding.ruleId}</span>
-        </div>
-        <button type="button" onClick={onClose} className="rounded-md p-1 hover:bg-muted" aria-label="Close">
-          <X className="size-4" />
-        </button>
-      </div>
-      <div className="space-y-4 p-4 text-sm">
-        <p className="font-medium leading-snug">{finding.title}</p>
-        <Field label="Scanner" value={finding.scanner} mono />
-        <Field label="Status" value={finding.status} />
-        <Field
-          label="Location"
-          value={finding.filePath ? `${finding.filePath}${finding.line != null ? `:${finding.line}` : ''}` : '(no location)'}
-          mono
-        />
-        <Field
-          label="Scope"
-          value={`${finding.clientName} / ${finding.projectName} / ${finding.componentName} @ ${finding.versionString}`}
-        />
-        <Field label="First seen" value={new Date(finding.firstSeen).toLocaleString()} />
-        <Field label="Last seen" value={new Date(finding.lastSeen).toLocaleString()} />
-        <Field label="Finding ID" value={finding.id} mono />
-      </div>
-    </aside>
+    <button
+      type="button"
+      onClick={onClick}
+      title={file.relativePath}
+      className={cn(
+        'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs hover:bg-muted/40',
+        selected && 'bg-muted',
+      )}
+    >
+      <FileCode className="size-3 text-muted-foreground" />
+      <span className={cn('inline-block size-2 rounded-full', SEV_DOT[file.maxSeverity])} />
+      <span className="flex-1 truncate">{short}</span>
+      <span className="text-[10px] tabular-nums text-muted-foreground">{file.counts.total}</span>
+    </button>
   )
 }
 
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function SeverityCountsRow({ counts }: { counts: { critical: number; high: number; medium: number; low: number; info: number } }) {
+  const items = (['Critical', 'High', 'Medium', 'Low', 'Info'] as Severity[]).map(s => {
+    const v = counts[s.toLowerCase() as 'critical' | 'high' | 'medium' | 'low' | 'info']
+    return { s, v }
+  }).filter(x => x.v > 0)
+  if (items.length === 0) return null
   return (
-    <div>
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className={cn('mt-0.5 break-all', mono && 'font-mono text-xs')}>{value}</p>
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
+      {items.map(({ s, v }) => (
+        <span key={s} className={cn('inline-flex items-center gap-1', SEV_TEXT[s])}>
+          <span className={cn('inline-block size-1.5 rounded-full', SEV_DOT[s])} />
+          {v} {s}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function FileDetail({ detail }: { detail: { relativePath: string; sourceAvailable: boolean; sourceText: string; findings: FindingsFileItem[] } }) {
+  const lines = useMemo(() => detail.sourceText.split('\n'), [detail.sourceText])
+
+  // For each line, pick the worst-severity finding that lands on it. Drives
+  // the source-viewer's per-line background tint.
+  const worstByLine = useMemo(() => {
+    const map = new Map<number, Severity>()
+    for (const f of detail.findings) {
+      if (f.line == null) continue
+      const cur = map.get(f.line)
+      if (!cur || SEV_RANK[f.severity] > SEV_RANK[cur]) map.set(f.line, f.severity)
+    }
+    return map
+  }, [detail.findings])
+
+  // Scroll handling: clicking a finding row jumps to + flashes the line.
+  const lineRefs = useRef(new Map<number, HTMLDivElement>())
+  const [flashLine, setFlashLine] = useState<number | null>(null)
+  const scrollToLine = (line: number) => {
+    const el = lineRefs.current.get(line)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setFlashLine(line)
+    setTimeout(() => setFlashLine(prev => (prev === line ? null : prev)), 1400)
+  }
+  // Group findings by line so the list below can collapse same-line entries.
+  const counts = useMemo(() => {
+    const c = { critical: 0, high: 0, medium: 0, low: 0, info: 0 }
+    for (const f of detail.findings) c[f.severity.toLowerCase() as keyof typeof c] += 1
+    return c
+  }, [detail.findings])
+
+  return (
+    <div className="flex h-full flex-col">
+      <header className="border-b px-4 py-3">
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">{detail.findings.length} finding(s)</p>
+        <p className="font-mono text-sm">{detail.relativePath}</p>
+        <div className="mt-1">
+          <SeverityCountsRow counts={counts} />
+        </div>
+      </header>
+
+      <div className="overflow-auto max-h-[calc(100vh-360px)]">
+        {!detail.sourceAvailable ? (
+          <p className="p-6 text-sm text-muted-foreground">
+            Source isn't captured for this file (no coverage data covers it). The findings list below still works.
+          </p>
+        ) : (
+          <pre className="text-[12px] leading-[1.4] font-mono">
+            {lines.map((line, i) => {
+              const lineNum = i + 1
+              const sev = worstByLine.get(lineNum)
+              const flashed = flashLine === lineNum
+              return (
+                <div
+                  key={lineNum}
+                  ref={el => { if (el) lineRefs.current.set(lineNum, el); else lineRefs.current.delete(lineNum) }}
+                  className={cn(
+                    'flex transition-colors',
+                    sev && SEV_BG[sev],
+                    flashed && 'outline outline-2 outline-primary/60',
+                  )}
+                >
+                  <span className="w-12 select-none px-2 text-right tabular-nums text-muted-foreground/70 border-r">
+                    {lineNum}
+                  </span>
+                  <span className="whitespace-pre px-3">{line || ' '}</span>
+                </div>
+              )
+            })}
+          </pre>
+        )}
+      </div>
+
+      <div className="border-t">
+        <div className="border-b px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Findings on this file
+        </div>
+        <ul className="divide-y max-h-[280px] overflow-auto">
+          {detail.findings.length === 0 && (
+            <li className="px-4 py-3 text-sm text-muted-foreground">None</li>
+          )}
+          {detail.findings.map(f => (
+            <li key={f.id}>
+              <button
+                type="button"
+                onClick={() => f.line != null && scrollToLine(f.line)}
+                className="flex w-full items-start gap-2 px-4 py-2 text-left text-sm hover:bg-muted/40"
+              >
+                <span className={cn('mt-1 inline-block size-2 rounded-full shrink-0', SEV_DOT[f.severity])} />
+                <span className="w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                  {f.line ?? '—'}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="font-mono text-xs text-muted-foreground">{f.ruleId}</span>
+                  <span className="ml-2">{f.title}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   )
 }

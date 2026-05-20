@@ -80,6 +80,7 @@ app.MapCoverageIngest();
 app.MapCoverageDetail();
 app.MapFindingsQuery();
 app.MapFindingsList();
+app.MapFindingsTree();
 app.MapSbomComponents();
 app.MapSuppressions();
 app.MapRoleAssignments();
