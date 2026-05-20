@@ -464,7 +464,7 @@ export function CoverageTable({
     <CompactTable title="Test coverage">
       {!coverage.measured ? (
         <tr>
-          <td colSpan={3} className="px-3 py-3 text-center text-xs">
+          <td colSpan={2} className="px-3 py-3 text-center text-xs">
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
               <span className="inline-block size-2.5 rounded-sm" style={{ background: COVERAGE_COLORS.unmeasured }} />
               No coverage report in scope
@@ -479,7 +479,6 @@ export function CoverageTable({
               <span className="truncate">Overall</span>
             </div>
           </td>
-          <td className="w-20 px-2 py-1.5 text-right tabular-nums text-xs">{coverage.coveredSequences} / {coverage.totalSequences}</td>
           <td className="w-14 px-2 py-1.5 text-right text-xs tabular-nums">{overall.toFixed(1)}%</td>
         </tr>
       )}
