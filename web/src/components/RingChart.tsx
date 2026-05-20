@@ -21,7 +21,10 @@ import { cn } from '@/lib/utils'
 // Centralising the geometry + buckets here keeps the visual coherent
 // even as the data widens.
 
-const SAST_PREFERENCE = ['OpenGrep', 'Roslyn', 'CodeQL'] as const
+// ReSharper InspectCode is the strongest .NET analyzer we currently ingest
+// (~2200 inspections vs Roslyn's analyzer pack ~few hundred). Prefer it over
+// Roslyn so the Code Quality ring shows the deepest scanner that has data.
+const SAST_PREFERENCE = ['ReSharper', 'OpenGrep', 'Roslyn', 'CodeQL'] as const
 
 const SEGMENT_COLORS = {
   critical:   '#dc2626',  high:       '#f97316',  medium:     '#f59e0b',

@@ -55,6 +55,9 @@ class Build : SecurityPipelineBuild
     AbsolutePath TestResults => Artifacts / "test-results";
     AbsolutePath SpaTestResults => Artifacts / "test-results-spa";
     AbsolutePath SpaProjectDir => RootDirectory / "web";
+    // ReSharper InspectCode SARIF. Output lives next to roslyn/opengrep so
+    // the SAST merge step finds it consistently.
+    AbsolutePath SecuritySarifResharperFile => RootDirectory / "artifacts" / "security" / "resharper.sarif";
 
     // ----- SecurityPipelineBuild overrides --------------------------------
 
@@ -130,6 +133,33 @@ class Build : SecurityPipelineBuild
             var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
             // opengrep exits 0 = clean, 1 = findings reported, both fine for ingest.
             if (rc != 0 && rc != 1) throw new Exception($"opengrep exited with {rc}");
+        });
+
+    // JetBrains InspectCode — runs the same ~2200-rule ReSharper inspection
+    // engine the IDE uses. SARIF output. Excludes test projects (their bugs
+    // are noise) and the build orchestrator itself (would re-invoke us).
+    Target SecurityScanResharper => _ => _
+        .Description("InspectCode SARIF over the full solution. Requires JetBrains.ReSharper.GlobalTools (dotnet tool install -g JetBrains.ReSharper.GlobalTools).")
+        .Executes(() =>
+        {
+            SecurityArtifactsDir.CreateDirectory();
+            var resolved = Tool.TryFromPath("jb", RootDirectory.Value);
+            if (resolved is null)
+            {
+                Console.WriteLine("[security] ReSharper InspectCode skipped — `jb` not on PATH (dotnet tool install -g JetBrains.ReSharper.GlobalTools)");
+                return;
+            }
+            // Severity SUGGESTION matches the default IDE-on-save behavior;
+            // matches what the user sees in Rider/ReSharper inspections panel.
+            var plan = resolved.Plan(
+                "inspectcode",
+                Solution.Path,
+                $"--output={SecuritySarifResharperFile.Value}",
+                "--format=Sarif",
+                "--severity=SUGGESTION",
+                "--exclude=**/Tests/**;**/bin/**;**/obj/**;**/artifacts/**;build/**");
+            var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
+            if (rc != 0) throw new Exception($"jb inspectcode exited with {rc}");
         });
 
     // Roslyn analyzer scan must skip the build project itself: dotnet build
@@ -330,6 +360,7 @@ class Build : SecurityPipelineBuild
             }
 
             await PostSarifAsync(client, ctx, SecuritySarifSastFile, "SAST");
+            await PostSarifAsync(client, ctx, SecuritySarifResharperFile, "ReSharper");
             await PostSarifAsync(client, ctx, SecuritySarifCveFile, "CVE");
             await PostSarifAsync(client, ctx, SecuritySarifTrivyFile, "Trivy");
 

@@ -8,7 +8,7 @@ export type ScannerKind =
   | 'Unknown' | 'OpenGrep' | 'TruffleHog' | 'CodeQL' | 'Trivy'
   | 'Checkov' | 'Tfsec' | 'Kics' | 'Zap' | 'Spectral' | 'Oasdiff'
   | 'Cosign' | 'NetArchTest' | 'DependencyCruiser' | 'Stryker' | 'Coverlet'
-  | 'OsvScanner' | 'Roslyn' | 'Syft' | 'Grype'
+  | 'OsvScanner' | 'Roslyn' | 'Syft' | 'Grype' | 'ReSharper'
 
 export type Severity = 'Info' | 'Low' | 'Medium' | 'High' | 'Critical'
 export type FindingStatus = 'Open' | 'Fixed' | 'Suppressed' | 'Accepted'

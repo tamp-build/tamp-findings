@@ -22,4 +22,5 @@ public enum ScannerKind
     Roslyn = 17,
     Syft = 18,
     Grype = 19,
+    ReSharper = 20,
 }
