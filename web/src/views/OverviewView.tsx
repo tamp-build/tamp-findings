@@ -96,9 +96,20 @@ export function OverviewView({
                 onSecretsClick={() => onDrillToFindings?.({ scanners: ['TruffleHog'] })}
                 onLicenseClick={() => onDrillToComponents?.()}
                 onIacClick={() => onDrillToFindings?.({ scanners: ['Trivy'] })}
+                onCoverageClick={() => {
+                  const el = document.getElementById('coverage-table')
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    // Brief highlight so the eye lands on the table even if no scroll happens.
+                    el.classList.add('ring-2', 'ring-primary/60')
+                    setTimeout(() => el.classList.remove('ring-2', 'ring-primary/60'), 1200)
+                  }
+                }}
               />
               <div className="grid grid-cols-2 gap-4">
-                <CoverageTable coverage={aggregates.data.coverage} />
+                <div id="coverage-table" className="rounded-md transition-shadow">
+                  <CoverageTable coverage={aggregates.data.coverage} />
+                </div>
                 <FindingsTypeTable
                   scannerDetails={aggregates.data.findings.byScannerDetail}
                   onRowClick={(segment, scanner) => {

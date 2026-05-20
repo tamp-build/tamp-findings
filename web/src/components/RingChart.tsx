@@ -353,7 +353,7 @@ export function RingChart({
         <ConcentricRing
           slot="innerMid"
           arcs={licenseArcs}
-          onClick={onLicenseClick && licenseTotal > 0 ? onLicenseClick : undefined}
+          onClick={onLicenseClick}
           ariaLabel="Browse license breakdown"
         />
         <ConcentricRing
