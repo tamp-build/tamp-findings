@@ -10,7 +10,7 @@ import {
 } from '@/lib/api'
 import type { AggregatesFilters, ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import type { FindingsPreset, ComponentsPreset } from '@/App'
-import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable, LicenseTable, IacHealthTable, CoverageTable, SAST_SCANNERS } from '@/components/RingChart'
+import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable, LicenseTable, IacHealthTable, CoverageTable, TopRulesTable, SAST_SCANNERS } from '@/components/RingChart'
 
 // Which Findings filter does a Code-Quality table row map to? Severities
 // fold into the severity filter (default-status Open); the lifecycle
@@ -129,6 +129,13 @@ export function OverviewView({
                       statuses: status ? [status] : [],
                     })
                   }}
+                />
+                <TopRulesTable
+                  rules={aggregates.data.findings.byRule}
+                  onRowClick={(ruleId) => onDrillToFindings?.({
+                    scanners: [...SAST_SCANNERS] as ScannerKind[],
+                    ruleId,
+                  })}
                 />
                 <SbomHealthTable
                   health={aggregates.data.sbom.health}

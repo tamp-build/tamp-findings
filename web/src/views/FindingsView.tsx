@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertCircle, ChevronRight, FileCode } from 'lucide-react'
 import { fetchFindingsTree, fetchFindingsFile } from '@/lib/api'
@@ -41,20 +41,29 @@ const SEV_RANK: Record<Severity, number> = { Info: 0, Low: 1, Medium: 2, High: 3
 
 export function FindingsView({
   search: _search,
-  preset: _preset,
+  preset,
 }: {
-  // Search + preset are retained on the props surface so App.tsx doesn't need
-  // to change shape; the tree-based view doesn't use either yet.
+  // Search is retained for prop compatibility; the tree-based view doesn't
+  // surface free-text search. Preset is honoured for the ruleId filter
+  // (TFND-18) — drilling from Overview's Top Rules table lands here scoped
+  // to that single rule.
   search: string
   preset: FindingsPreset
 }) {
+  const [ruleFilter, setRuleFilter] = useState<string | null>(preset.ruleId ?? null)
+  // Re-seed when the user clicks a new top-rule row (nonce bumps).
+  useEffect(() => { setRuleFilter(preset.ruleId ?? null) }, [preset.nonce, preset.ruleId])
+
   const tree = useQuery({
-    queryKey: ['findings-tree'],
-    queryFn: () => fetchFindingsTree(),
+    queryKey: ['findings-tree', ruleFilter],
+    queryFn: () => fetchFindingsTree({ ruleId: ruleFilter ?? undefined }),
   })
 
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  // Reset tree expansion + selection when the rule filter changes so the
+  // user lands on a clean state showing only files that match the rule.
+  useEffect(() => { setExpanded(new Set()); setSelectedPath(null) }, [ruleFilter])
 
   const toggleModule = (name: string) =>
     setExpanded(prev => {
@@ -65,8 +74,8 @@ export function FindingsView({
     })
 
   const detail = useQuery({
-    queryKey: ['findings-file', selectedPath],
-    queryFn: () => fetchFindingsFile(selectedPath!),
+    queryKey: ['findings-file', selectedPath, ruleFilter],
+    queryFn: () => fetchFindingsFile(selectedPath!, ruleFilter ?? undefined),
     enabled: !!selectedPath,
   })
 
@@ -96,9 +105,23 @@ export function FindingsView({
     <div className="grid grid-cols-1 gap-4 md:grid-cols-[320px_minmax(0,1fr)]">
       <aside className="space-y-2">
         <header className="rounded-md border bg-card p-3">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Findings</p>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+            {ruleFilter ? 'Findings · filtered' : 'Findings'}
+          </p>
           <p className="mt-0.5 text-2xl font-semibold tabular-nums">{tree.data.totalCount}</p>
           <SeverityCountsRow counts={overall} />
+          {ruleFilter && (
+            <div className="mt-1 flex items-center justify-between gap-2 rounded border bg-muted/40 px-2 py-1 text-[11px]">
+              <span className="truncate font-mono" title={ruleFilter}>{ruleFilter}</span>
+              <button
+                type="button"
+                onClick={() => setRuleFilter(null)}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                clear
+              </button>
+            </div>
+          )}
           {tree.data.noPathCount > 0 && (
             <p className="mt-1 text-[11px] text-muted-foreground">
               {tree.data.noPathCount} additional finding(s) without a file path.

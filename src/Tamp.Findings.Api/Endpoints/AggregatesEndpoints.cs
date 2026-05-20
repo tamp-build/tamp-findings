@@ -94,6 +94,31 @@ public static class AggregatesEndpoints
             .Select(g => new { g.Key.Scanner, g.Key.Severity, g.Key.Status, Count = g.Count() })
             .ToListAsync(ct);
 
+        // Top-N rules across the latest CVs in scope. Severity is the worst
+        // observed for the rule (rules occasionally span severities in
+        // theory, never in practice for our scanners). Used by the Overview
+        // "Top rules" table — TFND-18.
+        var ruleRows = await statusQ
+            .Where(f => f.Status == FindingStatus.Open)
+            .GroupBy(f => f.RuleId)
+            .Select(g => new
+            {
+                RuleId = g.Key,
+                Count = g.Count(),
+                MaxSeverity = g.Max(f => f.Severity),
+                AnyScanner = g.Min(f => f.Scanner),
+            })
+            .OrderByDescending(r => r.Count)
+            .Take(10)
+            .ToListAsync(ct);
+        var byRule = ruleRows
+            .Select(r => new FindingRuleSummaryDto(
+                RuleId: r.RuleId,
+                Count: r.Count,
+                Severity: r.MaxSeverity,
+                Scanner: r.AnyScanner))
+            .ToList();
+
         var byScannerDetail = rawBuckets
             .GroupBy(b => b.Scanner)
             .Select(g =>
@@ -322,7 +347,7 @@ public static class AggregatesEndpoints
 
         return TypedResults.Ok(new AggregatesResponse(
             scope,
-            new FindingAggregate(counts, byScanner, byStatus, byScannerDetail),
+            new FindingAggregate(counts, byScanner, byStatus, byScannerDetail, byRule),
             new SbomAggregate(
                 compsCount, vulnsCount, byEcosystem,
                 new SbomHealthCounts(current, outdated, vulnerable)),
