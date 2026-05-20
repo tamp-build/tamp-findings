@@ -5,8 +5,15 @@ namespace Tamp.Findings.Build.Adapters;
 
 // Walks every coverage.opencover.xml under artifacts/test-results and folds
 // them into one ingest payload — modules, per-class line maps, deduped
-// source-file bodies. Multiple test projects can overlap (both tests instrument
-// the shared Domain assembly), so we union visited-line sets per class.
+// source-file bodies.
+//
+// Coverlet emits the same total-sequence-point count in every XML for a
+// given assembly (the IL didn't change between test projects), so summing
+// across XMLs double-counts. We identify every sequence/branch point by its
+// (file, sl, sc, el, ec[, offset, order]) source position so the same SP
+// across N XMLs becomes one row — visited = OR across XMLs, total = the
+// stable count from any single XML. Visited *line* sets also union, which
+// is correct for the red/green source viewer.
 public static class CoverageIngestMapper
 {
     public static CoverageIngestRequestDto? Map(string testResultsRoot, IngestBuildContext ctx, string repoRoot)
@@ -15,9 +22,6 @@ public static class CoverageIngestMapper
         var xmls = Directory.EnumerateFiles(testResultsRoot, "coverage.opencover.xml", SearchOption.AllDirectories).ToList();
         if (xmls.Count == 0) return null;
 
-        long totalSeq = 0, coveredSeq = 0, totalBr = 0, coveredBr = 0;
-
-        // Per-module aggregates (across XMLs).
         var moduleAcc = new Dictionary<string, ModuleAcc>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var xmlPath in xmls)
@@ -35,7 +39,6 @@ public static class CoverageIngestMapper
                 if (string.IsNullOrWhiteSpace(moduleName)) continue;
                 if (IsTestOrTransient(moduleName)) continue;
 
-                // File uid → absolute path lookup for this module.
                 var fileLookup = (moduleEl.Element("Files")?.Elements("File") ?? Enumerable.Empty<XElement>())
                     .ToDictionary(
                         f => (string?)f.Attribute("uid") ?? "",
@@ -50,35 +53,23 @@ public static class CoverageIngestMapper
 
                 foreach (var classEl in moduleEl.Element("Classes")?.Elements("Class") ?? Enumerable.Empty<XElement>())
                 {
-                    var className = (string?)classEl.Element("FullName") ?? "";
-                    if (string.IsNullOrWhiteSpace(className)) continue;
-                    // Compiler-generated noise: <PrivateImplementationDetails>,
-                    // <>c, <>c__DisplayClass*, lambda hosts. They're real but
-                    // not useful in a Test Explorer-style view.
-                    if (IsCompilerGenerated(className)) continue;
+                    var rawClassName = (string?)classEl.Element("FullName") ?? "";
+                    if (string.IsNullOrWhiteSpace(rawClassName)) continue;
+                    // Drop <PrivateImplementationDetails> entirely — never user code.
+                    if (rawClassName.Contains("<PrivateImplementationDetails>", StringComparison.Ordinal)) continue;
+                    // Fold compiler-generated nested types (async state machines
+                    // <MethodName>d__N, iterator <MethodName>d, lambda host <>c
+                    // and <>c__DisplayClass*) back into the parent class. Their
+                    // SequencePoints reference the original method's source
+                    // lines, so attributing them to the parent gives the tree
+                    // view what the user actually wrote: one row per real
+                    // class, with that class's full method coverage.
+                    var className = FoldNestedCompilerArtifact(rawClassName);
 
-                    var classSummary = classEl.Element("Summary");
-                    if (classSummary is null) continue;
-                    var (cTotal, cCovered) = ReadSeq(classSummary);
-                    var (cTotalBr, cCoveredBr) = ReadBr(classSummary);
-
-                    // Group methods by their FileRef so partial classes split
-                    // into (class, file) rows.
-                    var methodsByFile = new Dictionary<string, List<XElement>>();
                     foreach (var method in classEl.Element("Methods")?.Elements("Method") ?? Enumerable.Empty<XElement>())
                     {
                         var fileUid = (string?)method.Element("FileRef")?.Attribute("uid") ?? "";
                         if (string.IsNullOrWhiteSpace(fileUid)) continue;
-                        if (!methodsByFile.TryGetValue(fileUid, out var lst))
-                        {
-                            lst = [];
-                            methodsByFile[fileUid] = lst;
-                        }
-                        lst.Add(method);
-                    }
-
-                    foreach (var (fileUid, methods) in methodsByFile)
-                    {
                         if (!fileLookup.TryGetValue(fileUid, out var absPath) || string.IsNullOrWhiteSpace(absPath)) continue;
                         var relPath = NormaliseRelativePath(absPath, repoRoot);
 
@@ -94,53 +85,57 @@ public static class CoverageIngestMapper
                             mAcc.Classes[classKey] = cAcc;
                         }
 
-                        // Aggregate this (class, file) bucket's seq/branch totals
-                        // from the methods. Class-level Summary covers the whole
-                        // class (across files), so we recompute per-bucket from
-                        // method Summaries.
-                        long bTotal = 0, bCovered = 0, bTotalBr = 0, bCoveredBr = 0;
-                        foreach (var method in methods)
+                        var methodName = (string?)method.Element("Name") ?? "";
+                        if (!cAcc.Methods.TryGetValue(methodName, out var methAcc))
                         {
-                            var mSum = method.Element("Summary");
-                            if (mSum != null)
+                            methAcc = new MethodAcc();
+                            cAcc.Methods[methodName] = methAcc;
+                        }
+
+                        foreach (var sp in method.Element("SequencePoints")?.Elements("SequencePoint") ?? Enumerable.Empty<XElement>())
+                        {
+                            var sl = (int?)sp.Attribute("sl");
+                            var sc = (int?)sp.Attribute("sc") ?? 0;
+                            var el = (int?)sp.Attribute("el") ?? sl;
+                            var ec = (int?)sp.Attribute("ec") ?? 0;
+                            var vc = (int?)sp.Attribute("vc") ?? 0;
+                            if (sl is null) continue;
+                            var key = new SpKey(sl.Value, sc, el ?? sl.Value, ec);
+                            if (vc > 0)
+                                methAcc.SeqPoints[key] = true;
+                            else if (!methAcc.SeqPoints.ContainsKey(key))
+                                methAcc.SeqPoints[key] = false;
+
+                            for (var line = sl.Value; line <= (el ?? sl.Value); line++)
                             {
-                                var (mt, mc) = ReadSeq(mSum);
-                                var (mtb, mcb) = ReadBr(mSum);
-                                bTotal += mt; bCovered += mc; bTotalBr += mtb; bCoveredBr += mcb;
-                            }
-                            foreach (var sp in method.Element("SequencePoints")?.Elements("SequencePoint") ?? Enumerable.Empty<XElement>())
-                            {
-                                var sl = (int?)sp.Attribute("sl");
-                                var el = (int?)sp.Attribute("el") ?? sl;
-                                var vc = (int?)sp.Attribute("vc") ?? 0;
-                                if (sl is null) continue;
-                                for (var line = sl.Value; line <= (el ?? sl.Value); line++)
-                                {
-                                    if (vc > 0) cAcc.Visited.Add(line);
-                                    else cAcc.Unvisited.Add(line);
-                                }
+                                if (vc > 0) cAcc.Visited.Add(line);
+                                else cAcc.Unvisited.Add(line);
                             }
                         }
-                        cAcc.TotalSequences += (int)bTotal;
-                        cAcc.CoveredSequences += (int)bCovered;
-                        cAcc.TotalBranches += (int)bTotalBr;
-                        cAcc.CoveredBranches += (int)bCoveredBr;
-                    }
 
-                    // Module-level totals for the parent CoverageReport.
-                    mAcc.TotalSequences += (int)cTotal;
-                    mAcc.CoveredSequences += (int)cCovered;
-                    mAcc.TotalBranches += (int)cTotalBr;
-                    mAcc.CoveredBranches += (int)cCoveredBr;
-                    totalSeq += cTotal; coveredSeq += cCovered;
-                    totalBr += cTotalBr; coveredBr += cCoveredBr;
+                        foreach (var bp in method.Element("BranchPoints")?.Elements("BranchPoint") ?? Enumerable.Empty<XElement>())
+                        {
+                            var sl = (int?)bp.Attribute("sl");
+                            var sc = (int?)bp.Attribute("sc") ?? 0;
+                            var el = (int?)bp.Attribute("el") ?? sl;
+                            var ec = (int?)bp.Attribute("ec") ?? 0;
+                            var offset = (int?)bp.Attribute("offset") ?? 0;
+                            var order = (int?)bp.Attribute("ordinal") ?? 0;
+                            var vc = (int?)bp.Attribute("vc") ?? 0;
+                            if (sl is null) continue;
+                            var key = new BpKey(sl.Value, sc, el ?? sl.Value, ec, offset, order);
+                            if (vc > 0)
+                                methAcc.BranchPoints[key] = true;
+                            else if (!methAcc.BranchPoints.ContainsKey(key))
+                                methAcc.BranchPoints[key] = false;
+                        }
+                    }
                 }
             }
         }
 
-        if (totalSeq == 0 && moduleAcc.Count == 0) return null;
-
-        // A line covered by one test project but not another → covered overall.
+        // A line visited by any test in any XML is "visited" overall; ExceptWith
+        // ensures Unvisited only contains lines that were never reached.
         foreach (var mAcc in moduleAcc.Values)
         {
             foreach (var cAcc in mAcc.Classes.Values)
@@ -149,32 +144,62 @@ public static class CoverageIngestMapper
             }
         }
 
-        var modules = moduleAcc
-            .Select(kv => new CoverageModuleDto(
-                Name: kv.Key,
-                SequenceCoverage: kv.Value.TotalSequences == 0 ? 0 : 100.0 * kv.Value.CoveredSequences / kv.Value.TotalSequences,
-                BranchCoverage: kv.Value.TotalBranches == 0 ? 0 : 100.0 * kv.Value.CoveredBranches / kv.Value.TotalBranches,
-                CoveredSequences: kv.Value.CoveredSequences,
-                TotalSequences: kv.Value.TotalSequences,
-                Classes: kv.Value.Classes.Values
-                    .Select(c => new CoverageClassDto(
-                        FullName: c.FullName,
-                        SourceFileRelativePath: c.RelativePath,
-                        SequenceCoverage: c.TotalSequences == 0 ? 0 : 100.0 * c.CoveredSequences / c.TotalSequences,
-                        BranchCoverage: c.TotalBranches == 0 ? 0 : 100.0 * c.CoveredBranches / c.TotalBranches,
-                        CoveredSequences: c.CoveredSequences,
-                        TotalSequences: c.TotalSequences,
-                        CoveredBranches: c.CoveredBranches,
-                        TotalBranches: c.TotalBranches,
-                        VisitedLines: c.Visited.OrderBy(x => x).ToArray(),
-                        UnvisitedLines: c.Unvisited.OrderBy(x => x).ToArray()))
-                    .OrderBy(c => c.FullName, StringComparer.OrdinalIgnoreCase)
-                    .ToList()))
-            .OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        if (moduleAcc.Count == 0) return null;
 
-        // Build unique source-file payload, reading from disk at scan time so
-        // the dashboard never depends on the build host's filesystem at view time.
+        // Bottom-up roll-ups now compute against deduped per-SP / per-branch maps.
+        long rootTotalSeq = 0, rootCoveredSeq = 0, rootTotalBr = 0, rootCoveredBr = 0;
+        var modules = new List<CoverageModuleDto>();
+        foreach (var (moduleName, mAcc) in moduleAcc)
+        {
+            long mTotalSeq = 0, mCoveredSeq = 0, mTotalBr = 0, mCoveredBr = 0;
+            var classes = new List<CoverageClassDto>();
+            foreach (var cAcc in mAcc.Classes.Values)
+            {
+                long cTotalSeq = 0, cCoveredSeq = 0, cTotalBr = 0, cCoveredBr = 0;
+                foreach (var methAcc in cAcc.Methods.Values)
+                {
+                    cTotalSeq += methAcc.SeqPoints.Count;
+                    cCoveredSeq += methAcc.SeqPoints.Values.Count(v => v);
+                    cTotalBr += methAcc.BranchPoints.Count;
+                    cCoveredBr += methAcc.BranchPoints.Values.Count(v => v);
+                }
+                mTotalSeq += cTotalSeq;
+                mCoveredSeq += cCoveredSeq;
+                mTotalBr += cTotalBr;
+                mCoveredBr += cCoveredBr;
+
+                classes.Add(new CoverageClassDto(
+                    FullName: cAcc.FullName,
+                    SourceFileRelativePath: cAcc.RelativePath,
+                    SequenceCoverage: cTotalSeq == 0 ? 0 : 100.0 * cCoveredSeq / cTotalSeq,
+                    BranchCoverage: cTotalBr == 0 ? 0 : 100.0 * cCoveredBr / cTotalBr,
+                    CoveredSequences: (int)cCoveredSeq,
+                    TotalSequences: (int)cTotalSeq,
+                    CoveredBranches: (int)cCoveredBr,
+                    TotalBranches: (int)cTotalBr,
+                    VisitedLines: cAcc.Visited.OrderBy(x => x).ToArray(),
+                    UnvisitedLines: cAcc.Unvisited.OrderBy(x => x).ToArray()));
+            }
+
+            rootTotalSeq += mTotalSeq;
+            rootCoveredSeq += mCoveredSeq;
+            rootTotalBr += mTotalBr;
+            rootCoveredBr += mCoveredBr;
+
+            modules.Add(new CoverageModuleDto(
+                Name: moduleName,
+                SequenceCoverage: mTotalSeq == 0 ? 0 : 100.0 * mCoveredSeq / mTotalSeq,
+                BranchCoverage: mTotalBr == 0 ? 0 : 100.0 * mCoveredBr / mTotalBr,
+                CoveredSequences: (int)mCoveredSeq,
+                TotalSequences: (int)mTotalSeq,
+                Classes: classes
+                    .OrderBy(c => c.FullName, StringComparer.OrdinalIgnoreCase)
+                    .ToList()));
+        }
+        modules = modules.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+        // Build unique source-file payload, reading from disk so the dashboard
+        // never depends on the build host's filesystem at view time.
         var sourceFiles = new List<CoverageSourceFileDto>();
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var mAcc in moduleAcc.Values)
@@ -183,19 +208,8 @@ public static class CoverageIngestMapper
             {
                 if (!seenPaths.Add(cAcc.RelativePath)) continue;
                 string source = "";
-                try
-                {
-                    if (File.Exists(cAcc.AbsolutePath))
-                    {
-                        source = File.ReadAllText(cAcc.AbsolutePath);
-                    }
-                }
-                catch
-                {
-                    // Source files outside the build host or with permission issues
-                    // get an empty body — the SPA still renders the line map, just
-                    // without code content.
-                }
+                try { if (File.Exists(cAcc.AbsolutePath)) source = File.ReadAllText(cAcc.AbsolutePath); }
+                catch { /* empty source — SPA still renders the line map */ }
                 sourceFiles.Add(new CoverageSourceFileDto(
                     RelativePath: cAcc.RelativePath,
                     AbsolutePath: cAcc.AbsolutePath,
@@ -216,12 +230,12 @@ public static class CoverageIngestMapper
             PullRequestRef: ctx.PullRequestRef,
             ToolName: "Coverlet",
             ToolVersion: null,
-            SequenceCoverage: totalSeq == 0 ? 0 : 100.0 * coveredSeq / totalSeq,
-            BranchCoverage: totalBr == 0 ? 0 : 100.0 * coveredBr / totalBr,
-            CoveredSequences: (int)coveredSeq,
-            TotalSequences: (int)totalSeq,
-            CoveredBranches: (int)coveredBr,
-            TotalBranches: (int)totalBr,
+            SequenceCoverage: rootTotalSeq == 0 ? 0 : 100.0 * rootCoveredSeq / rootTotalSeq,
+            BranchCoverage: rootTotalBr == 0 ? 0 : 100.0 * rootCoveredBr / rootTotalBr,
+            CoveredSequences: (int)rootCoveredSeq,
+            TotalSequences: (int)rootTotalSeq,
+            CoveredBranches: (int)rootCoveredBr,
+            TotalBranches: (int)rootTotalBr,
             Modules: modules,
             SourceFiles: sourceFiles);
     }
@@ -231,13 +245,9 @@ public static class CoverageIngestMapper
         try
         {
             var rel = Path.GetRelativePath(repoRoot, absolutePath);
-            // Keep forward slashes — Postgres index and SPA paths both prefer them.
             return rel.Replace('\\', '/');
         }
-        catch
-        {
-            return absolutePath;
-        }
+        catch { return absolutePath; }
     }
 
     private static bool IsTestOrTransient(string moduleName)
@@ -251,37 +261,19 @@ public static class CoverageIngestMapper
         return false;
     }
 
-    private static bool IsCompilerGenerated(string className)
+    // Class FullName from OpenCover for nested compiler artifacts looks like
+    // "Tamp.Findings.Api.Endpoints.FindingsListEndpoints/<ListFindingsAsync>d__1"
+    // (state machine), ".../<>c" (lambda host), ".../<>c__DisplayClass5_0"
+    // (closure host). Any '/' indicates nesting; the parent class is everything
+    // before the first '/<' (or the whole string if no nested marker is present).
+    private static string FoldNestedCompilerArtifact(string className)
     {
-        // Lambda-host display classes, anonymous types, async state machines,
-        // <PrivateImplementationDetails>, etc. These pollute the Test Explorer
-        // tree without giving the user a meaningful "click into the code" target.
-        if (className.Contains("<>c", StringComparison.Ordinal)) return true;
-        if (className.Contains("<PrivateImplementationDetails>", StringComparison.Ordinal)) return true;
-        if (className.Contains("d__", StringComparison.Ordinal) && className.Contains("<", StringComparison.Ordinal)) return true;
-        return false;
-    }
-
-    private static (long Total, long Covered) ReadSeq(XElement summary)
-    {
-        long total = (long?)summary.Attribute("numSequencePoints") ?? 0;
-        long covered = (long?)summary.Attribute("visitedSequencePoints") ?? 0;
-        return (total, covered);
-    }
-
-    private static (long Total, long Covered) ReadBr(XElement summary)
-    {
-        long total = (long?)summary.Attribute("numBranchPoints") ?? 0;
-        long covered = (long?)summary.Attribute("visitedBranchPoints") ?? 0;
-        return (total, covered);
+        var idx = className.IndexOf("/<", StringComparison.Ordinal);
+        return idx >= 0 ? className[..idx] : className;
     }
 
     private sealed class ModuleAcc
     {
-        public int TotalSequences { get; set; }
-        public int CoveredSequences { get; set; }
-        public int TotalBranches { get; set; }
-        public int CoveredBranches { get; set; }
         public Dictionary<string, ClassAcc> Classes { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
@@ -290,13 +282,21 @@ public static class CoverageIngestMapper
         public string FullName { get; set; } = "";
         public string RelativePath { get; set; } = "";
         public string AbsolutePath { get; set; } = "";
-        public int TotalSequences { get; set; }
-        public int CoveredSequences { get; set; }
-        public int TotalBranches { get; set; }
-        public int CoveredBranches { get; set; }
+        public Dictionary<string, MethodAcc> Methods { get; } = new();
         public HashSet<int> Visited { get; } = new();
         public HashSet<int> Unvisited { get; } = new();
     }
+
+    private sealed class MethodAcc
+    {
+        public Dictionary<SpKey, bool> SeqPoints { get; } = new();
+        public Dictionary<BpKey, bool> BranchPoints { get; } = new();
+    }
+
+    // Source-position identity for a sequence/branch point — stable across
+    // multiple Coverlet XMLs of the same assembly.
+    private readonly record struct SpKey(int Sl, int Sc, int El, int Ec);
+    private readonly record struct BpKey(int Sl, int Sc, int El, int Ec, int Offset, int Order);
 }
 
 public sealed record CoverageIngestRequestDto(

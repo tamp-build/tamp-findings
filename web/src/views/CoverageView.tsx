@@ -204,7 +204,7 @@ function SourceViewer({ detail }: { detail: { sourceText: string; visitedLines: 
           <span className="font-mono">{detail.sourceFileRelativePath}</span>
           <span>·</span>
           <span className={cn('tabular-nums', tierTextClass(detail.sequenceCoverage))}>
-            {detail.sequenceCoverage.toFixed(1)}% · {detail.coveredSequences}/{detail.totalSequences} lines
+            {detail.sequenceCoverage.toFixed(1)}% · {detail.coveredSequences}/{detail.totalSequences} statements
           </span>
         </div>
       </header>

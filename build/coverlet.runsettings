@@ -6,7 +6,15 @@
         <Configuration>
           <Format>opencover</Format>
           <Exclude>[xunit*]*,[*.Tests]*</Exclude>
-          <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
+          <!--
+          DO NOT add CompilerGeneratedAttribute here — every async method,
+          lambda, iterator, anonymous type and expression tree gets rewritten
+          by the C# compiler into a [CompilerGenerated] class, so excluding
+          it silently drops most of an ASP.NET Core codebase's coverage.
+          GeneratedCodeAttribute is fine: it only fires on genuinely generated
+          source (Razor, T4, source generators that opt in).
+          -->
+          <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute</ExcludeByAttribute>
           <ExcludeByFile>**/Migrations/*.cs</ExcludeByFile>
           <SkipAutoProps>true</SkipAutoProps>
         </Configuration>
