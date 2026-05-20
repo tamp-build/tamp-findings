@@ -19,29 +19,23 @@ export function CoverageView() {
     queryFn: () => fetchCoverageTree(),
   })
 
+  // Start with all modules collapsed. No auto-selection — first click drives
+  // both expansion and class selection.
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
-  // Auto-expand all modules + select the first class on first load so the
-  // user lands on something rather than a wall of collapsed nodes.
-  const expandedEffective = useMemo(() => {
-    if (expanded.size > 0 || !tree.data) return expanded
-    return new Set(tree.data.modules.map(m => m.name))
-  }, [expanded, tree.data])
-
-  const effectiveSelectedId = useMemo(() => {
-    if (selectedId) return selectedId
-    if (!tree.data) return null
-    for (const m of tree.data.modules) {
-      if (m.classes.length > 0) return m.classes[0].id
-    }
-    return null
-  }, [selectedId, tree.data])
+  const toggleModule = (name: string) =>
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
 
   const detail = useQuery({
-    queryKey: ['coverage-class', effectiveSelectedId],
-    queryFn: () => fetchCoverageClass(effectiveSelectedId!),
-    enabled: !!effectiveSelectedId,
+    queryKey: ['coverage-class', selectedId],
+    queryFn: () => fetchCoverageClass(selectedId!),
+    enabled: !!selectedId,
   })
 
   if (tree.isLoading) return <p className="text-sm text-muted-foreground">Loading coverage…</p>
@@ -84,13 +78,9 @@ export function CoverageView() {
             <ModuleNode
               key={m.name}
               module={m}
-              expanded={expandedEffective.has(m.name)}
-              onToggle={() => setExpanded(p => {
-                const n = new Set(p.size === 0 ? Array.from(expandedEffective) : p)
-                n.has(m.name) ? n.delete(m.name) : n.add(m.name)
-                return n
-              })}
-              selectedId={effectiveSelectedId}
+              expanded={expanded.has(m.name)}
+              onToggle={() => toggleModule(m.name)}
+              selectedId={selectedId}
               onSelectClass={setSelectedId}
             />
           ))}
@@ -98,16 +88,16 @@ export function CoverageView() {
       </aside>
 
       <main className="rounded-md border bg-card min-h-[400px]">
-        {!effectiveSelectedId && (
+        {!selectedId && (
           <p className="p-6 text-sm text-muted-foreground">Select a class from the tree to view its source.</p>
         )}
-        {effectiveSelectedId && detail.isLoading && (
+        {selectedId && detail.isLoading && (
           <p className="p-6 text-sm text-muted-foreground">Loading source…</p>
         )}
-        {effectiveSelectedId && detail.isError && (
+        {selectedId && detail.isError && (
           <p className="p-6 text-sm text-destructive">Couldn't load source: {(detail.error as Error)?.message}</p>
         )}
-        {effectiveSelectedId && detail.data && (
+        {selectedId && detail.data && (
           <SourceViewer detail={detail.data} />
         )}
       </main>
