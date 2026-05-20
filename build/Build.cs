@@ -404,6 +404,49 @@ class Build : SecurityPipelineBuild
                 var resp = await client.PostCoverageAsync(spaCoverage);
                 Console.WriteLine($"[ingest] CoverageSPA → {spaCoverage.SequenceCoverage:F1}% sequence  ({resp.GetProperty("modulesCount")} modules, {spaCoverage.CoveredSequences}/{spaCoverage.TotalSequences} points)");
             }
+
+            // Scan-run receipts (TFND-15): one row per scanner that left an
+            // artifact on disk, regardless of whether it found anything. The
+            // dashboard uses these to distinguish "ran clean" from "never ran".
+            var receipts = new List<ScanRunReceiptDto>();
+            // OpenGrep has its own SARIF in addition to being merged into
+            // sast.sarif. Reading both ensures a clean OpenGrep run (0 findings,
+            // sometimes dropped from the merge) still gets a receipt.
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifOpenGrepFile.Value));
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifSastFile.Value));
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifResharperFile.Value));
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifCveFile.Value));
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifTrivyFile.Value));
+            var thReceipt = ScanRunReceiptBuilder.FromTrufflehogJsonl(TrufflehogJsonFile.Value);
+            if (thReceipt is not null) receipts.Add(thReceipt);
+            // Dedup by scanner (the merged sast.sarif may have already
+            // emitted a Roslyn receipt that resharper.sarif would re-emit).
+            // Keep the entry with the latest CompletedAt.
+            var dedup = receipts
+                .GroupBy(r => r.Scanner)
+                .Select(g => g.OrderByDescending(r => r.CompletedAt).First())
+                .ToList();
+            if (dedup.Count > 0)
+            {
+                var payload = new ScanRunIngestRequestDto(
+                    Client: ctx.Client,
+                    Project: ctx.Project,
+                    Component: ctx.Component,
+                    ComponentKind: ctx.ComponentKind,
+                    Flavor: ctx.Flavor,
+                    Version: ctx.Version,
+                    CommitSha: ctx.CommitSha,
+                    Branch: ctx.Branch,
+                    BuildId: ctx.BuildId,
+                    PullRequestRef: ctx.PullRequestRef,
+                    Receipts: dedup);
+                var resp = await client.PostScanRunsAsync(payload);
+                Console.WriteLine($"[ingest] ScanRuns   → {resp.GetProperty("receiptsUpserted")} receipt(s) ({string.Join(", ", dedup.Select(r => $"{r.Scanner}={r.FindingsCount}"))})");
+            }
+            else
+            {
+                Console.WriteLine("[ingest] ScanRuns   — no scan artifacts to receipt");
+            }
         });
 
     Target ScanAll => _ => _

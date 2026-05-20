@@ -22,6 +22,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<CoverageModule> CoverageModules => Set<CoverageModule>();
     public DbSet<CoverageSourceFile> CoverageSourceFiles => Set<CoverageSourceFile>();
     public DbSet<CoverageClass> CoverageClasses => Set<CoverageClass>();
+    public DbSet<ScanRunReceipt> ScanRunReceipts => Set<ScanRunReceipt>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -192,6 +193,17 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.SourceText).HasColumnType("text").IsRequired();
             e.HasOne(x => x.Report).WithMany(r => r.SourceFiles).HasForeignKey(x => x.CoverageReportId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.CoverageReportId, x.RelativePath }).IsUnique();
+        });
+
+        b.Entity<ScanRunReceipt>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ToolName).HasMaxLength(128);
+            e.Property(x => x.ToolVersion).HasMaxLength(64);
+            e.Property(x => x.Notes).HasMaxLength(2048);
+            e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
+            // Replace-on-ingest: one receipt per (CV, Scanner).
+            e.HasIndex(x => new { x.ComponentVersionId, x.Scanner }).IsUnique();
         });
 
         b.Entity<CoverageClass>(e =>

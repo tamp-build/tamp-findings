@@ -200,6 +200,17 @@ export type ScannerDetail = {
   accepted: number
 }
 
+export type ScanRunStatus = 'Succeeded' | 'Failed' | 'Skipped'
+
+export type ScanRunSummary = {
+  scanner: ScannerKind
+  status: ScanRunStatus
+  completedAt: string
+  findingsCount: number
+  toolName: string | null
+  toolVersion: string | null
+}
+
 export type AggregatesResponse = {
   scope: AggregateScope
   findings: {
@@ -233,6 +244,9 @@ export type AggregatesResponse = {
     totalSequences: number
     modules: CoverageModuleSummary[]
   }
+  // TFND-15: per-scanner receipts so the dashboard can tell "ran clean"
+  // from "never ran". Empty array means no scanners have reported.
+  scanRuns: ScanRunSummary[]
 }
 
 export type CoverageModuleSummary = {

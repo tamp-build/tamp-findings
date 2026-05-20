@@ -248,6 +248,7 @@ export function RingChart({
   licenseTiers,
   iac,
   coverage,
+  scanRuns,
   onScannerClick,
   onSbomClick,
   onSecretsClick,
@@ -261,6 +262,9 @@ export function RingChart({
   licenseTiers?: LicenseTierCounts
   iac?: { counts: SeverityCounts; scanned: boolean }
   coverage?: { measured: boolean; sequenceCoverage: number | null; coveredSequences: number; totalSequences: number }
+  // TFND-15: which scanners have produced a receipt in scope. Used to flip
+  // 0-finding rings from grey (never scanned) to green (scanned · clean).
+  scanRuns?: { scanner: string; status: string; findingsCount: number }[]
   onScannerClick?: (scanner: string) => void
   onSbomClick?: () => void
   onSecretsClick?: () => void
@@ -268,6 +272,9 @@ export function RingChart({
   onIacClick?: () => void
   onCoverageClick?: () => void
 }) {
+  const ranSuccessfully = (scanner: string) =>
+    !!scanRuns?.some(r => r.scanner === scanner && r.status === 'Succeeded')
+  const anySastRan = (SAST_SCANNERS as readonly string[]).some(s => ranSuccessfully(s))
   // Coverage (outermost). Two states mirror the IaC bullseye honesty rule:
   //   unmeasured (no coverage report)  → solid grey, no segments
   //   measured                         → covered arc (green) + uncovered arc (red)
@@ -295,6 +302,12 @@ export function RingChart({
     outerTotal,
     RINGS.upper.radius,
   )
+  // Honesty rule (TFND-15): if no SAST scanner has produced a receipt in
+  // scope, the ring is grey ("never scanned"); if any has, but findings are
+  // zero, it's green ("scanned · clean").
+  const codeQualityCleanFill = outerTotal === 0
+    ? (anySastRan ? SEGMENT_COLORS.closed : '#9ca3af')
+    : undefined
 
   const sbomTotal = sbomHealth ? sbomHealth.current + sbomHealth.outdated + sbomHealth.vulnerable : 0
   const sbomArcs = sbomHealth
@@ -305,7 +318,11 @@ export function RingChart({
   const secretsArcs = secretsHealth
     ? buildArcs(SECRETS_ORDER.map(k => ({ key: k, count: secretsHealth[k], color: SECRETS_COLORS[k] })), secretsTotal, RINGS.innerHi.radius)
     : []
-  const secretsCleanFill = secretsHealth && secretsTotal === 0 ? SECRETS_COLORS.clean : undefined
+  // Same honesty rule for Secrets: green requires a TruffleHog receipt; else grey.
+  const trufflehogRan = ranSuccessfully('TruffleHog')
+  const secretsCleanFill = secretsTotal === 0
+    ? (trufflehogRan ? SECRETS_COLORS.clean : '#9ca3af')
+    : undefined
 
   const licenseTotal = licenseTiers
     ? licenseTiers.permissive + licenseTiers.weakCopyleft + licenseTiers.strongCopyleft + licenseTiers.denied + licenseTiers.unknown
@@ -355,6 +372,7 @@ export function RingChart({
         <ConcentricRing
           slot="upper"
           arcs={codeQualityArcs}
+          cleanFill={codeQualityCleanFill}
           // Sentinel scanner name 'CodeQuality' tells the Findings view to
           // OR-filter across every SAST scanner rather than match a single one.
           onClick={onScannerClick && outerTotal > 0 ? () => onScannerClick('CodeQuality') : undefined}

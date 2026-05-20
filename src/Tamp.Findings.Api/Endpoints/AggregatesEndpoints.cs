@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Api.Services;
 using Tamp.Findings.Data;
+using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Values;
 
 namespace Tamp.Findings.Api.Endpoints;
@@ -193,11 +194,10 @@ public static class AggregatesEndpoints
             }
         }
 
-        // IaC bullseye: Trivy findings bucketed by severity. We don't
-        // yet track a per-scan "Trivy ran" receipt, so the heuristic is
-        // "any Trivy finding ever ingested in scope" → Scanned=true.
-        // For tamp.findings (no IaC files in repo) this stays false →
-        // SPA renders the bullseye in grey, not green.
+        // IaC bullseye: Trivy findings bucketed by severity. Scanned status
+        // now comes from ScanRunReceipts (TFND-15) — a Trivy receipt in scope
+        // means the scanner ran. Falls back to the old heuristic ("any Trivy
+        // finding in scope") so older ingests without receipts still work.
         var iacBase = db.Findings
             .AsNoTracking()
             .Where(f => f.Scanner == ScannerKind.Trivy && f.Status == FindingStatus.Open);
@@ -280,6 +280,46 @@ public static class AggregatesEndpoints
                 Modules: moduleAgg);
         }
 
+        // Scan-run receipts in scope (TFND-15). One receipt per (CV, Scanner)
+        // for every latest CV picked above. Surfaced to the SPA so a scanner
+        // that ran clean reads as "scanned ✓" instead of grey "never ran".
+        var scanRunsQ = db.ScanRunReceipts.AsNoTracking();
+        if (componentId is { } cmp7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.ComponentId == cmp7);
+        if (projectId is { } prj7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.Component!.ProjectId == prj7);
+        if (clientId is { } cli7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.Component!.Project!.ClientId == cli7);
+        if (latest)
+        {
+            var latestCvIds6 = await db.ComponentVersions
+                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
+                .ToListAsync(ct);
+            scanRunsQ = scanRunsQ.Where(r => latestCvIds6.Contains(r.ComponentVersionId));
+        }
+        var scanRunRows = await scanRunsQ
+            .Select(r => new
+            {
+                r.Scanner, r.Status, r.CompletedAt, r.FindingsCount, r.ToolName, r.ToolVersion,
+            })
+            .ToListAsync(ct);
+        // Group + pick-latest in memory — EF Core can't translate
+        // "GroupBy + OrderByDescending + First" into SQL for this query.
+        var scanRuns = scanRunRows
+            .GroupBy(r => r.Scanner)
+            .Select(g =>
+            {
+                var latest = g.OrderByDescending(x => x.CompletedAt).First();
+                return new ScanRunSummaryDto(
+                    latest.Scanner, latest.Status, latest.CompletedAt,
+                    latest.FindingsCount, latest.ToolName, latest.ToolVersion);
+            })
+            .OrderBy(r => r.Scanner.ToString())
+            .ToList();
+
+        // IaC ring is scanned-clean when a Trivy receipt exists OR (older
+        // heuristic) any Trivy finding has ever been ingested in scope.
+        var iacScanned = trivySeenAnywhere
+            || scanRuns.Any(r => r.Scanner == ScannerKind.Trivy && r.Status == ScanRunStatus.Succeeded);
+
         return TypedResults.Ok(new AggregatesResponse(
             scope,
             new FindingAggregate(counts, byScanner, byStatus, byScannerDetail),
@@ -290,8 +330,9 @@ public static class AggregatesEndpoints
             new LicensesAggregate(
                 new LicenseTierCounts(perm, weak, strong, denied, unknown),
                 byLicense),
-            new IacAggregate(iacCounts, Scanned: trivySeenAnywhere),
-            coverage));
+            new IacAggregate(iacCounts, Scanned: iacScanned),
+            coverage,
+            scanRuns));
     }
 
     private static async Task<AggregateScope> ResolveScopeAsync(
