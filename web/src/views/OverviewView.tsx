@@ -64,7 +64,7 @@ export function OverviewView({
       <aside>
         <HierarchyTree selection={selection} onSelect={setSelection} />
       </aside>
-      <main className="space-y-6">
+      <main className="space-y-3 sm:space-y-6">
         {aggregates.isLoading && (
           <p className="text-sm text-muted-foreground">Loading…</p>
         )}
@@ -79,13 +79,16 @@ export function OverviewView({
         )}
         {aggregates.data && (
           <>
-            <header>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                {aggregates.data.scope.level} view
-              </p>
-              <h2 className="mt-0.5 text-2xl font-semibold tracking-tight">
+            <header className="flex flex-wrap items-baseline gap-x-2">
+              {/* Mobile collapses the "{level} view" + giant {label} into a
+                  single short line — the hierarchy picker above is already
+                  the discoverable surface for changing scope. */}
+              <h2 className="text-base font-semibold tracking-tight sm:text-2xl">
                 {aggregates.data.scope.label}
               </h2>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                {aggregates.data.scope.level}
+              </p>
             </header>
 
             <section className="grid grid-cols-1 items-start gap-4 rounded-md border bg-card p-4 lg:grid-cols-[auto_minmax(0,1fr)]">
