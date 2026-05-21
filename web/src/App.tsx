@@ -47,10 +47,13 @@ function App() {
 
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <header className="border-b border-border bg-card/50">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 sm:gap-4 sm:py-4">
-          <h1 className="text-lg font-semibold tracking-tight sm:text-xl">tamp.findings</h1>
-          <nav className="flex flex-wrap items-center gap-1">
+      <header className="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-3 py-2 sm:gap-4 sm:px-4 sm:py-4">
+          <h1 className="text-base font-semibold tracking-tight sm:text-xl">tamp.findings</h1>
+          {/* Mobile: tabs scroll horizontally instead of wrapping to a second
+              row; the sticky header stays one row tall. sm+ keeps the
+              flex-wrap fallback for narrow desktop windows. */}
+          <nav className="-mx-1 flex flex-nowrap items-center gap-1 overflow-x-auto px-1 sm:flex-wrap sm:overflow-visible">
             <TabButton active={tab === 'overview'} onClick={() => { setTab('overview'); setSearch('') }}>
               Overview
             </TabButton>
@@ -81,7 +84,7 @@ function App() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-6">
+      <div className="mx-auto max-w-7xl px-3 py-3 sm:px-4 sm:py-6">
         {tab === 'overview' && <OverviewView onDrillToFindings={goToFindings} onDrillToComponents={goToComponents} onDrillToCoverage={() => setTab('coverage')} />}
         {tab === 'findings' && <FindingsView search={search} preset={findingsPreset} />}
         {tab === 'components' && <ComponentsView preset={componentsPreset} />}
