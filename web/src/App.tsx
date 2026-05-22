@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Search } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import { FindingsView } from '@/views/FindingsView'
 import { ComponentsView } from '@/views/ComponentsView'
@@ -49,27 +48,16 @@ function App() {
     <div className="min-h-svh bg-background text-foreground">
       <header className="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-3 py-2 sm:gap-4 sm:px-4 sm:py-4">
-          <h1 className="text-base font-semibold tracking-tight sm:text-xl">tamp.findings</h1>
-          {/* Mobile: tabs scroll horizontally instead of wrapping to a second
-              row; the sticky header stays one row tall. sm+ keeps the
-              flex-wrap fallback for narrow desktop windows. */}
-          <nav className="-mx-1 flex flex-nowrap items-center gap-1 overflow-x-auto px-1 sm:flex-wrap sm:overflow-visible">
-            <TabButton active={tab === 'overview'} onClick={() => { setTab('overview'); setSearch('') }}>
-              Overview
-            </TabButton>
-            <TabButton active={tab === 'findings'} onClick={() => { setTab('findings'); setSearch('') }}>
-              Findings
-            </TabButton>
-            <TabButton active={tab === 'components'} onClick={() => { setTab('components'); setSearch('') }}>
-              Components
-            </TabButton>
-            <TabButton active={tab === 'coverage'} onClick={() => { setTab('coverage'); setSearch('') }}>
-              Coverage
-            </TabButton>
-            <TabButton active={tab === 'tests'} onClick={() => { setTab('tests'); setSearch('') }}>
-              Tests
-            </TabButton>
-          </nav>
+          {/* Brand doubles as "home" — clicking returns to Overview from a
+              drilled view (Findings/Components/Coverage/Tests are reached
+              by clicking ring segments or rows, not by top-nav tabs). */}
+          <button
+            type="button"
+            onClick={() => { setTab('overview'); setSearch('') }}
+            className="text-base font-semibold tracking-tight hover:text-foreground/80 sm:text-xl"
+          >
+            tamp.findings
+          </button>
           {tab === 'findings' && (
             <div className="relative w-full sm:ml-auto sm:w-72">
               <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
@@ -92,21 +80,6 @@ function App() {
         {tab === 'tests' && <TestsView />}
       </div>
     </div>
-  )
-}
-
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-        active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40',
-      )}
-    >
-      {children}
-    </button>
   )
 }
 
