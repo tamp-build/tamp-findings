@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Endpoints;
 using Tamp.Findings.Api.Services;
 using Tamp.Findings.Data;
@@ -41,12 +42,21 @@ builder.Services.AddCors(options =>
     // so same-origin via the dev server is the normal path — this opens
     // direct API access for ad-hoc curl from other machines, the MCP
     // server, and any future tools. Tighten to an allow-list before any
-    // non-local deployment (and definitely before OIDC + tokens land).
+    // non-local deployment.
     options.AddDefaultPolicy(p =>
         p.AllowAnyOrigin()
          .AllowAnyHeader()
          .AllowAnyMethod());
 });
+
+// TFND-4 OIDC sign-in. Cookie session + GitHub OAuth challenge.
+builder.Services.AddTampFindingsAuth(builder.Configuration);
+
+// Bearer-token auth for /ingest/*. Each request brings a cli_/prj_
+// token; the filter validates + stashes the row, the endpoints
+// scope-check resolved Client/Project against it.
+builder.Services.AddScoped<Tamp.Findings.Api.Authentication.IngestTokenService>();
+builder.Services.AddScoped<Tamp.Findings.Api.Authentication.IngestAuthFilter>();
 
 var app = builder.Build();
 
@@ -60,11 +70,14 @@ if (Environment.GetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE") != "true")
 }
 
 app.UseCors();
-app.MapOpenApi();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapOpenApi().AllowAnonymous();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "tamp.findings.api" }))
    .WithName("Health")
-   .WithSummary("Liveness probe");
+   .WithSummary("Liveness probe")
+   .AllowAnonymous();
 
 app.MapGet("/version", () => Results.Ok(new
 {
@@ -72,13 +85,30 @@ app.MapGet("/version", () => Results.Ok(new
     version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0",
 }))
    .WithName("Version")
-   .WithSummary("Build version");
+   .WithSummary("Build version")
+   .AllowAnonymous();
 
+// Auth surface — challenge, callback (registered by the OAuth handler at
+// /auth/github/callback), /auth/me, /auth/logout, /auth/denied.
+app.MapAuth();
+
+// Ingest-token CRUD — SPA-facing, behind the cookie-auth fallback.
+app.MapIngestTokens();
+
+// Ingest endpoints — anonymous. Build script + future CI runners post to
+// these from outside a browser; bearer-token auth for them is TFND-4
+// follow-up work. Each endpoint flags itself .AllowAnonymous() to opt out
+// of the FallbackPolicy.
 app.MapIngest();
 app.MapSbomIngest();
 app.MapCoverageIngest();
-app.MapCoverageDetail();
 app.MapScanRunIngest();
+app.MapSbomEnrich();
+app.MapSbomVulnerabilities();
+
+// SPA-facing query endpoints — protected by the fallback policy
+// (RequireAuthenticatedUser; see AuthExtensions).
+app.MapCoverageDetail();
 app.MapTestResults();
 app.MapFindingsQuery();
 app.MapFindingsList();
@@ -87,8 +117,6 @@ app.MapSbomComponents();
 app.MapSuppressions();
 app.MapRoleAssignments();
 app.MapAggregates();
-app.MapSbomEnrich();
-app.MapSbomVulnerabilities();
 
 app.Run();
 

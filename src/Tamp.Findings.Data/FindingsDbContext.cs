@@ -26,6 +26,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<TestRunReport> TestRunReports => Set<TestRunReport>();
     public DbSet<TestSuiteResult> TestSuiteResults => Set<TestSuiteResult>();
     public DbSet<TestCaseResult> TestCaseResults => Set<TestCaseResult>();
+    public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -113,7 +114,12 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasKey(x => x.Id);
             e.Property(x => x.Login).HasMaxLength(256).IsRequired();
             e.Property(x => x.DisplayName).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Email).HasMaxLength(320);
+            e.Property(x => x.AvatarUrl).HasMaxLength(1024);
             e.HasIndex(x => x.Login).IsUnique();
+            // GitHub's numeric id is the durable identity (login can be
+            // renamed); sparse-unique so pre-OIDC rows with NULL don't collide.
+            e.HasIndex(x => x.GitHubUserId).IsUnique().HasFilter("\"GitHubUserId\" IS NOT NULL");
         });
 
         b.Entity<ProjectRoleAssignment>(e =>
@@ -243,6 +249,18 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
             // Replace-on-ingest: one receipt per (CV, Scanner).
             e.HasIndex(x => new { x.ComponentVersionId, x.Scanner }).IsUnique();
+        });
+
+        b.Entity<IngestToken>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.TokenHash).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            // Hash is the lookup key on every ingest hit — unique index
+            // keeps the validate path to a single-row hit.
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => x.ClientId);
+            e.HasIndex(x => x.ProjectId);
         });
 
         b.Entity<CoverageClass>(e =>

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
@@ -11,18 +12,23 @@ public static class SbomIngestEndpoints
     {
         app.MapPost("/ingest/sbom", IngestAsync)
            .WithName("IngestSbom")
-           .WithSummary("Ingest a CycloneDX-shaped SBOM (components + deps + vulnerabilities) for one component version");
+           .WithSummary("Ingest a CycloneDX-shaped SBOM (components + deps + vulnerabilities) for one component version. Requires Authorization: Bearer cli_… or prj_…")
+           .AllowAnonymous()
+           .AddEndpointFilter<IngestAuthFilter>();
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(SbomIngestRequest req, FindingsDbContext db, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(SbomIngestRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project is required");
         if (string.IsNullOrWhiteSpace(req.Component)) return Results.BadRequest("component is required");
         if (string.IsNullOrWhiteSpace(req.Version)) return Results.BadRequest("version is required");
 
-        var version = await ResolveComponentVersionAsync(db, req, ct);
+        var token = IngestAuthFilter.CurrentToken(ctx);
+        var (resolved, scopeErr) = await ResolveComponentVersionAsync(db, token, req, ct);
+        if (scopeErr is not null) return scopeErr;
+        var version = resolved!;
 
         // Replace-on-ingest: an SBOM is a point-in-time view. Re-uploading
         // the same component version's SBOM means the previous snapshot is
@@ -123,31 +129,21 @@ public static class SbomIngestEndpoints
             totalVulns));
     }
 
-    // Mirrors IngestEndpoints' find-or-create chain. Worth extracting to
-    // a shared helper once a third ingest endpoint shows up.
-    private static async Task<ComponentVersion> ResolveComponentVersionAsync(
-        FindingsDbContext db, SbomIngestRequest req, CancellationToken ct)
+    // Resolves the client/project (token-scoped via IngestScopeGuard) and
+    // then auto-creates the component/flavor/version chain under that
+    // scope. Returns (version, null) on success or (null, errorResult)
+    // when scope auth fails.
+    private static async Task<(ComponentVersion? version, IResult? error)> ResolveComponentVersionAsync(
+        FindingsDbContext db, IngestToken? token, SbomIngestRequest req, CancellationToken ct)
     {
-        var client = await db.Clients.FirstOrDefaultAsync(c => c.Name == req.Client, ct);
-        if (client is null)
-        {
-            client = new Client { Name = req.Client };
-            db.Clients.Add(client);
-        }
-
-        var project = await db.Projects
-            .FirstOrDefaultAsync(p => p.ClientId == client.Id && p.Name == req.Project, ct);
-        if (project is null)
-        {
-            project = new Project { ClientId = client.Id, Name = req.Project };
-            db.Projects.Add(project);
-        }
+        var (_, project, scopeErr) = await IngestScopeGuard.ResolveAndGuardAsync(db, token, req.Client, req.Project, ct);
+        if (scopeErr is not null) return (null, scopeErr);
 
         var component = await db.Components
-            .FirstOrDefaultAsync(c => c.ProjectId == project.Id && c.Name == req.Component, ct);
+            .FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name == req.Component, ct);
         if (component is null)
         {
-            component = new Component { ProjectId = project.Id, Name = req.Component, Kind = req.ComponentKind };
+            component = new Component { ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind };
             db.Components.Add(component);
         }
 
@@ -182,6 +178,6 @@ public static class SbomIngestEndpoints
             db.ComponentVersions.Add(version);
         }
         await db.SaveChangesAsync(ct);
-        return version;
+        return (version, null);
     }
 }

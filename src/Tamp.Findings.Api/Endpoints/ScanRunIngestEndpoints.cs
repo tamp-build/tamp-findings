@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
@@ -11,18 +12,23 @@ public static class ScanRunIngestEndpoints
     {
         app.MapPost("/ingest/scan-runs", IngestAsync)
            .WithName("IngestScanRuns")
-           .WithSummary("Replace-on-ingest receipts per (ComponentVersion, Scanner). A scanner without a receipt is treated as 'never ran' on the dashboard, so emit one even when the scan ran clean.");
+           .WithSummary("Replace-on-ingest receipts per (ComponentVersion, Scanner). A scanner without a receipt is treated as 'never ran' on the dashboard, so emit one even when the scan ran clean. Requires Authorization: Bearer cli_… or prj_…")
+           .AllowAnonymous()
+           .AddEndpointFilter<IngestAuthFilter>();
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(ScanRunIngestRequest req, FindingsDbContext db, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(ScanRunIngestRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project required");
         if (string.IsNullOrWhiteSpace(req.Component)) return Results.BadRequest("component required");
         if (string.IsNullOrWhiteSpace(req.Version)) return Results.BadRequest("version required");
 
-        var version = await ResolveCvAsync(db, req, ct);
+        var token = IngestAuthFilter.CurrentToken(ctx);
+        var (resolved, scopeErr) = await ResolveCvAsync(db, token, req, ct);
+        if (scopeErr is not null) return scopeErr;
+        var version = resolved!;
 
         var upserted = 0;
         foreach (var r in req.Receipts ?? [])
@@ -62,14 +68,14 @@ public static class ScanRunIngestEndpoints
         return Results.Ok(new ScanRunIngestResponse(version.Id, upserted));
     }
 
-    private static async Task<ComponentVersion> ResolveCvAsync(FindingsDbContext db, ScanRunIngestRequest req, CancellationToken ct)
+    private static async Task<(ComponentVersion? version, IResult? error)> ResolveCvAsync(
+        FindingsDbContext db, IngestToken? token, ScanRunIngestRequest req, CancellationToken ct)
     {
-        var client = await db.Clients.FirstOrDefaultAsync(c => c.Name == req.Client, ct)
-            ?? db.Clients.Add(new Client { Name = req.Client }).Entity;
-        var project = await db.Projects.FirstOrDefaultAsync(p => p.ClientId == client.Id && p.Name == req.Project, ct)
-            ?? db.Projects.Add(new Project { ClientId = client.Id, Name = req.Project }).Entity;
-        var component = await db.Components.FirstOrDefaultAsync(c => c.ProjectId == project.Id && c.Name == req.Component, ct)
-            ?? db.Components.Add(new Component { ProjectId = project.Id, Name = req.Component, Kind = req.ComponentKind }).Entity;
+        var (_, project, scopeErr) = await IngestScopeGuard.ResolveAndGuardAsync(db, token, req.Client, req.Project, ct);
+        if (scopeErr is not null) return (null, scopeErr);
+
+        var component = await db.Components.FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name == req.Component, ct)
+            ?? db.Components.Add(new Component { ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind }).Entity;
         ComponentFlavor? flavor = null;
         if (!string.IsNullOrWhiteSpace(req.Flavor))
         {
@@ -95,6 +101,6 @@ public static class ScanRunIngestEndpoints
             db.ComponentVersions.Add(version);
         }
         await db.SaveChangesAsync(ct);
-        return version;
+        return (version, null);
     }
 }

@@ -21,10 +21,25 @@ export default defineConfig({
       // Forward API calls to the .NET host during dev. Vite proxies the
       // request server-side, so the browser always sees same-origin —
       // no CORS hop needed for the SPA's own /api/* calls.
+      //
+      // changeOrigin:false preserves the browser's Host header so the
+      // OAuth handler builds redirect_uri from the :5173 origin (not
+      // :5080). Cookie middleware also scopes the auth cookie to :5173
+      // for the same reason, which is what we want — the SPA sees it
+      // as same-origin.
       '/api': {
         target: 'http://localhost:5080',
-        changeOrigin: true,
+        changeOrigin: false,
         rewrite: (p) => p.replace(/^\/api/, ''),
+      },
+      // /auth/* is the OAuth + session surface. It is proxied without
+      // rewrite so the URL the browser sees matches the URL the API
+      // listens on — necessary so the OAuth redirect_uri we register
+      // with GitHub (http://localhost:5173/auth/github/callback) is
+      // the same URL the API actually handles.
+      '/auth': {
+        target: 'http://localhost:5080',
+        changeOrigin: false,
       },
     },
   },

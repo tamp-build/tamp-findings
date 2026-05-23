@@ -510,3 +510,46 @@ export async function fetchFindings(filters: FindingsListFilters = {}): Promise<
   if (!r.ok) throw new Error(`GET /findings failed: ${r.status}`)
   return r.json()
 }
+
+// ----- Ingest tokens ------------------------------------------------------
+
+export type IngestTokenListItem = {
+  id: string
+  name: string
+  scope: 'Client' | 'Project'
+  prefix: 'cli_' | 'prj_'
+  clientId: string | null
+  projectId: string | null
+  createdAt: string
+  lastUsedAt: string | null
+  revokedAt: string | null
+}
+
+export type MintedIngestToken = {
+  id: string
+  name: string
+  // Plaintext exposed once at mint time — store immediately, never retrievable.
+  token: string
+  createdAt: string
+}
+
+export async function fetchClientTokens(clientId: string): Promise<IngestTokenListItem[]> {
+  const r = await fetch(`${API_BASE}/clients/${clientId}/tokens`)
+  if (!r.ok) throw new Error(`GET /clients/${clientId}/tokens failed: ${r.status}`)
+  return r.json()
+}
+
+export async function mintClientToken(clientId: string, name: string): Promise<MintedIngestToken> {
+  const r = await fetch(`${API_BASE}/clients/${clientId}/tokens`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!r.ok) throw new Error(`POST /clients/${clientId}/tokens failed: ${r.status}`)
+  return r.json()
+}
+
+export async function revokeIngestToken(tokenId: string): Promise<void> {
+  const r = await fetch(`${API_BASE}/tokens/${tokenId}`, { method: 'DELETE' })
+  if (!r.ok && r.status !== 404) throw new Error(`DELETE /tokens/${tokenId} failed: ${r.status}`)
+}

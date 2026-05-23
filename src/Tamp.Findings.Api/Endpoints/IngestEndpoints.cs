@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
@@ -14,37 +15,28 @@ public static class IngestEndpoints
     {
         app.MapPost("/ingest/findings", IngestAsync)
            .WithName("IngestFindings")
-           .WithSummary("Ingest a batch of findings from one scanner run for one component version");
+           .WithSummary("Ingest a batch of findings from one scanner run for one component version. Requires Authorization: Bearer cli_… or prj_… ingest token.")
+           .AllowAnonymous()
+           .AddEndpointFilter<IngestAuthFilter>();
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(IngestRequest req, FindingsDbContext db, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(IngestRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project is required");
         if (string.IsNullOrWhiteSpace(req.Component)) return Results.BadRequest("component is required");
         if (string.IsNullOrWhiteSpace(req.Version)) return Results.BadRequest("version is required");
 
-        var client = await db.Clients.FirstOrDefaultAsync(c => c.Name == req.Client, ct);
-        if (client is null)
-        {
-            client = new Client { Name = req.Client };
-            db.Clients.Add(client);
-        }
-
-        var project = await db.Projects
-            .FirstOrDefaultAsync(p => p.ClientId == client.Id && p.Name == req.Project, ct);
-        if (project is null)
-        {
-            project = new Project { ClientId = client.Id, Name = req.Project };
-            db.Projects.Add(project);
-        }
+        var token = IngestAuthFilter.CurrentToken(ctx);
+        var (client, project, scopeErr) = await IngestScopeGuard.ResolveAndGuardAsync(db, token, req.Client, req.Project, ct);
+        if (scopeErr is not null) return scopeErr;
 
         var component = await db.Components
-            .FirstOrDefaultAsync(c => c.ProjectId == project.Id && c.Name == req.Component, ct);
+            .FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name == req.Component, ct);
         if (component is null)
         {
-            component = new Component { ProjectId = project.Id, Name = req.Component, Kind = req.ComponentKind };
+            component = new Component { ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind };
             db.Components.Add(component);
         }
         else if (req.ComponentKind is not null && component.Kind != req.ComponentKind)

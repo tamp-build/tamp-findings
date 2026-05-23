@@ -17,7 +17,8 @@ public static class SbomVulnerabilitiesEndpoints
     {
         app.MapPost("/sbom-vulnerabilities/upsert", UpsertAsync)
            .WithName("UpsertSbomVulnerabilities")
-           .WithSummary("Upsert Vulnerability rows on SbomComponents in a snapshot. Body: { snapshotId, vulnerabilities: [{ packageName, packageVersion, advisoryId, severity, title, description, referenceUrl }] }. Matching is (Name, Version) exact within the snapshot.");
+           .WithSummary("Upsert Vulnerability rows on SbomComponents in a snapshot. Body: { snapshotId, vulnerabilities: [{ packageName, packageVersion, advisoryId, severity, title, description, referenceUrl }] }. Matching is (Name, Version) exact within the snapshot.")
+           .AllowAnonymous();
         return app;
     }
 

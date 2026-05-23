@@ -7,9 +7,25 @@ namespace Tamp.Findings.Build.Ingest;
 // Tiny HTTP client the build orchestrator uses to POST ingest payloads
 // at the locally-running tamp.findings API. Lives in build/ rather than
 // in src/Tamp.Findings.Api so the API doesn't depend on its own consumer.
-public sealed class IngestClient(string baseUrl)
+public sealed class IngestClient
 {
-    private readonly HttpClient _http = new() { BaseAddress = new Uri(baseUrl) };
+    private readonly HttpClient _http;
+
+    public IngestClient(string baseUrl, string? bearerToken = null)
+    {
+        _http = new HttpClient { BaseAddress = new Uri(baseUrl) };
+        if (!string.IsNullOrWhiteSpace(bearerToken))
+        {
+            // Set as default header so every PostAsJsonAsync/PostAsync call
+            // below carries it — including the long-running enrich-versions
+            // call that builds its own HttpClient (it inherits BaseAddress;
+            // we mirror the header on that throwaway client too, below).
+            _http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+        }
+    }
+    private string? BearerForChildClient =>
+        _http.DefaultRequestHeaders.Authorization?.Parameter;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -36,6 +52,11 @@ public sealed class IngestClient(string baseUrl)
         // so a long timeout is appropriate. 5 minutes is overkill for 300 deps
         // at 8 concurrent, but keeps the cliff far away from real workloads.
         var http = new HttpClient { BaseAddress = _http.BaseAddress, Timeout = TimeSpan.FromMinutes(5) };
+        if (BearerForChildClient is { } b)
+        {
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", b);
+        }
         var resp = await http.PostAsync($"/sbom-components/enrich-versions?snapshotId={snapshotId}", content: null, ct);
         return await ReadResponseAsync(resp, ct);
     }

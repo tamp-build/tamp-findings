@@ -1,4 +1,5 @@
 using Tamp;
+using Tamp.Findings.Build;
 using Tamp.Findings.Build.Adapters;
 using Tamp.Findings.Build.Ingest;
 using Tamp.Grype;
@@ -17,7 +18,15 @@ using OpenGrepCli = Tamp.OpenGrep.OpenGrep;
 // e.g. `dotnet run --project build -- Compile` or `... -- Ci`.
 class Build : SecurityPipelineBuild
 {
-    public static int Main(string[] args) => Execute<Build>(args);
+    public static int Main(string[] args)
+    {
+        // Load repo-root .env into process env BEFORE Execute<Build> kicks
+        // off Nuke's parameter binding — that's when [Parameter(
+        // EnvironmentVariable = ...)] resolves. Keeps the bearer token
+        // for ingest out of every contributor's shell profile.
+        DotEnvLoader.LoadFromRepoRoot();
+        return Execute<Build>(args);
+    }
 
     [Parameter("Build configuration")]
     Configuration Configuration = IsLocalBuild ? Configuration.Debug : Configuration.Release;
@@ -27,6 +36,15 @@ class Build : SecurityPipelineBuild
 
     [Parameter("tamp.findings API URL", EnvironmentVariable = "TAMP_FINDINGS_URL")]
     readonly string IngestUrl = "http://localhost:5080";
+
+    // Bearer token for /ingest/*. Mint per client/project in the SPA's
+    // settings dialog; store in repo-root .env (gitignored) as
+    // TAMP_FINDINGS_INGEST_TOKEN=cli_... or prj_... The .env file is
+    // loaded into the process env at startup (see DotEnvLoader).
+#pragma warning disable CS0649
+    [Parameter("Ingest bearer token (cli_/prj_)", EnvironmentVariable = "TAMP_FINDINGS_INGEST_TOKEN")]
+    readonly string? IngestToken;
+#pragma warning restore CS0649
 
     // Grype binary resolved off PATH (winget install Anchore.Grype). The
     // Grype satellite uses the newer "pass Tool explicitly" wrapper style.
@@ -322,7 +340,13 @@ class Build : SecurityPipelineBuild
             var ctx = BuildIngestContext();
             Console.WriteLine($"[ingest] target: {IngestUrl}  context: {ctx.Client}/{ctx.Project}/{ctx.Component} {ctx.Version} @{ctx.CommitSha?[..7]}");
 
-            var client = new IngestClient(IngestUrl);
+            if (string.IsNullOrWhiteSpace(IngestToken))
+            {
+                throw new InvalidOperationException(
+                    "TAMP_FINDINGS_INGEST_TOKEN is not set. Mint a cli_/prj_ token via the SPA's "
+                  + "client settings dialog and put it in repo-root .env (gitignored).");
+            }
+            var client = new IngestClient(IngestUrl, IngestToken);
 
             // SBOM: post the original CycloneDx (full component metadata) and,
             // when Grype produced an enriched file, splice its vulnerabilities
