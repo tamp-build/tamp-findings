@@ -9,7 +9,8 @@ public static class SbomEnrichEndpoints
     {
         app.MapPost("/sbom-components/enrich-versions", EnrichAsync)
            .WithName("EnrichSbomVersions")
-           .WithSummary("Look up the latest published version for each SBOM component against nuget.org / registry.npmjs.org and update LatestVersion. Scope to a single snapshot via ?snapshotId=, or omit to enrich every component currently in the DB. Returns a count summary.");
+           .WithSummary("Look up the latest published version for each SBOM component against nuget.org / registry.npmjs.org and update LatestVersion. Scope to a single snapshot via ?snapshotId=, or omit to enrich every component currently in the DB. Returns a count summary.")
+           .AllowAnonymous();
         return app;
     }
 

@@ -1,13 +1,17 @@
-import { useState } from 'react'
-import { Search } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Search, LogOut, Settings, Plus, ChevronDown } from 'lucide-react'
 import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import { FindingsView } from '@/views/FindingsView'
 import { ComponentsView } from '@/views/ComponentsView'
 import { OverviewView } from '@/views/OverviewView'
 import { CoverageView } from '@/views/CoverageView'
 import { TestsView } from '@/views/TestsView'
+import { SignInView } from '@/views/SignInView'
+import { ProfileView } from '@/views/ProfileView'
+import { SettingsView } from '@/views/SettingsView'
+import { AuthProvider, useAuth, type AuthUser } from '@/lib/auth'
 
-type Tab = 'overview' | 'findings' | 'components' | 'coverage' | 'tests'
+type Tab = 'overview' | 'findings' | 'components' | 'coverage' | 'tests' | 'profile' | 'settings'
 
 // Cross-tab presets — set by Overview row/donut clicks, consumed once
 // by the destination view's effect that seeds its local filter state.
@@ -28,6 +32,28 @@ export type ComponentsPreset = {
 }
 
 function App() {
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
+  )
+}
+
+function AuthGate() {
+  const { status } = useAuth()
+  if (status === 'loading') {
+    return (
+      <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
+        Loading…
+      </div>
+    )
+  }
+  if (status === 'anon') return <SignInView />
+  return <Dashboard />
+}
+
+function Dashboard() {
+  const { user, signOut } = useAuth()
   const [tab, setTab] = useState<Tab>('overview')
   const [search, setSearch] = useState('')
   const [findingsPreset, setFindingsPreset] = useState<FindingsPreset>({ nonce: 0 })
@@ -59,7 +85,7 @@ function App() {
             tamp.findings
           </button>
           {tab === 'findings' && (
-            <div className="relative w-full sm:ml-auto sm:w-72">
+            <div className="relative w-full sm:ml-auto sm:w-72 sm:mr-3">
               <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
               <input
                 value={search}
@@ -69,6 +95,28 @@ function App() {
               />
             </div>
           )}
+          <div className={tab === 'findings' ? "flex items-center gap-1" : "ml-auto flex items-center gap-1"}>
+            <AddMenu />
+            {user?.isAdmin && (
+              <button
+                type="button"
+                onClick={() => setTab('settings')}
+                title="Settings"
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+              >
+                <Settings className="size-4" />
+              </button>
+            )}
+            <UserAvatarButton user={user} onClick={() => setTab('profile')} />
+            <button
+              type="button"
+              onClick={signOut}
+              title="Sign out"
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            >
+              <LogOut className="size-4" />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -78,7 +126,99 @@ function App() {
         {tab === 'components' && <ComponentsView preset={componentsPreset} />}
         {tab === 'coverage' && <CoverageView />}
         {tab === 'tests' && <TestsView />}
+        {tab === 'profile' && <ProfileView />}
+        {tab === 'settings' && <SettingsView />}
       </div>
+    </div>
+  )
+}
+
+function UserAvatarButton({ user, onClick }: { user: AuthUser | null; onClick: () => void }) {
+  if (!user) return null
+  // Tooltip stays as native `title` — newlines render as separate lines
+  // in every major browser's native bubble. Good enough until we wire a
+  // proper tooltip component for the rest of the app.
+  const tooltipLines = [
+    user.displayName || user.login,
+    user.email,
+    user.isAdmin ? 'admin' : null,
+  ].filter(Boolean) as string[]
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={tooltipLines.join('\n')}
+      className="rounded-full transition-opacity hover:opacity-80"
+    >
+      {user.avatarUrl ? (
+        <img
+          src={user.avatarUrl}
+          alt=""
+          className="size-7 rounded-full border border-border"
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        <div className="flex size-7 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold uppercase">
+          {(user.login[0] ?? '?').toUpperCase()}
+        </div>
+      )}
+    </button>
+  )
+}
+
+function AddMenu() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // TODO: each item should open its real create form. Stubbed for now so
+  // the UI affordance is in place ahead of the create endpoints.
+  const items: { label: string; onClick: () => void }[] = [
+    { label: 'New client', onClick: () => alert('TODO: new client form') },
+    { label: 'New project', onClick: () => alert('TODO: new project form') },
+    { label: 'New component', onClick: () => alert('TODO: new component form') },
+  ]
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        title="Create new"
+        className="flex items-center gap-0.5 rounded-md p-1.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+      >
+        <Plus className="size-4" />
+        <ChevronDown className="size-3" />
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 w-44 rounded-md border bg-card py-1 shadow-md">
+          {items.map(it => (
+            <button
+              key={it.label}
+              type="button"
+              onClick={() => { setOpen(false); it.onClick() }}
+              className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted/40"
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
@@ -11,18 +12,23 @@ public static class CoverageIngestEndpoints
     {
         app.MapPost("/ingest/coverage", IngestAsync)
            .WithName("IngestCoverage")
-           .WithSummary("Replace the coverage report for one component version. Replace-on-ingest: any prior report for the same CV is deleted before insert.");
+           .WithSummary("Replace the coverage report for one component version. Replace-on-ingest: any prior report for the same CV is deleted before insert. Requires Authorization: Bearer cli_… or prj_…")
+           .AllowAnonymous()
+           .AddEndpointFilter<IngestAuthFilter>();
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(CoverageIngestRequest req, FindingsDbContext db, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(CoverageIngestRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project required");
         if (string.IsNullOrWhiteSpace(req.Component)) return Results.BadRequest("component required");
         if (string.IsNullOrWhiteSpace(req.Version)) return Results.BadRequest("version required");
 
-        var version = await ResolveCvAsync(db, req, ct);
+        var token = IngestAuthFilter.CurrentToken(ctx);
+        var (resolved, scopeErr) = await ResolveCvAsync(db, token, req, ct);
+        if (scopeErr is not null) return scopeErr;
+        var version = resolved!;
 
         // Replace-on-ingest, like SBOM.
         var existing = await db.CoverageReports
@@ -120,16 +126,16 @@ public static class CoverageIngestEndpoints
         return Results.Ok(new CoverageIngestResponse(version.Id, report.Id, seenModules.Count, classCount, sourceFilesByPath.Count));
     }
 
-    private static async Task<ComponentVersion> ResolveCvAsync(FindingsDbContext db, CoverageIngestRequest req, CancellationToken ct)
+    private static async Task<(ComponentVersion? version, IResult? error)> ResolveCvAsync(
+        FindingsDbContext db, IngestToken? token, CoverageIngestRequest req, CancellationToken ct)
     {
-        // Same find-or-create chain as SBOM/ingest/findings — keeps the
-        // entity tree consistent regardless of which producer ingests first.
-        var client = await db.Clients.FirstOrDefaultAsync(c => c.Name == req.Client, ct)
-            ?? db.Clients.Add(new Client { Name = req.Client }).Entity;
-        var project = await db.Projects.FirstOrDefaultAsync(p => p.ClientId == client.Id && p.Name == req.Project, ct)
-            ?? db.Projects.Add(new Project { ClientId = client.Id, Name = req.Project }).Entity;
-        var component = await db.Components.FirstOrDefaultAsync(c => c.ProjectId == project.Id && c.Name == req.Component, ct)
-            ?? db.Components.Add(new Component { ProjectId = project.Id, Name = req.Component, Kind = req.ComponentKind }).Entity;
+        // Token-scoped client/project resolution; component/flavor/version
+        // auto-create under that scope.
+        var (_, project, scopeErr) = await IngestScopeGuard.ResolveAndGuardAsync(db, token, req.Client, req.Project, ct);
+        if (scopeErr is not null) return (null, scopeErr);
+
+        var component = await db.Components.FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name == req.Component, ct)
+            ?? db.Components.Add(new Component { ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind }).Entity;
         ComponentFlavor? flavor = null;
         if (!string.IsNullOrWhiteSpace(req.Flavor))
         {
@@ -155,6 +161,6 @@ public static class CoverageIngestEndpoints
             db.ComponentVersions.Add(version);
         }
         await db.SaveChangesAsync(ct);
-        return version;
+        return (version, null);
     }
 }
