@@ -1,38 +1,19 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, AlertCircle, Settings } from 'lucide-react'
-import {
-  fetchClients,
-  fetchProjects,
-  fetchComponents,
-  fetchAggregates,
-} from '@/lib/api'
-import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
-import type { FindingsPreset, ComponentsPreset } from '@/App'
-import { RingChart, FindingsTypeTable, SbomHealthTable, SecretsHealthTable, LicenseTable, IacHealthTable, CoverageTable, SAST_SCANNERS } from '@/components/RingChart'
-import { ClientSettingsDialog } from '@/components/ClientSettingsDialog'
-import { useAuth } from '@/lib/auth'
+import { ChevronRight } from 'lucide-react'
+import { fetchClients, fetchProjects, fetchComponents } from '@/lib/api'
+import { ScopeCard } from '@/components/ScopeCard'
 import { cn } from '@/lib/utils'
 
-// Which Findings filter does a Code-Quality table row map to? Severities
-// fold into the severity filter (default-status Open); the lifecycle
-// rows (closed/suppressed/accepted) clear severity and switch the
-// status filter so the user lands on the right population.
-const SEVERITY_FROM_SEGMENT: Record<string, Severity | undefined> = {
-  critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info',
-}
-const STATUS_FROM_SEGMENT: Record<string, FindingStatus | undefined> = {
-  closed: 'Fixed', suppressed: 'Suppressed', accepted: 'Accepted',
-}
-
+// Home page. Lists one card per client; clicking anywhere on a card
+// navigates to that client's page (which then lists project cards).
+// Drill-through into Findings/Components/Coverage/Tests is *not*
+// available at this level — you reach details only by clicking through
+// to a project card. The hierarchy tree on the left is browse-only.
 export function OverviewView({
-  onDrillToFindings,
-  onDrillToComponents,
-  onDrillToCoverage,
+  onSelectClient,
 }: {
-  onDrillToFindings?: (preset: Omit<FindingsPreset, 'nonce'>) => void
-  onDrillToComponents?: (preset?: Omit<ComponentsPreset, 'nonce'>) => void
-  onDrillToCoverage?: () => void
+  onSelectClient: (clientId: string) => void
 }) {
   const clients = useQuery({ queryKey: ['clients'], queryFn: fetchClients })
 
@@ -50,172 +31,18 @@ export function OverviewView({
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
       <aside>
-        {/* Tree is visual-only for now — it shows the hierarchy but does
-            NOT filter the dashboard. Selection-as-filter was confusing
-            once we wanted to see every client at once; the dashboard now
-            stacks one card per client unconditionally. The left nav will
-            grow a real purpose (jump-to / pin / drill scope) later. */}
         <HierarchyTree />
       </aside>
       <main className="space-y-3 sm:space-y-6">
         {clients.data?.map(c => (
-          <ClientCard
+          <ScopeCard
             key={c.id}
-            clientId={c.id}
-            clientName={c.name}
-            onDrillToFindings={onDrillToFindings}
-            onDrillToComponents={onDrillToComponents}
-            onDrillToCoverage={onDrillToCoverage}
+            scope={{ kind: 'client', id: c.id, name: c.name }}
+            onCardClick={() => onSelectClient(c.id)}
           />
         ))}
       </main>
     </div>
-  )
-}
-
-function ClientCard({
-  clientId,
-  clientName,
-  onDrillToFindings,
-  onDrillToComponents,
-  onDrillToCoverage,
-}: {
-  clientId: string
-  clientName: string
-  onDrillToFindings?: (preset: Omit<FindingsPreset, 'nonce'>) => void
-  onDrillToComponents?: (preset?: Omit<ComponentsPreset, 'nonce'>) => void
-  onDrillToCoverage?: () => void
-}) {
-  const { user } = useAuth()
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  // Owner-of-project check goes here once TFND-3 role assignments are
-  // surfaced on /auth/me. Today admin sees the gear on every card.
-  const canManage = user?.isAdmin ?? false
-
-  const aggregates = useQuery({
-    queryKey: ['aggregates', { clientId }],
-    queryFn: () => fetchAggregates({ clientId }),
-  })
-
-  return (
-    <section className="overflow-hidden rounded-md border bg-card">
-      {/* Title bar — client name always present, level chip for symmetry.
-          Rendered before the aggregates resolve so the card chrome shows
-          immediately for every client, including empty ones. */}
-      <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2">
-        <div className="flex items-baseline gap-2">
-          <h2 className="text-base font-semibold tracking-tight">{clientName}</h2>
-          {canManage && (
-            <button
-              type="button"
-              onClick={() => setSettingsOpen(true)}
-              title="Project settings"
-              aria-label={`Settings for ${clientName}`}
-              className="rounded-md p-1 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-            >
-              <Settings className="size-3.5" />
-            </button>
-          )}
-        </div>
-        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Client</p>
-      </div>
-
-      {settingsOpen && (
-        <ClientSettingsDialog
-          clientId={clientId}
-          clientName={clientName}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
-
-      {aggregates.isLoading && (
-        <p className="px-4 py-6 text-sm text-muted-foreground">Loading…</p>
-      )}
-      {aggregates.isError && (
-        <div className="flex items-start gap-3 border-t border-border bg-card p-4">
-          <AlertCircle className="size-5 text-destructive" />
-          <div>
-            <p className="text-sm font-medium">Couldn't load aggregates</p>
-            <p className="text-xs text-muted-foreground">{(aggregates.error as Error)?.message}</p>
-          </div>
-        </div>
-      )}
-      {aggregates.data && (
-        <div className="grid grid-cols-1 items-start gap-4 p-4 lg:grid-cols-[auto_minmax(0,1fr)]">
-          <RingChart
-            scannerDetails={aggregates.data.findings.byScannerDetail}
-            sbomHealth={aggregates.data.sbom.health}
-            secretsHealth={aggregates.data.secrets.health}
-            licenseTiers={aggregates.data.licenses.tiers}
-            iac={aggregates.data.iac}
-            coverage={aggregates.data.coverage}
-            scanRuns={aggregates.data.scanRuns}
-            onScannerClick={(scanner) => {
-              // Sentinel 'CodeQuality' fans out to every SAST scanner so
-              // the Findings view doesn't pretend one tool is canonical.
-              const scanners = scanner === 'CodeQuality'
-                ? [...SAST_SCANNERS] as ScannerKind[]
-                : [scanner as ScannerKind]
-              onDrillToFindings?.({ scanners })
-            }}
-            onSbomClick={() => onDrillToComponents?.()}
-            onSecretsClick={() => onDrillToFindings?.({ scanners: ['TruffleHog'] })}
-            onLicenseClick={() => onDrillToComponents?.()}
-            onIacClick={() => onDrillToFindings?.({ scanners: ['Trivy'] })}
-            onCoverageClick={() => onDrillToCoverage?.()}
-          />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-md transition-shadow">
-              <CoverageTable coverage={aggregates.data.coverage} />
-            </div>
-            <FindingsTypeTable
-              scannerDetails={aggregates.data.findings.byScannerDetail}
-              onRowClick={(segment, scanner) => {
-                const sev = SEVERITY_FROM_SEGMENT[segment]
-                const status = STATUS_FROM_SEGMENT[segment]
-                const scanners = scanner === 'CodeQuality'
-                  ? [...SAST_SCANNERS] as ScannerKind[]
-                  : [scanner as ScannerKind]
-                onDrillToFindings?.({
-                  scanners,
-                  severities: sev ? [sev] : [],
-                  statuses: status ? [status] : [],
-                })
-              }}
-            />
-            <SbomHealthTable
-              health={aggregates.data.sbom.health}
-              onRowClick={(bucket) => onDrillToComponents?.({ sbomStatus: bucket as SbomHealthStatus })}
-            />
-            <SecretsHealthTable
-              health={aggregates.data.secrets.health}
-              onRowClick={(bucket) => onDrillToFindings?.({
-                scanners: ['TruffleHog'],
-                severities: bucket === 'verified' ? ['Critical'] : ['High'],
-              })}
-            />
-            <LicenseTable
-              byLicense={aggregates.data.licenses.byLicense}
-              topN={3}
-              onRowClick={(license) => onDrillToComponents?.({ license })}
-            />
-            <IacHealthTable
-              iac={aggregates.data.iac}
-              onRowClick={(severity) => {
-                const map: Record<string, Severity> = {
-                  critical: 'Critical', high: 'High', medium: 'Medium',
-                  low: 'Low', info: 'Info',
-                }
-                onDrillToFindings?.({
-                  scanners: ['Trivy'],
-                  severities: [map[severity]],
-                })
-              }}
-            />
-          </div>
-        </div>
-      )}
-    </section>
   )
 }
 

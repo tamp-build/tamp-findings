@@ -160,7 +160,7 @@ export async function fetchSbomComponent(id: string): Promise<SbomComponentDetai
 
 // ----- Hierarchy lookups + aggregates ------------------------------------
 
-export type ClientListItem = { id: string; name: string; projectCount: number }
+export type ClientListItem = { id: string; name: string; projectCount: number; riskPolicyId: string | null }
 export type ProjectListItem = { id: string; name: string; clientId: string; clientName: string; componentCount: number }
 export type ComponentListItem = { id: string; name: string; kind: string | null; projectId: string; projectName: string; clientId: string; clientName: string; versionCount: number }
 
@@ -255,6 +255,28 @@ export type AggregatesResponse = {
   // TFND-15: per-scanner receipts so the dashboard can tell "ran clean"
   // from "never ran". Empty array means no scanners have reported.
   scanRuns: ScanRunSummary[]
+  // Risk Assessment Policy score. null when the scope has no ingest
+  // evidence — SPA renders "not yet scored" instead of a misleading 0%.
+  risk: RiskScore | null
+}
+
+export type RiskBand = 'green' | 'yellow' | 'orange' | 'red'
+
+export type RiskBreakdown = {
+  key: string
+  enabled: boolean
+  max: number
+  subScore: number
+  contribution: number
+}
+
+export type RiskScore = {
+  score: number          // 0..100, rounded to 1dp
+  band: RiskBand
+  policyId: string
+  policyName: string
+  schemaVersion: number
+  breakdown: RiskBreakdown[]
 }
 
 export type CoverageModuleSummary = {
@@ -552,4 +574,75 @@ export async function mintClientToken(clientId: string, name: string): Promise<M
 export async function revokeIngestToken(tokenId: string): Promise<void> {
   const r = await fetch(`${API_BASE}/tokens/${tokenId}`, { method: 'DELETE' })
   if (!r.ok && r.status !== 404) throw new Error(`DELETE /tokens/${tokenId} failed: ${r.status}`)
+}
+
+// ----- Risk policies ------------------------------------------------------
+
+export type RiskPolicySummary = {
+  id: string
+  name: string
+  description: string | null
+  isDefault: boolean
+  isSeeded: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type RiskPolicyConfig = {
+  schemaVersion: number
+  bands: { greenMax: number; yellowMax: number; orangeMax: number }
+  categories: Record<string, { enabled: boolean; max: number; weights: Record<string, number> }>
+}
+
+export type RiskPolicyFull = RiskPolicySummary & { config: RiskPolicyConfig }
+
+export async function fetchRiskPolicies(): Promise<RiskPolicySummary[]> {
+  const r = await fetch(`${API_BASE}/risk-policies`)
+  if (!r.ok) throw new Error(`GET /risk-policies failed: ${r.status}`)
+  return r.json()
+}
+
+export async function fetchRiskPolicy(id: string): Promise<RiskPolicyFull> {
+  const r = await fetch(`${API_BASE}/risk-policies/${id}`)
+  if (!r.ok) throw new Error(`GET /risk-policies/${id} failed: ${r.status}`)
+  return r.json()
+}
+
+export async function updateRiskPolicy(id: string, patch: { name?: string; description?: string | null; config?: RiskPolicyConfig }): Promise<RiskPolicyFull> {
+  const r = await fetch(`${API_BASE}/risk-policies/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!r.ok) throw new Error(`PATCH /risk-policies/${id} failed: ${r.status}`)
+  return r.json()
+}
+
+export async function cloneRiskPolicy(id: string, name: string): Promise<RiskPolicyFull> {
+  const r = await fetch(`${API_BASE}/risk-policies/${id}/clone`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!r.ok) throw new Error(`POST /risk-policies/${id}/clone failed: ${r.status}`)
+  return r.json()
+}
+
+export async function deleteRiskPolicy(id: string): Promise<void> {
+  const r = await fetch(`${API_BASE}/risk-policies/${id}`, { method: 'DELETE' })
+  if (!r.ok && r.status !== 404) throw new Error(`DELETE /risk-policies/${id} failed: ${r.status}`)
+}
+
+export async function setDefaultRiskPolicy(id: string): Promise<void> {
+  const r = await fetch(`${API_BASE}/risk-policies/${id}/set-default`, { method: 'POST' })
+  if (!r.ok) throw new Error(`POST /risk-policies/${id}/set-default failed: ${r.status}`)
+}
+
+export async function assignClientPolicy(clientId: string, policyId: string | null): Promise<void> {
+  const r = await fetch(`${API_BASE}/clients/${clientId}/policy`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ policyId }),
+  })
+  if (!r.ok) throw new Error(`PATCH /clients/${clientId}/policy failed: ${r.status}`)
 }

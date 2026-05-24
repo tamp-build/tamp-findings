@@ -7,6 +7,9 @@ public sealed class Project
     public required string Name { get; set; }
     public string? Description { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    // Null → inherit from this project's client (which in turn falls back
+    // to the system default if also null).
+    public Guid? RiskPolicyId { get; set; }
 
     public Client? Client { get; set; }
     public ICollection<Component> Components { get; set; } = [];

@@ -27,6 +27,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<TestSuiteResult> TestSuiteResults => Set<TestSuiteResult>();
     public DbSet<TestCaseResult> TestCaseResults => Set<TestCaseResult>();
     public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
+    public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -37,6 +38,9 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasKey(x => x.Id);
             e.Property(x => x.Name).HasMaxLength(256).IsRequired();
             e.HasIndex(x => x.Name).IsUnique();
+            // SetNull on the FK so deleting a RiskPolicy doesn't cascade
+            // delete clients — they just fall back to the system default.
+            e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
         });
 
         b.Entity<Project>(e =>
@@ -45,6 +49,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.Name).HasMaxLength(256).IsRequired();
             e.HasOne(x => x.Client).WithMany(c => c.Projects).HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.ClientId, x.Name }).IsUnique();
+            e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
         });
 
         b.Entity<Component>(e =>
@@ -261,6 +266,23 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasIndex(x => x.ClientId);
             e.HasIndex(x => x.ProjectId);
+        });
+
+        b.Entity<RiskPolicy>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(2048);
+            // Typed POCO → jsonb. EnableDynamicJson is on (see
+            // ServiceCollectionExtensions), so Npgsql will materialize
+            // Dictionary<string, RiskCategoryConfig> round-trip without
+            // a converter.
+            e.Property(x => x.Config).HasColumnType("jsonb").IsRequired();
+            e.HasIndex(x => x.Name).IsUnique();
+            // Sparse-unique on IsDefault=true guarantees one (and only one)
+            // system default at the DB level. Postgres partial-unique
+            // index expresses this cleanly.
+            e.HasIndex(x => x.IsDefault).IsUnique().HasFilter("\"IsDefault\" = true");
         });
 
         b.Entity<CoverageClass>(e =>

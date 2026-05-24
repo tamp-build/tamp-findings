@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Copy, Check, Trash2 } from 'lucide-react'
-import { fetchClientTokens, mintClientToken, revokeIngestToken } from '@/lib/api'
-import type { IngestTokenListItem, MintedIngestToken } from '@/lib/api'
+import {
+  fetchClientTokens, mintClientToken, revokeIngestToken,
+  fetchRiskPolicies, fetchClients, assignClientPolicy,
+} from '@/lib/api'
+import type { IngestTokenListItem, MintedIngestToken, RiskPolicySummary } from '@/lib/api'
 
 // Settings overlay shown from the per-client card's title-bar gear.
 // Gated upstream by isAdmin (and eventually by per-project ownership via
@@ -100,11 +103,14 @@ export function ClientSettingsDialog({
             </div>
           </Section>
 
-          {/* --- Policy + gates (placeholders) -------------------------- */}
-          <Section title="Policy &amp; gates" subtitle="Severity thresholds, branch-protection gates, suppression policies.">
+          {/* --- Risk policy -------------------------------------------- */}
+          <Section title="Risk policy" subtitle="Which policy scores this client. Falls back to the system default when no override is set.">
+            <RiskPolicyPanel clientId={clientId} />
+          </Section>
+
+          {/* --- Gates (placeholders) ----------------------------------- */}
+          <Section title="Gates" subtitle="Branch-protection thresholds, suppression rules.">
             <div className="rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">
-              Policy templates — TFND-10.
-              <br />
               Commit / PR check-run gates — TFND-23.
             </div>
           </Section>
@@ -326,4 +332,64 @@ function formatShort(iso: string) {
   } catch {
     return iso
   }
+}
+
+function RiskPolicyPanel({ clientId }: { clientId: string }) {
+  const qc = useQueryClient()
+  // Need the assigned policy id from the client row; /api/clients
+  // doesn't currently expose RiskPolicyId — query the list and find by
+  // id. (Fine for now; if the list grows huge we'll switch to a
+  // dedicated GET /clients/{id} that includes it.)
+  const clients = useQuery({ queryKey: ['clients-detail'], queryFn: fetchClients })
+  const policies = useQuery({ queryKey: ['risk-policies'], queryFn: fetchRiskPolicies })
+
+  const assigned: string | null = clients.data?.find(c => c.id === clientId)?.riskPolicyId ?? null
+  const defaultPolicy = policies.data?.find(p => p.isDefault) ?? null
+
+  const assign = useMutation({
+    mutationFn: (policyId: string | null) => assignClientPolicy(clientId, policyId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['clients-detail'] })
+      // Aggregates depends on the effective policy — invalidate so the
+      // risk badge re-renders with the new score.
+      qc.invalidateQueries({ queryKey: ['aggregates'] })
+    },
+  })
+
+  const onChange = (val: string) => {
+    if (val === '__default__') assign.mutate(null)
+    else assign.mutate(val)
+  }
+
+  if (policies.isLoading) return <p className="text-xs text-muted-foreground">Loading policies…</p>
+  if (!policies.data || policies.data.length === 0) {
+    return <p className="text-xs text-muted-foreground">No policies defined.</p>
+  }
+
+  return (
+    <div className="space-y-2">
+      <select
+        value={assigned ?? '__default__'}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={assign.isPending}
+        className="w-full rounded-md border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40"
+      >
+        <option value="__default__">
+          Use system default{defaultPolicy ? ` (${defaultPolicy.name})` : ''}
+        </option>
+        {(policies.data as RiskPolicySummary[]).map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}{p.isDefault ? ' · default' : ''}{p.isSeeded ? ' · seeded' : ''}
+          </option>
+        ))}
+      </select>
+      {assign.isError && (
+        <p className="text-xs text-destructive">Assignment failed: {(assign.error as Error)?.message}</p>
+      )}
+      <p className="text-[11px] text-muted-foreground">
+        Admins manage the policy library — Settings → Policies (coming soon).
+        Edit a policy in place via <code className="rounded bg-muted px-1">PATCH /risk-policies/{'{id}'}</code> for now.
+      </p>
+    </div>
+  )
 }

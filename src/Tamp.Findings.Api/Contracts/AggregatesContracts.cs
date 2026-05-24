@@ -18,7 +18,22 @@ public sealed record AggregatesResponse(
     // Empty means no scanners have reported in. Used by the SPA to render
     // "scanned · clean" (green) vs "never ran" (grey) on rings whose finding
     // count is zero — TFND-15.
-    IReadOnlyList<ScanRunSummaryDto> ScanRuns);
+    IReadOnlyList<ScanRunSummaryDto> ScanRuns,
+    // Risk Assessment Policy score for this scope. Null when there's no
+    // ingest evidence (brand-new client with no scans/SBOM/coverage), so
+    // the SPA can render "not yet scored" instead of a misleading 0%.
+    RiskScoreDto? Risk);
+
+public sealed record RiskScoreDto(
+    double Score,             // 0..100
+    string Band,              // "green" | "yellow" | "orange" | "red"
+    Guid PolicyId,
+    string PolicyName,
+    int SchemaVersion,
+    IReadOnlyList<RiskBreakdownDto> Breakdown);
+
+public sealed record RiskBreakdownDto(
+    string Key, bool Enabled, double Max, double SubScore, double Contribution);
 
 // Secrets ring (innermost concentric) — verified credentials are the
 // closest thing we can render to "actively exploitable right now".
