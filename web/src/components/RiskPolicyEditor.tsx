@@ -4,7 +4,17 @@ import { X, Trash2, Star, Copy } from 'lucide-react'
 import {
   updateRiskPolicy, deleteRiskPolicy, setDefaultRiskPolicy, cloneRiskPolicy,
 } from '@/lib/api'
-import type { RiskPolicyFull, RiskPolicyConfig } from '@/lib/api'
+import type { RiskPolicyFull, RiskPolicyConfig, Severity } from '@/lib/api'
+
+// Scanners the editor surfaces. Keep in sync with ScannerKind on the
+// backend (SAST + IaC + Secrets-relevant ones — anything that can
+// produce a scoreable finding).
+const OVERRIDABLE_SCANNERS = [
+  'Roslyn', 'ReSharper', 'OpenGrep', 'CodeQL', 'ESLint',
+  'Trivy', 'TruffleHog', 'OsvScanner',
+] as const
+
+const SEVERITY_OPTIONS: Severity[] = ['Critical', 'High', 'Medium', 'Low', 'Info']
 
 // Canonical per-category UI schema. Drives the form: which weight keys
 // the editor exposes, with friendly labels. Keys here are the same
@@ -100,7 +110,13 @@ export function RiskPolicyEditor({
   const qc = useQueryClient()
   const [name, setName] = useState(policy.name)
   const [description, setDescription] = useState(policy.description ?? '')
-  const [config, setConfig] = useState<RiskPolicyConfig>(structuredClone(policy.config))
+  const [config, setConfig] = useState<RiskPolicyConfig>(() => {
+    // Normalize: older policies may lack scannerOverrides — fill it in
+    // so the controlled dropdowns always have a target object.
+    const cloned = structuredClone(policy.config)
+    if (!cloned.scannerOverrides) cloned.scannerOverrides = {}
+    return cloned
+  })
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -171,6 +187,13 @@ export function RiskPolicyEditor({
       },
     })
 
+  const setScannerCeiling = (scanner: string, ceiling: Severity | null) => {
+    const next = { ...(config.scannerOverrides ?? {}) }
+    if (ceiling === null) delete next[scanner]
+    else next[scanner] = { severityCeiling: ceiling }
+    setConfig({ ...config, scannerOverrides: next })
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-8"
@@ -217,6 +240,38 @@ export function RiskPolicyEditor({
               <BandInput label="Green ≤" value={config.bands.greenMax} onChange={(v) => updateBand('greenMax', v)} />
               <BandInput label="Yellow ≤" value={config.bands.yellowMax} onChange={(v) => updateBand('yellowMax', v)} />
               <BandInput label="Orange ≤" value={config.bands.orangeMax} onChange={(v) => updateBand('orangeMax', v)} />
+            </div>
+          </section>
+
+          {/* Scanner overrides */}
+          <section className="space-y-2">
+            <div>
+              <h3 className="text-sm font-semibold">Scanner overrides</h3>
+              <p className="text-[11px] text-muted-foreground">
+                Cap a scanner's severity ceiling for scoring purposes — useful when a scanner's "Error" level
+                doesn't really mean "high security severity" (e.g. ESLint).
+                Display data stays at the ingested severity; only the score is affected.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              {OVERRIDABLE_SCANNERS.map(s => {
+                const current = config.scannerOverrides?.[s]?.severityCeiling ?? null
+                return (
+                  <div key={s} className="flex items-center justify-between gap-2 rounded-md border border-border px-2 py-1.5">
+                    <label className="text-xs font-medium">{s}</label>
+                    <select
+                      value={current ?? ''}
+                      onChange={(e) => setScannerCeiling(s, e.target.value === '' ? null : e.target.value as Severity)}
+                      className="rounded-md border bg-background px-1.5 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring/40"
+                    >
+                      <option value="">(no cap)</option>
+                      {SEVERITY_OPTIONS.map(sev => (
+                        <option key={sev} value={sev}>cap at {sev}</option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })}
             </div>
           </section>
 

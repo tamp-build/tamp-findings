@@ -389,16 +389,43 @@ public static class AggregatesEndpoints
         var testsTotal = testReports.Sum(r => r.TotalCount);
         var testsFailed = testReports.Sum(r => r.FailedCount);
 
-        // SAST severity counts: pull from byScannerDetail (already
-        // populated above with the canonical SAST set). Scanner is a
-        // string on the DTO — parse back to the enum to gate.
-        var sastDetail = byScannerDetail
-            .Where(d => Enum.TryParse<ScannerKind>(d.Scanner, out var k) && RingChartSastSet.Contains(k))
-            .ToList();
-        var sastCrit = sastDetail.Sum(d => d.Open.Critical);
-        var sastHigh = sastDetail.Sum(d => d.Open.High);
-        var sastMed  = sastDetail.Sum(d => d.Open.Medium);
-        var sastLow  = sastDetail.Sum(d => d.Open.Low);
+        // Resolve effective policy early — its ScannerOverrides table
+        // adjusts how SAST + IaC + Secrets severities feed into the
+        // scorer. Display data (byScannerDetail, iacCounts, etc.) stays
+        // at the ingested severity; only the score inputs are adjusted.
+        var policy = await ResolveEffectivePolicyAsync(db, clientId, projectId, componentId, ct);
+        var overrides = policy?.Config.ScannerOverrides ?? new Dictionary<string, ScannerOverride>();
+
+        // SAST severity counts: flatten byScannerDetail to (Scanner,
+        // Severity, Count) tuples and apply per-scanner severity ceilings
+        // before re-summing. This is how an admin downweights a scanner
+        // like ESLint from "High SAST" to "Low SAST" for scoring purposes.
+        var sastTuples = new List<(ScannerKind Scanner, Severity Severity, int Count)>();
+        foreach (var d in byScannerDetail)
+        {
+            if (!Enum.TryParse<ScannerKind>(d.Scanner, out var sk) || !RingChartSastSet.Contains(sk)) continue;
+            sastTuples.Add((sk, Severity.Critical, d.Open.Critical));
+            sastTuples.Add((sk, Severity.High,     d.Open.High));
+            sastTuples.Add((sk, Severity.Medium,   d.Open.Medium));
+            sastTuples.Add((sk, Severity.Low,      d.Open.Low));
+        }
+        var sastAdjusted = ScannerOverrideApplier.Apply(sastTuples, overrides);
+        var sastCrit = sastAdjusted.Where(x => x.Severity == Severity.Critical).Sum(x => x.Count);
+        var sastHigh = sastAdjusted.Where(x => x.Severity == Severity.High).Sum(x => x.Count);
+        var sastMed  = sastAdjusted.Where(x => x.Severity == Severity.Medium).Sum(x => x.Count);
+        var sastLow  = sastAdjusted.Where(x => x.Severity == Severity.Low).Sum(x => x.Count);
+
+        // IaC severity counts: applied to Trivy specifically. iacCounts
+        // is already Trivy-scoped (misconfig sub-category) so we just
+        // ceiling-cap the Critical/High buckets.
+        var iacTuples = new List<(ScannerKind, Severity, int)>
+        {
+            (ScannerKind.Trivy, Severity.Critical, iacCounts.Critical),
+            (ScannerKind.Trivy, Severity.High,     iacCounts.High),
+        };
+        var iacAdjusted = ScannerOverrideApplier.Apply(iacTuples, overrides);
+        var iacAdjCrit = iacAdjusted.Where(x => x.Severity == Severity.Critical).Sum(x => x.Count);
+        var iacAdjHigh = iacAdjusted.Where(x => x.Severity == Severity.High).Sum(x => x.Count);
 
         // Which scanner classes ran? Borrow the existing scan-run roll-up.
         bool RanSucc(ScannerKind k) => scanRuns.Any(r => r.Scanner == k && r.Status == ScanRunStatus.Succeeded);
@@ -416,7 +443,7 @@ public static class AggregatesEndpoints
             SecretsVerified: verifiedSecrets,
             SecretsUnverified: unverifiedSecrets,
             SastCritical: sastCrit, SastHigh: sastHigh, SastMedium: sastMed, SastLow: sastLow,
-            IacCritical: iacCounts.Critical, IacHigh: iacCounts.High,
+            IacCritical: iacAdjCrit, IacHigh: iacAdjHigh,
             CoverageMeasured: coverage.Measured,
             SequenceCoveragePercent: coverage.SequenceCoverage ?? 0,
             SbomComponents: compsCount, SbomOutdated: outdated, SbomStale: stale,
@@ -432,7 +459,6 @@ public static class AggregatesEndpoints
             || coverage.Measured || testsMeasured;
         if (hasAnyEvidence)
         {
-            var policy = await ResolveEffectivePolicyAsync(db, clientId, projectId, componentId, ct);
             if (policy is not null)
             {
                 var result = RiskScorer.Compute(policy.Config, inputs);
