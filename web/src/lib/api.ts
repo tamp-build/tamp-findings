@@ -647,6 +647,55 @@ export async function assignClientPolicy(clientId: string, policyId: string | nu
   if (!r.ok) throw new Error(`PATCH /clients/${clientId}/policy failed: ${r.status}`)
 }
 
+export async function assignProjectPolicy(projectId: string, policyId: string | null): Promise<void> {
+  const r = await fetch(`${API_BASE}/projects/${projectId}/policy`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ policyId }),
+  })
+  if (!r.ok) throw new Error(`PATCH /projects/${projectId}/policy failed: ${r.status}`)
+}
+
+// ----- Project policy + gates --------------------------------------------
+
+export type ProjectGatesConfig = {
+  schemaVersion: number
+  gates: Record<string, { enabled: boolean; threshold?: number | null }>
+}
+
+export type ProjectPolicyAndGatesView = {
+  assignedPolicyId: string | null
+  effectivePolicyId: string
+  effectivePolicyName: string
+  effectiveFromProject: boolean
+  effectiveFromClient: boolean
+  gates: ProjectGatesConfig
+}
+
+export async function fetchProjectPolicyAndGates(projectId: string): Promise<ProjectPolicyAndGatesView> {
+  const r = await fetch(`${API_BASE}/projects/${projectId}/policy-and-gates`)
+  if (!r.ok) throw new Error(`GET /projects/${projectId}/policy-and-gates failed: ${r.status}`)
+  return r.json()
+}
+
+// "Override" / disconnect-from-inherited — clones the current effective
+// policy and assigns the clone to the project so the admin can tune it
+// without touching the inherited (shared) policy.
+export async function forkProjectPolicy(projectId: string): Promise<RiskPolicyFull> {
+  const r = await fetch(`${API_BASE}/projects/${projectId}/policy/fork`, { method: 'POST' })
+  if (!r.ok) throw new Error(`POST /projects/${projectId}/policy/fork failed: ${r.status}`)
+  return r.json()
+}
+
+export async function updateProjectGates(projectId: string, gates: ProjectGatesConfig): Promise<void> {
+  const r = await fetch(`${API_BASE}/projects/${projectId}/gates`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gates }),
+  })
+  if (!r.ok) throw new Error(`PATCH /projects/${projectId}/gates failed: ${r.status}`)
+}
+
 // ----- Project scan receipts (per-build) ----------------------------------
 
 export type ScanReceiptRow = {

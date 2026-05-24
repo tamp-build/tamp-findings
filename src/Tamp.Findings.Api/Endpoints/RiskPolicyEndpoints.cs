@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
@@ -23,6 +24,19 @@ public sealed record CreateRiskPolicyRequest(string Name, string? Description, R
 public sealed record UpdateRiskPolicyRequest(string? Name, string? Description, RiskPolicyConfig? Config);
 public sealed record ClonePolicyRequest(string Name);
 public sealed record AssignPolicyRequest(Guid? PolicyId);
+
+// Project-scoped read shape: inherited policy resolution plus the
+// effective policy id/name so the SPA can render "(inherited from
+// <name>)" without a second round-trip.
+public sealed record ProjectPolicyAndGatesView(
+    Guid? AssignedPolicyId,           // null when inheriting
+    Guid EffectivePolicyId,           // resolved (project ?? client ?? default)
+    string EffectivePolicyName,
+    bool EffectiveFromProject,
+    bool EffectiveFromClient,
+    ProjectGatesConfig Gates);
+
+public sealed record UpdateGatesRequest(ProjectGatesConfig Gates);
 
 // --------------------------------------------------------------------------
 
@@ -54,6 +68,12 @@ public static class RiskPolicyEndpoints
          .WithSummary("Set or clear the risk policy on a client. Admin only (project-owner check lands with TFND-3).");
         g.MapPatch("/projects/{projectId:guid}/policy", AssignProjectAsync)
          .WithSummary("Set or clear the risk policy on a project.");
+        g.MapGet("/projects/{projectId:guid}/policy-and-gates", GetProjectPolicyAndGatesAsync)
+         .WithSummary("Project policy assignment + effective policy + gates config — one round-trip for the Project Settings dialog.");
+        g.MapPost("/projects/{projectId:guid}/policy/fork", ForkProjectPolicyAsync)
+         .WithSummary("Clone the project's current effective policy into a new RiskPolicy and assign it to the project. Used by the 'Override' button when disconnecting from the inherited policy.");
+        g.MapPatch("/projects/{projectId:guid}/gates", UpdateProjectGatesAsync)
+         .WithSummary("Replace the per-project gates config.");
 
         return app;
     }
@@ -209,6 +229,97 @@ public static class RiskPolicyEndpoints
             if (!exists) return Results.BadRequest("policy not found");
         }
         project.RiskPolicyId = req.PolicyId;
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> GetProjectPolicyAndGatesAsync(
+        Guid projectId, FindingsDbContext db, CancellationToken ct)
+    {
+        var project = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => new
+            {
+                p.Id, p.RiskPolicyId, p.GatesConfig,
+                ClientRiskPolicyId = p.Client!.RiskPolicyId,
+            })
+            .FirstOrDefaultAsync(ct);
+        if (project is null) return Results.NotFound();
+
+        // Resolution: project > client > system default.
+        var effectiveId = project.RiskPolicyId ?? project.ClientRiskPolicyId;
+        RiskPolicy? effective = null;
+        if (effectiveId is { } id)
+            effective = await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
+        effective ??= await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
+        if (effective is null) return Results.Conflict("no default risk policy exists");
+
+        return Results.Ok(new ProjectPolicyAndGatesView(
+            AssignedPolicyId: project.RiskPolicyId,
+            EffectivePolicyId: effective.Id,
+            EffectivePolicyName: effective.Name,
+            EffectiveFromProject: project.RiskPolicyId is not null,
+            EffectiveFromClient: project.RiskPolicyId is null && project.ClientRiskPolicyId is not null,
+            Gates: project.GatesConfig ?? ProjectGatesDefaults.Empty()));
+    }
+
+    private static async Task<IResult> ForkProjectPolicyAsync(
+        Guid projectId, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+    {
+        var (user, deny) = await RequireAdminAsync(ctx, db, ct);
+        if (deny is not null) return deny;
+
+        var project = await db.Projects
+            .Include(p => p.Client)
+            .FirstOrDefaultAsync(p => p.Id == projectId, ct);
+        if (project is null) return Results.NotFound();
+
+        // Resolve the current effective policy — same chain as the
+        // scorer uses. Then clone it with a project-scoped name and
+        // assign it back to the project.
+        var effectiveId = project.RiskPolicyId ?? project.Client?.RiskPolicyId;
+        RiskPolicy? source = null;
+        if (effectiveId is { } id)
+            source = await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
+        source ??= await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
+        if (source is null) return Results.Conflict("no default risk policy to fork from");
+
+        // Round-trip through System.Text.Json so the clone owns its own
+        // graph (avoids EF tracking the source's Config object twice).
+        var configJson = JsonSerializer.Serialize(source.Config);
+        var configClone = JsonSerializer.Deserialize<RiskPolicyConfig>(configJson)!;
+
+        var name = $"{project.Client?.Name ?? "project"} / {project.Name} — custom";
+        // If a policy with this name already exists (re-fork case), suffix
+        // a short timestamp so we never collide on the unique index.
+        if (await db.RiskPolicies.AnyAsync(p => p.Name == name, ct))
+            name += $" {DateTime.UtcNow:HHmmss}";
+
+        var fork = new RiskPolicy
+        {
+            Name = name,
+            Description = $"Forked from \"{source.Name}\" for {project.Name}.",
+            Config = configClone,
+            CreatedByUserId = user!.Id,
+        };
+        db.RiskPolicies.Add(fork);
+        project.RiskPolicyId = fork.Id;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new RiskPolicyFull(
+            fork.Id, fork.Name, fork.Description, fork.IsDefault, fork.IsSeeded,
+            fork.Config, fork.CreatedAt, fork.UpdatedAt));
+    }
+
+    private static async Task<IResult> UpdateProjectGatesAsync(
+        Guid projectId, UpdateGatesRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+    {
+        var (_, deny) = await RequireAdminAsync(ctx, db, ct);
+        if (deny is not null) return deny;
+        var project = await db.Projects.FirstOrDefaultAsync(p => p.Id == projectId, ct);
+        if (project is null) return Results.NotFound();
+        if (req.Gates is null || req.Gates.SchemaVersion < 1) return Results.BadRequest("gates invalid");
+        project.GatesConfig = req.Gates;
         await db.SaveChangesAsync(ct);
         return Results.NoContent();
     }

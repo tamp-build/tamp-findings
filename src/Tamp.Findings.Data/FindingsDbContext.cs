@@ -50,6 +50,10 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasOne(x => x.Client).WithMany(c => c.Projects).HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.ClientId, x.Name }).IsUnique();
             e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
+            // Project acceptance gates — jsonb. Null = no gates wired
+            // (every build passes). Distinct from RiskPolicy which is
+            // also jsonb but lives in its own table.
+            e.Property(x => x.GatesConfig).HasColumnType("jsonb");
         });
 
         b.Entity<Component>(e =>
