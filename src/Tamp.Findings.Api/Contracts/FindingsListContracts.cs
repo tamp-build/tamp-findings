@@ -31,6 +31,6 @@ public sealed record FindingsListResponse(
     SeverityCounts Counts,
     IReadOnlyList<FindingListItem> Items);
 
-public sealed record ClientListItem(Guid Id, string Name, int ProjectCount);
+public sealed record ClientListItem(Guid Id, string Name, int ProjectCount, Guid? RiskPolicyId);
 public sealed record ProjectListItem(Guid Id, string Name, Guid ClientId, string ClientName, int ComponentCount);
 public sealed record ComponentListItem(Guid Id, string Name, string? Kind, Guid ProjectId, string ProjectName, Guid ClientId, string ClientName, int VersionCount);

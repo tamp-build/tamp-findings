@@ -142,7 +142,7 @@ public static class FindingsListEndpoints
         var rows = await db.Clients
             .AsNoTracking()
             .OrderBy(c => c.Name)
-            .Select(c => new ClientListItem(c.Id, c.Name, c.Projects.Count))
+            .Select(c => new ClientListItem(c.Id, c.Name, c.Projects.Count, c.RiskPolicyId))
             .ToListAsync(ct);
         return TypedResults.Ok((IReadOnlyList<ClientListItem>)rows);
     }

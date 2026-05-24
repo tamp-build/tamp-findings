@@ -4,6 +4,8 @@ import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/l
 import { FindingsView } from '@/views/FindingsView'
 import { ComponentsView } from '@/views/ComponentsView'
 import { OverviewView } from '@/views/OverviewView'
+import { ClientPageView } from '@/views/ClientPageView'
+import { ProjectPageView } from '@/views/ProjectPageView'
 import { CoverageView } from '@/views/CoverageView'
 import { TestsView } from '@/views/TestsView'
 import { SignInView } from '@/views/SignInView'
@@ -11,7 +13,9 @@ import { ProfileView } from '@/views/ProfileView'
 import { SettingsView } from '@/views/SettingsView'
 import { AuthProvider, useAuth, type AuthUser } from '@/lib/auth'
 
-type Tab = 'overview' | 'findings' | 'components' | 'coverage' | 'tests' | 'profile' | 'settings'
+type Tab = 'overview' | 'client' | 'project'
+  | 'findings' | 'components' | 'coverage' | 'tests'
+  | 'profile' | 'settings'
 
 // Cross-tab presets — set by Overview row/donut clicks, consumed once
 // by the destination view's effect that seeds its local filter state.
@@ -58,7 +62,14 @@ function Dashboard() {
   const [search, setSearch] = useState('')
   const [findingsPreset, setFindingsPreset] = useState<FindingsPreset>({ nonce: 0 })
   const [componentsPreset, setComponentsPreset] = useState<ComponentsPreset>({ nonce: 0 })
+  // Scope state for the client/project pages. Cleared when the user
+  // navigates back to overview via the brand link or a breadcrumb.
+  const [scopeClientId, setScopeClientId] = useState<string | null>(null)
+  const [scopeProjectId, setScopeProjectId] = useState<string | null>(null)
 
+  const goToOverview = () => { setTab('overview'); setSearch(''); setScopeClientId(null); setScopeProjectId(null) }
+  const goToClient = (clientId: string) => { setScopeClientId(clientId); setTab('client'); setSearch('') }
+  const goToProject = (projectId: string) => { setScopeProjectId(projectId); setTab('project'); setSearch('') }
   const goToFindings = (preset: Omit<FindingsPreset, 'nonce'>) => {
     setFindingsPreset(p => ({ nonce: p.nonce + 1, ...preset }))
     setSearch('')
@@ -79,7 +90,7 @@ function Dashboard() {
               by clicking ring segments or rows, not by top-nav tabs). */}
           <button
             type="button"
-            onClick={() => { setTab('overview'); setSearch('') }}
+            onClick={goToOverview}
             className="text-base font-semibold tracking-tight hover:text-foreground/80 sm:text-xl"
           >
             tamp.findings
@@ -121,7 +132,24 @@ function Dashboard() {
       </header>
 
       <div className="mx-auto max-w-7xl px-3 py-3 sm:px-4 sm:py-6">
-        {tab === 'overview' && <OverviewView onDrillToFindings={goToFindings} onDrillToComponents={goToComponents} onDrillToCoverage={() => setTab('coverage')} />}
+        {tab === 'overview' && <OverviewView onSelectClient={goToClient} />}
+        {tab === 'client' && scopeClientId && (
+          <ClientPageView
+            clientId={scopeClientId}
+            onBack={goToOverview}
+            onSelectProject={goToProject}
+          />
+        )}
+        {tab === 'project' && scopeProjectId && (
+          <ProjectPageView
+            projectId={scopeProjectId}
+            onBack={() => scopeClientId ? setTab('client') : goToOverview()}
+            onBackToOverview={goToOverview}
+            onDrillToFindings={goToFindings}
+            onDrillToComponents={goToComponents}
+            onDrillToCoverage={() => setTab('coverage')}
+          />
+        )}
         {tab === 'findings' && <FindingsView search={search} preset={findingsPreset} />}
         {tab === 'components' && <ComponentsView preset={componentsPreset} />}
         {tab === 'coverage' && <CoverageView />}

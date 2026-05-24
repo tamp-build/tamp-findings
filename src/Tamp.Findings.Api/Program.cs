@@ -67,6 +67,21 @@ if (Environment.GetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE") != "true")
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<FindingsDbContext>();
     db.Database.Migrate();
+    // Ensure exactly one system-default RiskPolicy exists. Seeded from
+    // RiskPolicyDefaults so the v1 weights stay in one place; admins can
+    // edit the seed row in place after first run.
+    if (!await db.RiskPolicies.AnyAsync(p => p.IsDefault))
+    {
+        db.RiskPolicies.Add(new Tamp.Findings.Domain.Entities.RiskPolicy
+        {
+            Name = Tamp.Findings.Domain.Risk.RiskPolicyDefaults.TampStandardV1Name,
+            Description = "System-seeded default. Editable — admins can tune the weights or clone to start a new policy.",
+            IsDefault = true,
+            IsSeeded = true,
+            Config = Tamp.Findings.Domain.Risk.RiskPolicyDefaults.BuildTampStandardV1(),
+        });
+        await db.SaveChangesAsync();
+    }
 }
 
 app.UseCors();
@@ -117,6 +132,7 @@ app.MapSbomComponents();
 app.MapSuppressions();
 app.MapRoleAssignments();
 app.MapAggregates();
+app.MapRiskPolicies();
 
 app.Run();
 

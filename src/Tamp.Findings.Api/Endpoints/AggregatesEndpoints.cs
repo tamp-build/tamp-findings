@@ -4,6 +4,7 @@ using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Api.Services;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
+using Tamp.Findings.Domain.Risk;
 using Tamp.Findings.Domain.Values;
 
 namespace Tamp.Findings.Api.Endpoints;
@@ -363,6 +364,91 @@ public static class AggregatesEndpoints
         var iacScanned = trivySeenAnywhere
             || scanRuns.Any(r => r.Scanner == ScannerKind.Trivy && r.Status == ScanRunStatus.Succeeded);
 
+        // ---- Risk score --------------------------------------------------
+        // CVE severities for the scorer. Walks SbomVulnerabilities scoped
+        // through SbomComponent → SbomSnapshot → ComponentVersion. Only the
+        // latest snapshot per CV is counted (snapshots are replace-on-ingest,
+        // so there's at most one per CV anyway).
+        var vulnsQ = db.Vulnerabilities.AsNoTracking()
+            .Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersionId != Guid.Empty);
+        if (componentId is { } cmpV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.ComponentId == cmpV);
+        if (projectId  is { } prjV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.Component!.ProjectId == prjV);
+        if (clientId   is { } cliV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.Component!.Project!.ClientId == cliV);
+        var cveSev = await vulnsQ
+            .GroupBy(v => v.Severity)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+
+        // Test results — latest TestRunReport per CV in scope, summed.
+        var testQ = db.TestRunReports.AsNoTracking();
+        if (componentId is { } cmpT) testQ = testQ.Where(r => r.ComponentVersion!.ComponentId == cmpT);
+        if (projectId  is { } prjT) testQ = testQ.Where(r => r.ComponentVersion!.Component!.ProjectId == prjT);
+        if (clientId   is { } cliT) testQ = testQ.Where(r => r.ComponentVersion!.Component!.Project!.ClientId == cliT);
+        var testReports = await testQ.ToListAsync(ct);
+        var testsMeasured = testReports.Count > 0;
+        var testsTotal = testReports.Sum(r => r.TotalCount);
+        var testsFailed = testReports.Sum(r => r.FailedCount);
+
+        // SAST severity counts: pull from byScannerDetail (already
+        // populated above with the canonical SAST set). Scanner is a
+        // string on the DTO — parse back to the enum to gate.
+        var sastDetail = byScannerDetail
+            .Where(d => Enum.TryParse<ScannerKind>(d.Scanner, out var k) && RingChartSastSet.Contains(k))
+            .ToList();
+        var sastCrit = sastDetail.Sum(d => d.Open.Critical);
+        var sastHigh = sastDetail.Sum(d => d.Open.High);
+        var sastMed  = sastDetail.Sum(d => d.Open.Medium);
+        var sastLow  = sastDetail.Sum(d => d.Open.Low);
+
+        // Which scanner classes ran? Borrow the existing scan-run roll-up.
+        bool RanSucc(ScannerKind k) => scanRuns.Any(r => r.Scanner == k && r.Status == ScanRunStatus.Succeeded);
+        var ranSast = (new[] { ScannerKind.Roslyn, ScannerKind.ReSharper, ScannerKind.OpenGrep, ScannerKind.CodeQL }).Any(RanSucc);
+        var ranSecrets = RanSucc(ScannerKind.TruffleHog);
+        var ranIac = RanSucc(ScannerKind.Trivy);
+        var ranSbom = compsCount > 0 || RanSucc(ScannerKind.Syft) || RanSucc(ScannerKind.OsvScanner);
+        var ranCoverage = coverage.Measured;
+
+        var inputs = new RiskInputs(
+            CveCritical: cveSev.GetValueOrDefault(Severity.Critical, 0),
+            CveHigh:     cveSev.GetValueOrDefault(Severity.High, 0),
+            CveMedium:   cveSev.GetValueOrDefault(Severity.Medium, 0),
+            CveLow:      cveSev.GetValueOrDefault(Severity.Low, 0),
+            SecretsVerified: verifiedSecrets,
+            SecretsUnverified: unverifiedSecrets,
+            SastCritical: sastCrit, SastHigh: sastHigh, SastMedium: sastMed, SastLow: sastLow,
+            IacCritical: iacCounts.Critical, IacHigh: iacCounts.High,
+            CoverageMeasured: coverage.Measured,
+            SequenceCoveragePercent: coverage.SequenceCoverage ?? 0,
+            SbomComponents: compsCount, SbomOutdated: outdated, SbomStale: stale,
+            TestsMeasured: testsMeasured, TestsTotal: testsTotal, TestsFailed: testsFailed,
+            LicenseDenied: denied, LicenseStrongCopyleft: strong, LicenseUnknown: unknown,
+            RanSast: ranSast, RanSecrets: ranSecrets, RanIac: ranIac,
+            RanSbom: ranSbom, RanCoverage: ranCoverage);
+
+        // Render risk = null when the scope has zero ingest evidence — a
+        // brand-new client with no scanners ran shouldn't show a number.
+        RiskScoreDto? risk = null;
+        var hasAnyEvidence = compsCount > 0 || counts.Total > 0 || scanRuns.Count > 0
+            || coverage.Measured || testsMeasured;
+        if (hasAnyEvidence)
+        {
+            var policy = await ResolveEffectivePolicyAsync(db, clientId, projectId, componentId, ct);
+            if (policy is not null)
+            {
+                var result = RiskScorer.Compute(policy.Config, inputs);
+                risk = new RiskScoreDto(
+                    Score: Math.Round(result.Score, 1),
+                    Band: result.Band,
+                    PolicyId: policy.Id,
+                    PolicyName: policy.Name,
+                    SchemaVersion: result.SchemaVersion,
+                    Breakdown: result.Breakdown.Select(b => new RiskBreakdownDto(
+                        b.Key, b.Enabled, b.Max,
+                        Math.Round(b.SubScore, 4),
+                        Math.Round(b.Contribution, 2))).ToList());
+            }
+        }
+
         return TypedResults.Ok(new AggregatesResponse(
             scope,
             new FindingAggregate(counts, byScanner, byStatus, byScannerDetail, byRule),
@@ -375,7 +461,62 @@ public static class AggregatesEndpoints
                 byLicense),
             new IacAggregate(iacCounts, Scanned: iacScanned),
             coverage,
-            scanRuns));
+            scanRuns,
+            risk));
+    }
+
+    // SAST scanner set used by the Code Quality ring. Kept here so the
+    // risk scorer's SAST inputs match what the donut shows the user.
+    private static readonly HashSet<ScannerKind> RingChartSastSet =
+    [
+        ScannerKind.Roslyn, ScannerKind.ReSharper, ScannerKind.OpenGrep, ScannerKind.CodeQL,
+    ];
+
+    // Project > Client > Default fallback. Returns null only if NO
+    // RiskPolicy rows exist at all (the seeder should have prevented that).
+    private static async Task<RiskPolicy?> ResolveEffectivePolicyAsync(
+        FindingsDbContext db, Guid? clientId, Guid? projectId, Guid? componentId, CancellationToken ct)
+    {
+        Guid? projectPolicyId = null;
+        Guid? clientPolicyId = null;
+
+        if (componentId is { } cmp)
+        {
+            var pair = await db.Components.AsNoTracking()
+                .Where(c => c.Id == cmp)
+                .Select(c => new
+                {
+                    ProjectPolicy = c.Project!.RiskPolicyId,
+                    ClientPolicy = c.Project.Client!.RiskPolicyId,
+                })
+                .FirstOrDefaultAsync(ct);
+            projectPolicyId = pair?.ProjectPolicy;
+            clientPolicyId = pair?.ClientPolicy;
+        }
+        else if (projectId is { } prj)
+        {
+            var pair = await db.Projects.AsNoTracking()
+                .Where(p => p.Id == prj)
+                .Select(p => new { p.RiskPolicyId, ClientPolicy = p.Client!.RiskPolicyId })
+                .FirstOrDefaultAsync(ct);
+            projectPolicyId = pair?.RiskPolicyId;
+            clientPolicyId = pair?.ClientPolicy;
+        }
+        else if (clientId is { } cli)
+        {
+            clientPolicyId = await db.Clients.AsNoTracking()
+                .Where(c => c.Id == cli)
+                .Select(c => c.RiskPolicyId)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        var effectiveId = projectPolicyId ?? clientPolicyId;
+        if (effectiveId is { } id)
+        {
+            var byId = await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
+            if (byId is not null) return byId;
+        }
+        return await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
     }
 
     private static async Task<AggregateScope> ResolveScopeAsync(
