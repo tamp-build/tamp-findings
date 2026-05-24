@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Settings } from 'lucide-react'
 import { fetchClients, fetchProjects, fetchAggregates } from '@/lib/api'
 import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import type { FindingsPreset, ComponentsPreset } from '@/App'
@@ -9,6 +10,8 @@ import {
 } from '@/components/RingChart'
 import { RiskBadge } from '@/components/RiskBadge'
 import { BuildReceiptsPanel } from '@/components/BuildReceiptsPanel'
+import { ProjectSettingsDialog } from '@/components/ProjectSettingsDialog'
+import { useAuth } from '@/lib/auth'
 
 // Same segment → severity/status mapping the ScopeCard uses for drills.
 const SEVERITY_FROM_SEGMENT: Record<string, Severity | undefined> = {
@@ -33,9 +36,12 @@ export function ProjectPageView({
   onDrillToComponents?: (preset?: Omit<ComponentsPreset, 'nonce'>) => void
   onDrillToCoverage?: () => void
 }) {
+  const { user } = useAuth()
   const allProjects = useQuery({ queryKey: ['projects', null], queryFn: () => fetchProjects() })
   const clients = useQuery({ queryKey: ['clients'], queryFn: fetchClients })
   const project = allProjects.data?.find(p => p.id === projectId) ?? null
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const canManage = user?.isAdmin ?? false
 
   const aggregates = useQuery({
     queryKey: ['aggregates', 'project', projectId],
@@ -77,7 +83,26 @@ export function ProjectPageView({
         </button>
         <span className="text-muted-foreground">/</span>
         <span className="font-semibold">{project?.name ?? '…'}</span>
+        {canManage && project && (
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            title="Project settings (policy + gates)"
+            aria-label={`Settings for ${project.name}`}
+            className="ml-1 rounded-md p-1 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+          >
+            <Settings className="size-3.5" />
+          </button>
+        )}
       </nav>
+
+      {settingsOpen && project && (
+        <ProjectSettingsDialog
+          projectId={project.id}
+          projectName={project.name}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
 
       {/* ---- Top: ring graph + build receipts -------------------- */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-[auto_minmax(0,1fr)]">
