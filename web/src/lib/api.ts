@@ -592,6 +592,11 @@ export type RiskPolicyConfig = {
   schemaVersion: number
   bands: { greenMax: number; yellowMax: number; orangeMax: number }
   categories: Record<string, { enabled: boolean; max: number; weights: Record<string, number> }>
+  // Per-scanner severity ceilings. When set, findings from that scanner
+  // are downgraded to at most the ceiling severity BEFORE scoring.
+  // Default = empty (no overrides; every finding scores at its
+  // ingested severity).
+  scannerOverrides: Record<string, { severityCeiling: Severity | null }>
 }
 
 export type RiskPolicyFull = RiskPolicySummary & { config: RiskPolicyConfig }

@@ -35,6 +35,10 @@ builder.Services.AddFindingsDb(connectionString);
 // across enrichment calls.
 builder.Services.AddHttpClient("registries");
 builder.Services.AddScoped<SbomEnrichmentService>();
+// Builds RiskInputs for an explicit CV-id set — drives the per-build
+// evaluator. /aggregates still computes its own inline against the
+// latest-canonical set; a future refactor can consolidate.
+builder.Services.AddScoped<Tamp.Findings.Api.Services.RiskInputsBuilder>();
 
 builder.Services.AddCors(options =>
 {
@@ -134,6 +138,7 @@ app.MapRoleAssignments();
 app.MapAggregates();
 app.MapRiskPolicies();
 app.MapProjectScanReceipts();
+app.MapBuildEvaluation();
 
 app.Run();
 
