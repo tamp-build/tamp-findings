@@ -133,6 +133,7 @@ app.MapSuppressions();
 app.MapRoleAssignments();
 app.MapAggregates();
 app.MapRiskPolicies();
+app.MapProjectScanReceipts();
 
 app.Run();
 

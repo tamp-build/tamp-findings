@@ -41,11 +41,18 @@ public static class SarifIngestMapper
                 // so we infer from RuleId prefix. Non-Trivy scanners get null.
                 var subCategory = InferTrivySubCategory(scanner, r.RuleId);
 
+                // ESLint embeds the source-snippet + line context in
+                    // message.text — can hit 1k+ chars. The Finding.Title column
+                    // is varchar(512); truncate to first line + clip so we stay
+                    // safely under, while the full text rides in Description
+                    // (text column, unlimited).
+                    var rawMsg = r.Message?.Text;
+                    var title = ShortTitle(rawMsg) ?? r.RuleId ?? "(no title)";
                 bucket.Add(new IngestFindingDto(
                     RuleId: r.RuleId ?? "(unknown)",
                     Severity: MapSeverity(r.Level),
-                    Title: r.Message?.Text ?? r.RuleId ?? "(no title)",
-                    Description: r.Message?.Text,
+                    Title: title,
+                    Description: rawMsg,
                     FilePath: artifact,
                     Line: region?.StartLine,
                     // Tamp.Sarif's minimal model doesn't surface snippets;
@@ -93,7 +100,21 @@ public static class SarifIngestMapper
         // through the C# compiler; tool.driver.name is always the compiler.
         if (n.Contains("c# compiler") || n.Contains("csc") || n.Contains("microsoft (r) visual")) return ScannerKind.Roslyn;
         if (n.Contains("stryker")) return ScannerKind.Stryker;
+        // ESLint SARIF via @microsoft/eslint-formatter-sarif sets
+        // tool.driver.name to "ESLint".
+        if (n.Contains("eslint")) return ScannerKind.ESLint;
         return ScannerKind.Unknown;
+    }
+
+    // Pulls the first line of the SARIF message (the actual sentence)
+    // and clips to 500 chars with an ellipsis so the result always fits
+    // Finding.Title's varchar(512).
+    private static string? ShortTitle(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var nl = raw.IndexOf('\n');
+        var firstLine = (nl >= 0 ? raw[..nl] : raw).TrimEnd('\r', ' ');
+        return firstLine.Length <= 500 ? firstLine : firstLine[..497] + "…";
     }
 
     private static Severity MapSeverity(SarifLevel level) => level switch

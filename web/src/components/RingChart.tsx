@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils'
 // The Code Quality ring is scanner-agnostic: anything in SAST_SCANNERS
 // folds into one "Code Quality" bucket. Adding a new SAST tool means
 // listing it here — no other dashboard surface needs to know about it.
-export const SAST_SCANNERS = ['ReSharper', 'Roslyn', 'OpenGrep', 'CodeQL'] as const
+export const SAST_SCANNERS = ['ReSharper', 'Roslyn', 'OpenGrep', 'CodeQL', 'ESLint'] as const
 
 const SEGMENT_COLORS = {
   critical:   '#dc2626',  high:       '#f97316',  medium:     '#f59e0b',

@@ -12,6 +12,8 @@ using Tamp.TruffleHog.V3;
 using SyftCli = Tamp.Syft.V1.Syft;
 using TrufflehogCli = Tamp.TruffleHog.V3.TruffleHog;
 using OpenGrepCli = Tamp.OpenGrep.OpenGrep;
+using Tamp.Eslint.V9;
+using EslintCli = Tamp.Eslint.V9.Eslint;
 
 // tamp.findings self-hosted build script. Run with:
 //   dotnet run --project build -- <target>
@@ -76,6 +78,10 @@ class Build : SecurityPipelineBuild
     // ReSharper InspectCode SARIF. Output lives next to roslyn/opengrep so
     // the SAST merge step finds it consistently.
     AbsolutePath SecuritySarifResharperFile => RootDirectory / "artifacts" / "security" / "resharper.sarif";
+    // ESLint SARIF — TS/JS style + best-practice for the SPA. The TS
+    // equivalent of ReSharper for C#; covers what OpenGrep's security-only
+    // packs intentionally don't.
+    AbsolutePath SecuritySarifEslintFile => RootDirectory / "artifacts" / "security" / "eslint.sarif";
 
     // ----- SecurityPipelineBuild overrides --------------------------------
 
@@ -140,6 +146,12 @@ class Build : SecurityPipelineBuild
                 // p/dotnet is a 404 on semgrep.dev — p/csharp is the closest peer.
                 .AddConfig("p/typescript")
                 .AddConfig("p/javascript")
+                // React-specific (dangerouslySetInnerHTML, untrusted JSX
+                // href/src, refs) + cross-cutting XSS rules. Both stay
+                // quiet on clean React code; cheap insurance for when
+                // someone reaches for innerHTML or a templated URL.
+                .AddConfig("p/react")
+                .AddConfig("p/xss")
                 .AddConfig("p/secrets")
                 .AddConfig("p/sql-injection")
                 .AddConfig("p/jwt")
@@ -178,6 +190,31 @@ class Build : SecurityPipelineBuild
                 "--exclude=**/Tests/**;**/bin/**;**/obj/**;**/artifacts/**;build/**");
             var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
             if (rc != 0) throw new Exception($"jb inspectcode exited with {rc}");
+        });
+
+    // TAM-276: ESLint v9 over web/src — style + best-practice for the SPA.
+    // The TS analogue of ReSharper for C# (which only walks .sln C# projects
+    // and never enters the pnpm workspace). Skips cleanly when no ESLint
+    // install is found, same posture as OpenGrep / ReSharper.
+    Target SecurityScanEslint => _ => _
+        .Description("ESLint v9 SARIF over web/src. Requires eslint + @microsoft/eslint-formatter-sarif in web/'s devDependencies (or globally).")
+        .Executes(() =>
+        {
+            SecurityArtifactsDir.CreateDirectory();
+            if (!EslintBinaryResolver.IsAvailable(SpaProjectDir.Value))
+            {
+                Console.WriteLine($"[security] ESLint skipped — no install found at {SpaProjectDir} (pnpm add -D eslint @microsoft/eslint-formatter-sarif).");
+                return;
+            }
+            var plan = EslintCli.Scan(s => s
+                .SetWorkingDirectory(SpaProjectDir.Value)
+                .AddTarget("src")
+                .SetSarif()
+                .SetOutputFile(SecuritySarifEslintFile.Value)
+                .SetQuiet());
+            var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
+            // ESLint: 0 clean, 1 = findings (still a successful scan), 2+ = error.
+            if (rc > 1) throw new Exception($"eslint exited with {rc}");
         });
 
     // Roslyn analyzer scan must skip the build project itself: dotnet build
@@ -406,6 +443,11 @@ class Build : SecurityPipelineBuild
             await PostSarifAsync(client, ctx, SecuritySarifResharperFile, "ReSharper");
             await PostSarifAsync(client, ctx, SecuritySarifCveFile, "CVE");
             await PostSarifAsync(client, ctx, SecuritySarifTrivyFile, "Trivy");
+            // ESLint findings target web/src — post to the "web" flavor so
+            // they attach to the same ComponentVersion as the SPA coverage
+            // (VitestCoverageIngestMapper also writes Flavor="web").
+            var webCtx = ctx with { Flavor = "web" };
+            await PostSarifAsync(client, webCtx, SecuritySarifEslintFile, "ESLint");
 
             // TruffleHog jsonl is not SARIF — its own adapter.
             var trufflehog = TrufflehogIngestMapper.Map(TrufflehogJsonFile.Value, ctx);
@@ -473,6 +515,7 @@ class Build : SecurityPipelineBuild
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifResharperFile.Value));
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifCveFile.Value));
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifTrivyFile.Value));
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifEslintFile.Value));
             var thReceipt = ScanRunReceiptBuilder.FromTrufflehogJsonl(TrufflehogJsonFile.Value);
             if (thReceipt is not null) receipts.Add(thReceipt);
             // Dedup by scanner (the merged sast.sarif may have already
@@ -482,6 +525,12 @@ class Build : SecurityPipelineBuild
                 .GroupBy(r => r.Scanner)
                 .Select(g => g.OrderByDescending(r => r.CompletedAt).First())
                 .ToList();
+            // Receipts represent the build cycle, not the flavor. A single
+            // OpenGrep run scans both src/ AND web/src/; splitting by
+            // flavor (so ESLint went to web, OpenGrep went to net10)
+            // makes the dashboard look like OpenGrep skipped the SPA.
+            // All receipts attach to the canonical (default-flavor) CV;
+            // the UI presents one row per commit aggregating all scanners.
             if (dedup.Count > 0)
             {
                 var payload = new ScanRunIngestRequestDto(

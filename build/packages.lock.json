@@ -22,6 +22,15 @@
           "Tamp.Core": "1.11.1"
         }
       },
+      "Tamp.Eslint.V9": {
+        "type": "Direct",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "0o3rnUUEJ4yimpQ4CNFj3m4QEHNB+TGDYFyvlj3KmkuZUW4FOLpCG7pIq/rVpoR4HieI+98fILazvuge7RfXcg==",
+        "dependencies": {
+          "Tamp.Core": "1.11.1"
+        }
+      },
       "Tamp.GitVersion.V6": {
         "type": "Direct",
         "requested": "[0.2.0, )",

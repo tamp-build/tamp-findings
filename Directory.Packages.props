@@ -26,6 +26,9 @@
     <PackageVersion Include="Tamp.Security.Pipeline" Version="1.11.1" />
     <!-- Not in the meta package — secrets scanning satellite. -->
     <PackageVersion Include="Tamp.TruffleHog.V3" Version="0.1.1" />
+    <!-- TAM-276: TS/JS style + best-practice (the ReSharper analogue for the
+         SPA). Covers what OpenGrep's security packs intentionally don't. -->
+    <PackageVersion Include="Tamp.Eslint.V9" Version="0.1.0" />
     <!-- Versioning + GitHub CLI for release/PR plumbing. -->
     <PackageVersion Include="Tamp.GitVersion.V6" Version="0.2.0" />
     <PackageVersion Include="Tamp.GitHubCli.V2" Version="0.1.1" />

@@ -124,6 +124,7 @@ public static class ScanRunReceiptBuilder
         if (n.Contains("sonar") || n.Contains("roslyn") || n.Contains("roslynator")) return ScannerKind.Roslyn;
         if (n.Contains("c# compiler") || n.Contains("csc") || n.Contains("microsoft (r) visual")) return ScannerKind.Roslyn;
         if (n.Contains("stryker")) return ScannerKind.Stryker;
+        if (n.Contains("eslint")) return ScannerKind.ESLint;
         return ScannerKind.Unknown;
     }
 }
