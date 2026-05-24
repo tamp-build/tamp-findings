@@ -23,4 +23,5 @@ public enum ScannerKind
     Syft = 18,
     Grype = 19,
     ReSharper = 20,
+    ESLint = 21,
 }

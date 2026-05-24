@@ -8,7 +8,7 @@ export type ScannerKind =
   | 'Unknown' | 'OpenGrep' | 'TruffleHog' | 'CodeQL' | 'Trivy'
   | 'Checkov' | 'Tfsec' | 'Kics' | 'Zap' | 'Spectral' | 'Oasdiff'
   | 'Cosign' | 'NetArchTest' | 'DependencyCruiser' | 'Stryker' | 'Coverlet'
-  | 'OsvScanner' | 'Roslyn' | 'Syft' | 'Grype' | 'ReSharper'
+  | 'OsvScanner' | 'Roslyn' | 'Syft' | 'Grype' | 'ReSharper' | 'ESLint'
 
 export type Severity = 'Info' | 'Low' | 'Medium' | 'High' | 'Critical'
 export type FindingStatus = 'Open' | 'Fixed' | 'Suppressed' | 'Accepted'
@@ -645,4 +645,41 @@ export async function assignClientPolicy(clientId: string, policyId: string | nu
     body: JSON.stringify({ policyId }),
   })
   if (!r.ok) throw new Error(`PATCH /clients/${clientId}/policy failed: ${r.status}`)
+}
+
+// ----- Project scan receipts (per-build) ----------------------------------
+
+export type ScanReceiptRow = {
+  scanner: ScannerKind
+  status: 'Succeeded' | 'Failed' | 'Skipped'
+  startedAt: string | null
+  completedAt: string | null
+  findingsCount: number
+  toolName: string | null
+  toolVersion: string | null
+}
+
+export type BuildReceipt = {
+  componentVersionId: string
+  componentId: string
+  componentName: string
+  flavorName: string | null
+  versionString: string
+  commitSha: string | null
+  branchName: string | null
+  buildId: string | null
+  createdAt: string
+  receipts: ScanReceiptRow[]
+}
+
+export async function fetchProjectScanReceipts(
+  projectId: string,
+  opts: { take?: number; includeNonCanonical?: boolean } = {},
+): Promise<{ builds: BuildReceipt[] }> {
+  const params = new URLSearchParams()
+  params.set('take', String(opts.take ?? 25))
+  if (opts.includeNonCanonical) params.set('includeNonCanonical', 'true')
+  const r = await fetch(`${API_BASE}/projects/${projectId}/scan-receipts?${params.toString()}`)
+  if (!r.ok) throw new Error(`GET /projects/${projectId}/scan-receipts failed: ${r.status}`)
+  return r.json()
 }

@@ -42,7 +42,7 @@ public static class AggregatesEndpoints
 
         if (latest)
         {
-            var latestCvIds = await db.ComponentVersions
+            var latestCvIds = await CanonicalOnly(db.ComponentVersions)
                 .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
@@ -75,7 +75,7 @@ public static class AggregatesEndpoints
         if (clientId is { } cli2) statusQ = statusQ.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli2);
         if (latest)
         {
-            var latestCvIds2 = await db.ComponentVersions
+            var latestCvIds2 = await CanonicalOnly(db.ComponentVersions)
                 .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
@@ -205,7 +205,7 @@ public static class AggregatesEndpoints
         if (clientId is { } cli4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli4);
         if (latest)
         {
-            var latestCvIds3 = await db.ComponentVersions
+            var latestCvIds3 = await CanonicalOnly(db.ComponentVersions)
                 .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
@@ -250,7 +250,7 @@ public static class AggregatesEndpoints
         if (clientId is { } cli5) iacBase = iacBase.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli5);
         if (latest)
         {
-            var latestCvIds4 = await db.ComponentVersions
+            var latestCvIds4 = await CanonicalOnly(db.ComponentVersions)
                 .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
@@ -282,7 +282,7 @@ public static class AggregatesEndpoints
         if (clientId is { } cli6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.Component!.Project!.ClientId == cli6);
         if (latest)
         {
-            var latestCvIds5 = await db.ComponentVersions
+            var latestCvIds5 = await CanonicalOnly(db.ComponentVersions)
                 .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
@@ -333,7 +333,7 @@ public static class AggregatesEndpoints
         if (clientId is { } cli7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.Component!.Project!.ClientId == cli7);
         if (latest)
         {
-            var latestCvIds6 = await db.ComponentVersions
+            var latestCvIds6 = await CanonicalOnly(db.ComponentVersions)
                 .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
@@ -402,7 +402,7 @@ public static class AggregatesEndpoints
 
         // Which scanner classes ran? Borrow the existing scan-run roll-up.
         bool RanSucc(ScannerKind k) => scanRuns.Any(r => r.Scanner == k && r.Status == ScanRunStatus.Succeeded);
-        var ranSast = (new[] { ScannerKind.Roslyn, ScannerKind.ReSharper, ScannerKind.OpenGrep, ScannerKind.CodeQL }).Any(RanSucc);
+        var ranSast = (new[] { ScannerKind.Roslyn, ScannerKind.ReSharper, ScannerKind.OpenGrep, ScannerKind.CodeQL, ScannerKind.ESLint }).Any(RanSucc);
         var ranSecrets = RanSucc(ScannerKind.TruffleHog);
         var ranIac = RanSucc(ScannerKind.Trivy);
         var ranSbom = compsCount > 0 || RanSucc(ScannerKind.Syft) || RanSucc(ScannerKind.OsvScanner);
@@ -470,7 +470,16 @@ public static class AggregatesEndpoints
     private static readonly HashSet<ScannerKind> RingChartSastSet =
     [
         ScannerKind.Roslyn, ScannerKind.ReSharper, ScannerKind.OpenGrep, ScannerKind.CodeQL,
+        ScannerKind.ESLint,
     ];
+
+    // Canonical = the project's actual state, NOT a PR/branch acceptance
+    // gate. Risk score always uses canonical-only (acceptance-gate posture).
+    // Heuristic for v1: no PR ref AND branch is null/main/master. A future
+    // Project.DefaultBranch column would supersede this.
+    private static IQueryable<ComponentVersion> CanonicalOnly(IQueryable<ComponentVersion> q) =>
+        q.Where(v => v.PullRequestRef == null
+                  && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"));
 
     // Project > Client > Default fallback. Returns null only if NO
     // RiskPolicy rows exist at all (the seeder should have prevented that).

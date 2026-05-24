@@ -27,6 +27,7 @@
   <ItemGroup>
     <PackageReference Include="Tamp.Security.Pipeline" />
     <PackageReference Include="Tamp.TruffleHog.V3" />
+    <PackageReference Include="Tamp.Eslint.V9" />
     <PackageReference Include="Tamp.GitVersion.V6" />
     <PackageReference Include="Tamp.DotNetCoverage.V18" />
     <PackageReference Include="Tamp.Coverlet.V6" />
