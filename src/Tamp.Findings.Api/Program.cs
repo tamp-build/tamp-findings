@@ -151,6 +151,7 @@ app.MapVexStatements();
 app.MapPoamItems();
 app.MapSsdfAttestation();
 app.MapProjectVdp();
+app.MapSbomProvenance();
 
 app.Run();
 
