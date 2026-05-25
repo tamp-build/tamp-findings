@@ -39,6 +39,9 @@ builder.Services.AddScoped<SbomEnrichmentService>();
 // evaluator. /aggregates still computes its own inline against the
 // latest-canonical set; a future refactor can consolidate.
 builder.Services.AddScoped<Tamp.Findings.Api.Services.RiskInputsBuilder>();
+// TFND-25: project-scoped VEX statements suppress matching vulns from
+// CVE counts + KEV count.
+builder.Services.AddScoped<Tamp.Findings.Api.Services.VexResolver>();
 
 // TFND-26: CISA Known Exploited Vulnerabilities catalog. Service does
 // the actual upsert; the hosted worker schedules it (startup + daily).
@@ -144,6 +147,7 @@ app.MapAggregates();
 app.MapRiskPolicies();
 app.MapProjectScanReceipts();
 app.MapBuildEvaluation();
+app.MapVexStatements();
 
 app.Run();
 

@@ -11,7 +11,7 @@ namespace Tamp.Findings.Api.Services;
 // project's "latest canonical" CV set; this service is for the
 // per-build evaluator path where we need to score a specific commit's
 // CV set OR an arbitrary prior CV set.
-public sealed class RiskInputsBuilder(FindingsDbContext db)
+public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResolver)
 {
     private static readonly HashSet<ScannerKind> SastSet =
     [
@@ -19,7 +19,14 @@ public sealed class RiskInputsBuilder(FindingsDbContext db)
         ScannerKind.CodeQL, ScannerKind.ESLint,
     ];
 
-    public async Task<RiskInputs> BuildAsync(IReadOnlyList<Guid> cvIds, RiskPolicyConfig policy, CancellationToken ct)
+    public Task<RiskInputs> BuildAsync(IReadOnlyList<Guid> cvIds, RiskPolicyConfig policy, CancellationToken ct)
+        => BuildAsync(cvIds, policy, projectId: null, ct);
+
+    // projectId is optional — the per-build evaluator passes it so VEX
+    // statements scoped to the project filter the CVE counts. The
+    // /aggregates path (which has its own VEX integration) doesn't
+    // need to use this overload yet but it's available.
+    public async Task<RiskInputs> BuildAsync(IReadOnlyList<Guid> cvIds, RiskPolicyConfig policy, Guid? projectId, CancellationToken ct)
     {
         if (cvIds.Count == 0) return Empty();
 
@@ -59,10 +66,19 @@ public sealed class RiskInputsBuilder(FindingsDbContext db)
         var secretsVerified   = findings.Where(x => IsSecret(x.Scanner, x.SubCategory) && x.Severity == Severity.Critical).Sum(x => x.Count);
         var secretsUnverified = findings.Where(x => IsSecret(x.Scanner, x.SubCategory) && x.Severity == Severity.High).Sum(x => x.Count);
 
+        // TFND-25 VEX suppression: project-scoped statements take
+        // matching vulnerabilities OUT of the CVE counts and the KEV
+        // count. Required for the per-build evaluator so VEX changes
+        // affect gate decisions as soon as they're authored.
+        var vexSuppressed = projectId is { } pid
+            ? await vexResolver.SuppressedVulnIdsForProjectAsync(pid, ct)
+            : new HashSet<Guid>();
+
         // CVE severities — Vulnerabilities live on SbomComponents under
         // SbomSnapshots whose CV is in the set.
         var cveBySev = await db.Vulnerabilities.AsNoTracking()
             .Where(v => cvIds.Contains(v.SbomComponent!.SbomSnapshot!.ComponentVersionId))
+            .Where(v => !vexSuppressed.Contains(v.Id))
             .GroupBy(v => v.Severity)
             .Select(g => new { Sev = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Sev, x => x.Count, ct);
@@ -73,6 +89,7 @@ public sealed class RiskInputsBuilder(FindingsDbContext db)
         // cache is small (~1k rows) so EF translates this efficiently.
         var kevListedCves = await db.Vulnerabilities.AsNoTracking()
             .Where(v => cvIds.Contains(v.SbomComponent!.SbomSnapshot!.ComponentVersionId))
+            .Where(v => !vexSuppressed.Contains(v.Id))
             .Where(v => db.KevAdvisories.Any(k => k.CveId == v.AdvisoryId))
             .CountAsync(ct);
 

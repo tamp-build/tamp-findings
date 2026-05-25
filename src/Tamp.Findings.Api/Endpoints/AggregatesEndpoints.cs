@@ -21,6 +21,7 @@ public static class AggregatesEndpoints
 
     private static async Task<Ok<AggregatesResponse>> GetAsync(
         FindingsDbContext db,
+        Tamp.Findings.Api.Services.VexResolver vexResolver,
         CancellationToken ct,
         Guid? clientId = null,
         Guid? projectId = null,
@@ -374,15 +375,26 @@ public static class AggregatesEndpoints
         if (componentId is { } cmpV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.ComponentId == cmpV);
         if (projectId  is { } prjV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.Component!.ProjectId == prjV);
         if (clientId   is { } cliV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.Component!.Project!.ClientId == cliV);
-        var cveSev = await vulnsQ
+        // TFND-25: VEX-suppressed vulnerabilities for the scope. Empty
+        // when no project context (org-wide / client-wide queries
+        // intentionally don't inherit project-scoped VEX statements;
+        // those are project-owned dispositions).
+        var vexSuppressed = projectId is { } prjV2
+            ? await vexResolver.SuppressedVulnIdsForProjectAsync(prjV2, ct)
+            : new HashSet<Guid>();
+        var scoringVulnsQ = vulnsQ.Where(v => !vexSuppressed.Contains(v.Id));
+
+        var cveSev = await scoringVulnsQ
             .GroupBy(v => v.Severity)
             .Select(g => new { g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
 
         // TFND-26: KEV exposure — vulnerabilities whose AdvisoryId is
         // on the CISA Known Exploited Vulnerabilities catalog. Drives
-        // the kevExposure gate via RiskInputs.KevListedCves.
-        var kevListedCves = await vulnsQ
+        // the kevExposure gate via RiskInputs.KevListedCves. VEX'd-out
+        // CVEs are excluded so a documented "not_affected with
+        // justification" Log4Shell entry doesn't keep failing the gate.
+        var kevListedCves = await scoringVulnsQ
             .Where(v => db.KevAdvisories.Any(k => k.CveId == v.AdvisoryId))
             .CountAsync(ct);
 
