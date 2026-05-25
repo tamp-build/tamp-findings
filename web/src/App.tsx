@@ -12,10 +12,12 @@ import { TestsView } from '@/views/TestsView'
 import { SignInView } from '@/views/SignInView'
 import { ProfileView } from '@/views/ProfileView'
 import { SettingsView } from '@/views/SettingsView'
+import { AttestationView } from '@/views/AttestationView'
 import { AuthProvider, useAuth, type AuthUser } from '@/lib/auth'
 
 type Tab = 'overview' | 'client' | 'project'
   | 'findings' | 'components' | 'coverage' | 'tests'
+  | 'attestation'
   | 'profile' | 'settings'
 
 // Cross-tab presets — set by Overview row/donut clicks, consumed once
@@ -149,6 +151,7 @@ function Dashboard() {
             onDrillToFindings={goToFindings}
             onDrillToComponents={goToComponents}
             onDrillToCoverage={() => setTab('coverage')}
+            onDrillToAttestation={() => setTab('attestation')}
           />
         )}
         {(tab === 'findings' || tab === 'components' || tab === 'coverage' || tab === 'tests') && scopeProjectId && (
@@ -170,6 +173,12 @@ function Dashboard() {
         {tab === 'components' && <ComponentsView preset={componentsPreset} />}
         {tab === 'coverage' && <CoverageView />}
         {tab === 'tests' && <TestsView />}
+        {tab === 'attestation' && scopeProjectId && (
+          <AttestationView
+            projectId={scopeProjectId}
+            onBack={() => setTab('project')}
+          />
+        )}
         {tab === 'profile' && <ProfileView />}
         {tab === 'settings' && <SettingsView />}
       </div>
