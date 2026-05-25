@@ -105,7 +105,13 @@ public static class SsdfAttestationEndpoints
         var latestSbomTools = await db.SbomSnapshots.AsNoTracking()
             .Where(s => build.Contains(s.ComponentVersionId))
             .OrderByDescending(s => s.IngestedAt)
-            .Select(s => new { s.MetadataTools, s.IngestedAt })
+            .Select(s => new
+            {
+                s.MetadataTools,
+                s.IngestedAt,
+                s.ProvenanceType,
+                s.ProvenanceUploadedAt,
+            })
             .FirstOrDefaultAsync(ct);
         var sbomToolsPresent = latestSbomTools?.MetadataTools is not null;
 
@@ -138,6 +144,7 @@ public static class SsdfAttestationEndpoints
                     .ToList()),
             Practices = BuildPractices(
                 inputs, succeeded, sbomToolsPresent, latestSbomTools?.IngestedAt,
+                latestSbomTools?.ProvenanceType, latestSbomTools?.ProvenanceUploadedAt,
                 vexCounts, liveOpen, liveInProgress, completed, riskAccepted,
                 gateEval, vdp),
         };
@@ -167,6 +174,7 @@ public static class SsdfAttestationEndpoints
     private static List<SsdfPractice> BuildPractices(
         RiskInputs inputs, HashSet<ScannerKind> succeeded,
         bool sbomToolsPresent, DateTimeOffset? sbomCreatedAt,
+        string? provenanceType, DateTimeOffset? provenanceUploadedAt,
         Dictionary<VexStatementStatus, int> vexCounts,
         int poamOpen, int poamInProgress, int completed, int riskAccepted,
         GateEvaluation gates, VdpEvidence vdp)
@@ -199,10 +207,7 @@ public static class SsdfAttestationEndpoints
             "Manual", "VCS access controls outside the tool"));
         p.Add(P("PS.2.1", "PS", "Provide a Mechanism for Verifying Software Release Integrity",
             "Provide cryptographic verification for releases",
-            sbomToolsPresent ? "Partial" : "No",
-            sbomToolsPresent
-                ? $"SBOM generated {sbomCreatedAt:yyyy-MM-dd} with tool metadata; cryptographic signing pending TFND-29 (SLSA/Cosign)"
-                : "no SBOM tool metadata — TFND-29 will land SLSA provenance + Cosign"));
+            ProvenanceStatusAndEvidence(provenanceType, provenanceUploadedAt, sbomToolsPresent, sbomCreatedAt)));
         p.Add(P("PS.3.1", "PS", "Archive and Protect Each Software Release",
             "Preserve evidence for each release",
             inputs.SbomComponents > 0 ? "Yes" : "Partial",
@@ -290,6 +295,25 @@ public static class SsdfAttestationEndpoints
         if (i.LicenseDenied > 0) return ("No", $"{i.LicenseDenied} denied-tier licenses in SBOM");
         if (i.LicenseUnknown > i.SbomComponents / 4) return ("Partial", $"{i.LicenseUnknown}/{i.SbomComponents} unknown-license components");
         return ("Yes", $"{i.SbomComponents} components vetted; {i.LicenseUnknown} unknown licenses");
+    }
+
+    // PS.2.1 evidence — release integrity verification.
+    //   Provenance attestation on file (SLSA / in-toto / DSSE) → Yes
+    //   SBOM tool metadata but no provenance                   → Partial
+    //   Nothing on file                                        → No
+    private static (string Status, string Evidence) ProvenanceStatusAndEvidence(
+        string? provenanceType, DateTimeOffset? uploadedAt,
+        bool sbomToolsPresent, DateTimeOffset? sbomCreatedAt)
+    {
+        if (!string.IsNullOrEmpty(provenanceType))
+        {
+            var ev = $"provenance attestation on file (`{provenanceType}`), uploaded {uploadedAt:yyyy-MM-dd}";
+            return ("Yes", ev);
+        }
+        if (sbomToolsPresent)
+            return ("Partial",
+                $"SBOM generated {sbomCreatedAt:yyyy-MM-dd} with tool metadata; no SLSA/in-toto provenance attestation uploaded yet");
+        return ("No", "no SBOM tool metadata and no provenance attestation");
     }
 
     // RV.3.1 evidence — published VDP. Yes when a policy URL is on

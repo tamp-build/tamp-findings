@@ -154,6 +154,9 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // TFND-21: jsonb so we can keep the full metadata.tools record
             // (multiple tools, both 1.4 array shape and 1.5 nested shape).
             e.Property(x => x.MetadataTools).HasColumnType("jsonb");
+            // TFND-29: SLSA / in-toto provenance attestation.
+            e.Property(x => x.ProvenanceJson).HasColumnType("jsonb");
+            e.Property(x => x.ProvenanceType).HasMaxLength(256);
             e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
             // Most-recent-wins: one snapshot per component version. Re-ingest
             // replaces, so a unique index here matches the service contract.
