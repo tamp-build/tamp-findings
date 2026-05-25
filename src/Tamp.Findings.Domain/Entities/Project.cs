@@ -15,6 +15,21 @@ public sealed class Project
     // RiskPolicy which drives the score.
     public Risk.ProjectGatesConfig? GatesConfig { get; set; }
 
+    // TFND-32: vulnerability disclosure policy metadata. Federal
+    // procurement (per CISA BOD 20-01 / NIST SSDF RV.3.1) expects a
+    // published path for coordinated disclosure. When any of these are
+    // set, the SSDF attestation flips RV.3.1 from Manual → Yes/Partial.
+    //
+    // Stored as three strings rather than a jsonb POCO because the
+    // surface is small + stable and free-text editors are simpler:
+    //   - VdpPolicyUrl: public URL of the project's VDP page
+    //   - VdpContactEmail: security@... or equivalent inbox
+    //   - VdpReportingFormUrl: optional triage form / hackerone /
+    //     bugcrowd link
+    public string? VdpPolicyUrl { get; set; }
+    public string? VdpContactEmail { get; set; }
+    public string? VdpReportingFormUrl { get; set; }
+
     public Client? Client { get; set; }
     public ICollection<Component> Components { get; set; } = [];
 }

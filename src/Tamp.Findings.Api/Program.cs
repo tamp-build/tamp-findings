@@ -150,6 +150,7 @@ app.MapBuildEvaluation();
 app.MapVexStatements();
 app.MapPoamItems();
 app.MapSsdfAttestation();
+app.MapProjectVdp();
 
 app.Run();
 

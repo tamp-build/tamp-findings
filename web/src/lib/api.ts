@@ -908,6 +908,31 @@ export async function cancelPoamItem(id: string): Promise<void> {
   if (!r.ok && r.status !== 404) throw new Error(`DELETE /poam-items/${id} failed: ${r.status}`)
 }
 
+// ----- VDP (Vulnerability Disclosure Policy) ------------------------------
+
+export type ProjectVdp = {
+  projectId: string
+  vdpPolicyUrl: string | null
+  vdpContactEmail: string | null
+  vdpReportingFormUrl: string | null
+}
+
+export async function fetchProjectVdp(projectId: string): Promise<ProjectVdp> {
+  const r = await fetch(`${API_BASE}/projects/${projectId}/vdp`)
+  if (!r.ok) throw new Error(`GET /projects/${projectId}/vdp failed: ${r.status}`)
+  return r.json()
+}
+
+export async function updateProjectVdp(projectId: string, patch: Omit<ProjectVdp, 'projectId'>): Promise<ProjectVdp> {
+  const r = await fetch(`${API_BASE}/projects/${projectId}/vdp`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!r.ok) throw new Error(`PUT /projects/${projectId}/vdp failed: ${r.status}`)
+  return r.json()
+}
+
 // ----- SSDF attestation ---------------------------------------------------
 
 // TFND-31: CISA SSDF (NIST SP 800-218) attestation surface. The
