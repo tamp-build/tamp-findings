@@ -811,6 +811,103 @@ export async function retireVexStatement(id: string): Promise<void> {
   if (!r.ok && r.status !== 404) throw new Error(`DELETE /vex-statements/${id} failed: ${r.status}`)
 }
 
+// ----- POA&M items --------------------------------------------------------
+
+// NIST SP 800-53 CA-5 / FedRAMP continuous monitoring lifecycle.
+// Open / InProgress = live; Completed / RiskAccepted / Cancelled = terminal.
+export type PoamStatus =
+  | 'Open'
+  | 'InProgress'
+  | 'Completed'
+  | 'RiskAccepted'
+  | 'Cancelled'
+
+export type PoamItem = {
+  id: string
+  projectId: string
+  title: string
+  weaknessDescription: string
+  mitigationPlan: string | null
+  resourcesRequired: string | null
+  severity: Severity
+  status: PoamStatus
+  scheduledCompletionDate: string | null
+  actualCompletionDate: string | null
+  linkedFindingIds: string[]
+  referenceUrl: string | null
+  authorUserId: string
+  createdAt: string
+  updatedAt: string
+  closedAt: string | null
+  isPastDue: boolean
+}
+
+export type CreatePoamItemRequest = {
+  title: string
+  weaknessDescription: string
+  mitigationPlan?: string | null
+  resourcesRequired?: string | null
+  severity: Severity
+  status?: PoamStatus
+  scheduledCompletionDate?: string | null
+  linkedFindingIds?: string[]
+  referenceUrl?: string | null
+}
+
+export type UpdatePoamItemRequest = {
+  title?: string
+  weaknessDescription?: string
+  mitigationPlan?: string | null
+  resourcesRequired?: string | null
+  severity?: Severity
+  status?: PoamStatus
+  scheduledCompletionDate?: string | null
+  linkedFindingIds?: string[]
+  referenceUrl?: string | null
+}
+
+export type PoamListFilters = {
+  includeClosed?: boolean
+  pastDueOnly?: boolean
+  status?: PoamStatus
+}
+
+export async function fetchPoamItems(projectId: string, filters: PoamListFilters = {}): Promise<PoamItem[]> {
+  const params = new URLSearchParams()
+  if (filters.includeClosed) params.set('includeClosed', 'true')
+  if (filters.pastDueOnly) params.set('pastDueOnly', 'true')
+  if (filters.status) params.set('status', filters.status)
+  const qs = params.toString() ? `?${params.toString()}` : ''
+  const r = await fetch(`${API_BASE}/projects/${projectId}/poam-items${qs}`)
+  if (!r.ok) throw new Error(`GET /projects/${projectId}/poam-items failed: ${r.status}`)
+  return r.json()
+}
+
+export async function createPoamItem(projectId: string, req: CreatePoamItemRequest): Promise<PoamItem> {
+  const r = await fetch(`${API_BASE}/projects/${projectId}/poam-items`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!r.ok) throw new Error(`POST /projects/${projectId}/poam-items failed: ${r.status}`)
+  return r.json()
+}
+
+export async function updatePoamItem(id: string, patch: UpdatePoamItemRequest): Promise<PoamItem> {
+  const r = await fetch(`${API_BASE}/poam-items/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!r.ok) throw new Error(`PATCH /poam-items/${id} failed: ${r.status}`)
+  return r.json()
+}
+
+export async function cancelPoamItem(id: string): Promise<void> {
+  const r = await fetch(`${API_BASE}/poam-items/${id}`, { method: 'DELETE' })
+  if (!r.ok && r.status !== 404) throw new Error(`DELETE /poam-items/${id} failed: ${r.status}`)
+}
+
 // ----- Project scan receipts (per-build) ----------------------------------
 
 export async function fetchProjectScanReceipts(

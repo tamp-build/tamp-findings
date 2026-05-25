@@ -8,6 +8,7 @@ import {
 import type { ProjectGatesConfig, RiskPolicySummary } from '@/lib/api'
 import { RiskPolicyEditor } from '@/components/RiskPolicyEditor'
 import { VexStatementsPanel } from '@/components/VexStatementsPanel'
+import { PoamItemsPanel } from '@/components/PoamItemsPanel'
 
 // Per-gate UI schema — keys must match GateKeys on the backend.
 type GateField = { key: string; label: string; hint?: string; thresholdLabel?: string; thresholdStep?: number; thresholdDefault?: number }
@@ -36,6 +37,9 @@ const GATE_FIELDS: GateField[] = [
   { key: 'coverageRegression', label: 'Coverage regression',
     hint: 'Fail when coverage drops from the prior canonical build by more than X percentage points.',
     thresholdLabel: 'Max allowed drop (pp)', thresholdStep: 0.5, thresholdDefault: 1 },
+  { key: 'poamPastDue', label: 'POA&M past due',
+    hint: 'Fail when more than X open POA&M items are past their scheduled completion date. Federal continuous monitoring (FedRAMP / NIST 800-53 CA-5) expects past-due weaknesses to be flagged explicitly.',
+    thresholdLabel: 'Max past-due allowed', thresholdStep: 1, thresholdDefault: 0 },
 ]
 
 export function ProjectSettingsDialog({
@@ -265,6 +269,9 @@ export function ProjectSettingsDialog({
 
           {/* ---- VEX statements ------------------------------------- */}
           <VexStatementsPanel projectId={projectId} />
+
+          {/* ---- POA&M items ---------------------------------------- */}
+          <PoamItemsPanel projectId={projectId} />
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
