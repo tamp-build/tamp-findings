@@ -58,6 +58,7 @@ public static class GateEvaluator
         GateKeys.DeniedLicenses,
         GateKeys.TestFailures,
         GateKeys.CoverageRegression,
+        GateKeys.PoamPastDue,
     ];
 
     private static GateResult EvaluateOne(
@@ -81,6 +82,7 @@ public static class GateEvaluator
             GateKeys.DeniedLicenses      => Threshold(key, cfg, current.LicenseDenied, 0, "denied licenses"),
             GateKeys.TestFailures        => EvaluateTestFailures(key, cfg, current),
             GateKeys.CoverageRegression  => EvaluateCoverageRegression(key, cfg, current, prior),
+            GateKeys.PoamPastDue         => Threshold(key, cfg, current.OpenPastDuePoams, 0, "past-due POA&M items"),
             _                            => new GateResult(key, true, true, "(unknown gate)", cfg.Threshold, null),
         };
     }

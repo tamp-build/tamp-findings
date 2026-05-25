@@ -166,6 +166,21 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         var ranSbom = compsCount > 0 || receiptSet.Contains(ScannerKind.Syft) || receiptSet.Contains(ScannerKind.OsvScanner);
         var ranCoverage = coverageMeasured;
 
+        // TFND-30: POA&M past-due count drives the poamPastDue gate.
+        // Project-scoped (matches VEX scoping); the /aggregates path
+        // also picks this up when it passes a projectId. UtcNow is
+        // pinned once for the query so a long-running build doesn't
+        // see items flip due mid-evaluation.
+        var nowUtc = DateTimeOffset.UtcNow;
+        var openPastDuePoams = projectId is { } poamProjectId
+            ? await db.PoamItems.AsNoTracking()
+                .CountAsync(p => p.ProjectId == poamProjectId
+                              && p.ClosedAt == null
+                              && (p.Status == PoamStatus.Open || p.Status == PoamStatus.InProgress)
+                              && p.ScheduledCompletionDate != null
+                              && p.ScheduledCompletionDate < nowUtc, ct)
+            : 0;
+
         return new RiskInputs(
             CveCritical: cveBySev.GetValueOrDefault(Severity.Critical, 0),
             CveHigh:     cveBySev.GetValueOrDefault(Severity.High, 0),
@@ -180,7 +195,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             TestsMeasured: testsMeasured, TestsTotal: testsTotal, TestsFailed: testsFailed,
             LicenseDenied: denied, LicenseStrongCopyleft: strong, LicenseUnknown: unknown,
             RanSast: ranSast, RanSecrets: ranSecrets, RanIac: ranIac,
-            RanSbom: ranSbom, RanCoverage: ranCoverage);
+            RanSbom: ranSbom, RanCoverage: ranCoverage,
+            OpenPastDuePoams: openPastDuePoams);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the
@@ -203,5 +219,6 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         SbomComponents: 0, SbomOutdated: 0, SbomStale: 0,
         TestsMeasured: false, TestsTotal: 0, TestsFailed: 0,
         LicenseDenied: 0, LicenseStrongCopyleft: 0, LicenseUnknown: 0,
-        RanSast: false, RanSecrets: false, RanIac: false, RanSbom: false, RanCoverage: false);
+        RanSast: false, RanSecrets: false, RanIac: false, RanSbom: false, RanCoverage: false,
+        OpenPastDuePoams: 0);
 }

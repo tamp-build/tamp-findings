@@ -28,7 +28,12 @@ public sealed record RiskInputs(
     // License tier roll-up.
     int LicenseDenied, int LicenseStrongCopyleft, int LicenseUnknown,
     // Which scanners produced a Succeeded receipt in scope.
-    bool RanSast, bool RanSecrets, bool RanIac, bool RanSbom, bool RanCoverage);
+    bool RanSast, bool RanSecrets, bool RanIac, bool RanSbom, bool RanCoverage,
+    // TFND-30 POA&M tracking: count of items in Open / InProgress status
+    // whose ScheduledCompletionDate is in the past. Drives the
+    // poamPastDue gate. RiskScorer ignores it — POA&M is a process
+    // signal, not a score input.
+    int OpenPastDuePoams = 0);
 
 public sealed record RiskCategoryBreakdown(
     string Key, bool Enabled, double Max, double SubScore, double Contribution);

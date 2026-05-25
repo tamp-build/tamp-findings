@@ -148,6 +148,7 @@ app.MapRiskPolicies();
 app.MapProjectScanReceipts();
 app.MapBuildEvaluation();
 app.MapVexStatements();
+app.MapPoamItems();
 
 app.Run();
 

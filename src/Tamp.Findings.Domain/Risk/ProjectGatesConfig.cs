@@ -53,6 +53,13 @@ public static class GateKeys
     // Coverage dropped from prior canonical build by more than Threshold
     // percentage points.
     public const string CoverageRegression = "coverageRegression";
+    // Any open POA&M whose scheduled completion date is more than
+    // `Threshold` days past due. Counts items in Open / InProgress
+    // statuses; Completed / RiskAccepted / Cancelled do not. FedRAMP
+    // continuous monitoring expects past-due items to be flagged
+    // explicitly so the AO can decide whether to extend or escalate.
+    // Threshold default 0 (any day past due fails).
+    public const string PoamPastDue = "poamPastDue";
 }
 
 public static class ProjectGatesDefaults
