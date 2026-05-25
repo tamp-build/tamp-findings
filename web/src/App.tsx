@@ -4,6 +4,7 @@ import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/l
 import { FindingsView } from '@/views/FindingsView'
 import { ComponentsView } from '@/views/ComponentsView'
 import { OverviewView } from '@/views/OverviewView'
+import { DrillBreadcrumb } from '@/components/DrillBreadcrumb'
 import { ClientPageView } from '@/views/ClientPageView'
 import { ProjectPageView } from '@/views/ProjectPageView'
 import { CoverageView } from '@/views/CoverageView'
@@ -148,6 +149,21 @@ function Dashboard() {
             onDrillToFindings={goToFindings}
             onDrillToComponents={goToComponents}
             onDrillToCoverage={() => setTab('coverage')}
+          />
+        )}
+        {(tab === 'findings' || tab === 'components' || tab === 'coverage' || tab === 'tests') && scopeProjectId && (
+          <DrillBreadcrumb
+            clientId={scopeClientId}
+            projectId={scopeProjectId}
+            currentLabel={
+              tab === 'findings'   ? 'Findings' :
+              tab === 'components' ? 'SBOM components' :
+              tab === 'coverage'   ? 'Coverage' :
+              'Tests'
+            }
+            onSelectOverview={goToOverview}
+            onSelectClient={goToClient}
+            onSelectProject={goToProject}
           />
         )}
         {tab === 'findings' && <FindingsView search={search} preset={findingsPreset} />}
