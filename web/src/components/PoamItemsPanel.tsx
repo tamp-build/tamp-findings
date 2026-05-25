@@ -400,7 +400,7 @@ function FormBody({
         <input
           value={draft.referenceUrl}
           onChange={(e) => set('referenceUrl', e.target.value)}
-          placeholder="https://yt.brewingcoder.com/issue/TFND-123"
+          placeholder="https://issues.example.com/browse/PROJ-123"
           className="w-full rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring/40"
         />
       </Field>

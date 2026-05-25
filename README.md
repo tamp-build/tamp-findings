@@ -6,7 +6,7 @@ It ingests SARIF, SBOMs, coverage, and test results from any CI pipeline, scores
 
 ![tamp.findings dashboard — Risk Rings, Code Quality, SBOM health, Licenses, Secrets, IaC, Test Coverage](docs/dashboard-overview.png)
 
-> Tracked in YouTrack project **TFND** at <https://yt.brewingcoder.com> — epic **TFND-1**, federal-readiness epic **TFND-24**. GitHub Issues is disabled on this repo (YouTrack is canonical).
+> Tracked internally in YouTrack project **TFND** — epic **TFND-1**, federal-readiness epic **TFND-24**. GitHub Issues is disabled on this repo (the internal tracker is canonical).
 >
 > Tamp ecosystem gaps (missing wrapper, wrapper bug, framework feature) file as **TAM-NNN** against the canonical contract.
 
