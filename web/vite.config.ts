@@ -17,6 +17,11 @@ export default defineConfig({
     // localhost in deployments where exposure isn't intended.
     host: true,
     port: 5173,
+    // Vite blocks unknown Host headers in dev (security against DNS
+    // rebinding). The MCP browser inside Docker reaches the SPA via
+    // host.docker.internal, so that host has to be explicitly
+    // allowlisted alongside localhost defaults.
+    allowedHosts: ['localhost', '127.0.0.1', 'host.docker.internal'],
     proxy: {
       // Forward API calls to the .NET host during dev. Vite proxies the
       // request server-side, so the browser always sees same-origin —

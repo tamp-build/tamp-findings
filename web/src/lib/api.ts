@@ -726,6 +726,93 @@ export type BuildReceipt = {
   receipts: ScanReceiptRow[]
 }
 
+// ----- VEX statements -----------------------------------------------------
+
+// CycloneDX-VEX 1.5 status vocabulary. Mirrors the backend enum order.
+export type VexStatementStatus =
+  | 'UnderInvestigation'
+  | 'Affected'
+  | 'NotAffected'
+  | 'Fixed'
+
+export type VexJustification =
+  | 'None'
+  | 'ComponentNotPresent'
+  | 'VulnerableCodeNotPresent'
+  | 'VulnerableCodeNotInExecutePath'
+  | 'VulnerableCodeCannotBeControlledByAdversary'
+  | 'InlineMitigationsAlreadyExist'
+
+export type VexStatement = {
+  id: string
+  projectId: string
+  purl: string
+  componentVersion: string | null
+  advisoryId: string
+  status: VexStatementStatus
+  justification: VexJustification | null
+  impactStatement: string | null
+  responseReferenceUrl: string | null
+  authorUserId: string
+  createdAt: string
+  updatedAt: string
+  retiredAt: string | null
+}
+
+export type CreateVexStatementRequest = {
+  purl: string
+  componentVersion?: string | null
+  advisoryId: string
+  status: VexStatementStatus
+  justification?: VexJustification | null
+  impactStatement?: string | null
+  responseReferenceUrl?: string | null
+}
+
+export type UpdateVexStatementRequest = {
+  status?: VexStatementStatus
+  justification?: VexJustification | null
+  impactStatement?: string | null
+  responseReferenceUrl?: string | null
+}
+
+export async function fetchVexStatements(
+  projectId: string,
+  includeRetired = false,
+): Promise<VexStatement[]> {
+  const qs = includeRetired ? '?includeRetired=true' : ''
+  const r = await fetch(`${API_BASE}/projects/${projectId}/vex-statements${qs}`)
+  if (!r.ok) throw new Error(`GET /projects/${projectId}/vex-statements failed: ${r.status}`)
+  return r.json()
+}
+
+export async function createVexStatement(projectId: string, req: CreateVexStatementRequest): Promise<VexStatement> {
+  const r = await fetch(`${API_BASE}/projects/${projectId}/vex-statements`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!r.ok) throw new Error(`POST /projects/${projectId}/vex-statements failed: ${r.status}`)
+  return r.json()
+}
+
+export async function updateVexStatement(id: string, patch: UpdateVexStatementRequest): Promise<VexStatement> {
+  const r = await fetch(`${API_BASE}/vex-statements/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!r.ok) throw new Error(`PATCH /vex-statements/${id} failed: ${r.status}`)
+  return r.json()
+}
+
+export async function retireVexStatement(id: string): Promise<void> {
+  const r = await fetch(`${API_BASE}/vex-statements/${id}`, { method: 'DELETE' })
+  if (!r.ok && r.status !== 404) throw new Error(`DELETE /vex-statements/${id} failed: ${r.status}`)
+}
+
+// ----- Project scan receipts (per-build) ----------------------------------
+
 export async function fetchProjectScanReceipts(
   projectId: string,
   opts: { take?: number; includeNonCanonical?: boolean } = {},

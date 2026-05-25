@@ -7,6 +7,7 @@ import {
 } from '@/lib/api'
 import type { ProjectGatesConfig, RiskPolicySummary } from '@/lib/api'
 import { RiskPolicyEditor } from '@/components/RiskPolicyEditor'
+import { VexStatementsPanel } from '@/components/VexStatementsPanel'
 
 // Per-gate UI schema — keys must match GateKeys on the backend.
 type GateField = { key: string; label: string; hint?: string; thresholdLabel?: string; thresholdStep?: number; thresholdDefault?: number }
@@ -261,6 +262,9 @@ export function ProjectSettingsDialog({
               <p className="text-xs text-destructive">Save failed: {(saveGates.error as Error)?.message}</p>
             )}
           </section>
+
+          {/* ---- VEX statements ------------------------------------- */}
+          <VexStatementsPanel projectId={projectId} />
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
