@@ -30,6 +30,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
     public DbSet<KevAdvisory> KevAdvisories => Set<KevAdvisory>();
     public DbSet<VexStatement> VexStatements => Set<VexStatement>();
+    public DbSet<PoamItem> PoamItems => Set<PoamItem>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -286,6 +287,25 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // matches that query shape.
             e.HasIndex(x => new { x.ProjectId, x.AdvisoryId, x.Purl });
             e.HasIndex(x => x.RetiredAt);
+            e.HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<PoamItem>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).HasMaxLength(512).IsRequired();
+            e.Property(x => x.WeaknessDescription).HasColumnType("text").IsRequired();
+            e.Property(x => x.MitigationPlan).HasColumnType("text");
+            e.Property(x => x.ResourcesRequired).HasMaxLength(2048);
+            e.Property(x => x.ReferenceUrl).HasMaxLength(1024);
+            // Linked Finding/Vulnerability Guids as jsonb. EnableDynamicJson
+            // (see ServiceCollectionExtensions) lets Npgsql round-trip the
+            // List<Guid> without a converter.
+            e.Property(x => x.LinkedFindingIds).HasColumnType("jsonb");
+            // Past-due gate scans by (ProjectId, ClosedAt IS NULL, ScheduledCompletionDate)
+            // — index matches that shape.
+            e.HasIndex(x => new { x.ProjectId, x.Status, x.ScheduledCompletionDate });
+            e.HasIndex(x => x.ClosedAt);
             e.HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
         });
 
