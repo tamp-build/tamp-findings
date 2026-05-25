@@ -67,6 +67,15 @@ public sealed class RiskInputsBuilder(FindingsDbContext db)
             .Select(g => new { Sev = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Sev, x => x.Count, ct);
 
+        // KEV exposure — count distinct (AdvisoryId, SbomComponentId)
+        // tuples where the advisory is on the CISA Known Exploited
+        // Vulnerabilities catalog. JOIN on AdvisoryId == CveId; the KEV
+        // cache is small (~1k rows) so EF translates this efficiently.
+        var kevListedCves = await db.Vulnerabilities.AsNoTracking()
+            .Where(v => cvIds.Contains(v.SbomComponent!.SbomSnapshot!.ComponentVersionId))
+            .Where(v => db.KevAdvisories.Any(k => k.CveId == v.AdvisoryId))
+            .CountAsync(ct);
+
         // SBOM components: count + health buckets + license tiers.
         var snapshots = await db.SbomSnapshots.AsNoTracking()
             .Where(s => cvIds.Contains(s.ComponentVersionId))
@@ -145,6 +154,7 @@ public sealed class RiskInputsBuilder(FindingsDbContext db)
             CveHigh:     cveBySev.GetValueOrDefault(Severity.High, 0),
             CveMedium:   cveBySev.GetValueOrDefault(Severity.Medium, 0),
             CveLow:      cveBySev.GetValueOrDefault(Severity.Low, 0),
+            KevListedCves: kevListedCves,
             SecretsVerified: secretsVerified, SecretsUnverified: secretsUnverified,
             SastCritical: sastCrit, SastHigh: sastHigh, SastMedium: sastMed, SastLow: sastLow,
             IacCritical: iacCrit, IacHigh: iacHigh,
@@ -170,7 +180,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db)
     }
 
     private static RiskInputs Empty() => new(
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, KevListedCves: 0,
+        0, 0, 0, 0, 0, 0, 0, 0,
         CoverageMeasured: false, SequenceCoveragePercent: 0,
         SbomComponents: 0, SbomOutdated: 0, SbomStale: 0,
         TestsMeasured: false, TestsTotal: 0, TestsFailed: 0,

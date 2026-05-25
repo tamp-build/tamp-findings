@@ -36,6 +36,11 @@ public static class GateKeys
     public const string AnyCves = "anyCves";
     public const string CriticalCves = "criticalCves";
     public const string HighCves = "highCves";
+    // Any open CVE on the CISA Known Exploited Vulnerabilities catalog
+    // (M-22-09 / BOD 22-01). Treat as its own gate because KEV listing
+    // is a categorical "actively exploited" signal, distinct from CVSS
+    // severity. Federal acceptance expects zero exposure.
+    public const string KevExposure = "kevExposure";
     // Any critical SAST finding (canonical scope).
     public const string CriticalSast = "criticalSast";
     public const string CriticalIac = "criticalIac";

@@ -379,6 +379,13 @@ public static class AggregatesEndpoints
             .Select(g => new { g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
 
+        // TFND-26: KEV exposure — vulnerabilities whose AdvisoryId is
+        // on the CISA Known Exploited Vulnerabilities catalog. Drives
+        // the kevExposure gate via RiskInputs.KevListedCves.
+        var kevListedCves = await vulnsQ
+            .Where(v => db.KevAdvisories.Any(k => k.CveId == v.AdvisoryId))
+            .CountAsync(ct);
+
         // Test results — latest TestRunReport per CV in scope, summed.
         var testQ = db.TestRunReports.AsNoTracking();
         if (componentId is { } cmpT) testQ = testQ.Where(r => r.ComponentVersion!.ComponentId == cmpT);
@@ -440,6 +447,7 @@ public static class AggregatesEndpoints
             CveHigh:     cveSev.GetValueOrDefault(Severity.High, 0),
             CveMedium:   cveSev.GetValueOrDefault(Severity.Medium, 0),
             CveLow:      cveSev.GetValueOrDefault(Severity.Low, 0),
+            KevListedCves: kevListedCves,
             SecretsVerified: verifiedSecrets,
             SecretsUnverified: unverifiedSecrets,
             SastCritical: sastCrit, SastHigh: sastHigh, SastMedium: sastMed, SastLow: sastLow,
