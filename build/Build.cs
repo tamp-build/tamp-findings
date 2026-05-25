@@ -14,6 +14,8 @@ using TrufflehogCli = Tamp.TruffleHog.V3.TruffleHog;
 using OpenGrepCli = Tamp.OpenGrep.OpenGrep;
 using Tamp.Eslint.V9;
 using EslintCli = Tamp.Eslint.V9.Eslint;
+using Tamp.AxeCore;
+using AxeCoreCli = Tamp.AxeCore.AxeCore;
 
 // tamp.findings self-hosted build script. Run with:
 //   dotnet run --project build -- <target>
@@ -82,6 +84,21 @@ class Build : SecurityPipelineBuild
     // equivalent of ReSharper for C#; covers what OpenGrep's security-only
     // packs intentionally don't.
     AbsolutePath SecuritySarifEslintFile => RootDirectory / "artifacts" / "security" / "eslint.sarif";
+    // TFND-27 / TAM-277: axe-core a11y scan against a deployed SPA URL.
+    // axe-core's CLI emits JSON natively; axe-sarif-converter wraps it into
+    // SARIF 2.1.0 — same shape /ingest/findings already accepts for ESLint
+    // and Trivy.
+    AbsolutePath SecurityJsonAxeCoreFile => RootDirectory / "artifacts" / "security" / "axe-core.json";
+    AbsolutePath SecuritySarifAxeCoreFile => RootDirectory / "artifacts" / "security" / "axe-core.sarif";
+
+    // The deployed (or locally running) SPA URL axe-core scans. Defaults to
+    // the Vite dev server; set TAMP_FINDINGS_AXE_TARGET_URL in CI to point
+    // at the staging URL. Empty value → SecurityScanAxeCore skips with a
+    // clear log line instead of failing.
+#pragma warning disable CS0649
+    [Parameter("Target URL for axe-core a11y scan (defaults to local dev SPA)", EnvironmentVariable = "TAMP_FINDINGS_AXE_TARGET_URL")]
+    readonly string? AxeTargetUrl;
+#pragma warning restore CS0649
 
     // ----- SecurityPipelineBuild overrides --------------------------------
 
@@ -215,6 +232,60 @@ class Build : SecurityPipelineBuild
             var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
             // ESLint: 0 clean, 1 = findings (still a successful scan), 2+ = error.
             if (rc > 1) throw new Exception($"eslint exited with {rc}");
+        });
+
+    // TFND-27 / TAM-277: axe-core a11y scan via Tamp.AxeCore 0.1.0. Two
+    // verbs because axe-core's CLI emits JSON natively — Scan produces
+    // axe.json, ConvertToSarif wraps it into SARIF 2.1.0 via the
+    // axe-sarif-converter npm tool. The SARIF then plugs into the same
+    // /ingest/findings path Trivy / OpenGrep / ESLint already use, with
+    // scanner=AxeCore and sub-category=accessibility.
+    //
+    // Skip cases:
+    //   - Both npm tools must be in web/'s devDependencies (resolver
+    //     handles project-local → pnpm exec → npm exec → global).
+    //   - AxeTargetUrl empty → no deployed/dev SPA to scan; log and skip.
+    //
+    // CI: needs headless Chromium. The wrapper's SetNoSandbox() handles
+    // the Docker / restricted-runner case; first-time runs may need
+    // `npx playwright install chromium` as a one-off pre-step.
+    Target SecurityScanAxeCore => _ => _
+        .Description("axe-core a11y SARIF against a deployed SPA URL. Requires @axe-core/cli + axe-sarif-converter in web/'s devDependencies.")
+        .Executes(() =>
+        {
+            SecurityArtifactsDir.CreateDirectory();
+            var url = string.IsNullOrWhiteSpace(AxeTargetUrl) ? IngestUrl.Replace(":5080", ":5173") : AxeTargetUrl;
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                Console.WriteLine("[security] AxeCore skipped — no target URL (set TAMP_FINDINGS_AXE_TARGET_URL).");
+                return;
+            }
+            if (!AxeCoreBinaryResolver.IsAvailable(SpaProjectDir.Value))
+            {
+                Console.WriteLine($"[security] AxeCore skipped — @axe-core/cli + axe-sarif-converter not installed at {SpaProjectDir} (pnpm add -D @axe-core/cli axe-sarif-converter).");
+                return;
+            }
+
+            var scanPlan = AxeCoreCli.Scan(s => s
+                .SetWorkingDirectory(SpaProjectDir.Value)
+                .AddUrl(url)
+                .SetOutputFile(SecurityJsonAxeCoreFile.Value)
+                .AddTag("wcag2a").AddTag("wcag2aa").AddTag("wcag21aa").AddTag("best-practice")
+                .SetBrowser("chromium")
+                .SetNoSandbox()
+                .SetTimeoutSeconds(60)
+                .SetLoadDelayMs(2000));
+            var scanRc = ProcessRunner.Execute(scanPlan, Console.Out, Console.Error);
+            // axe-core: 0 = no violations, 1 = violations found (still a
+            // successful scan), 2+ = tool error. Mirrors ESLint posture.
+            if (scanRc > 1) throw new Exception($"axe-core exited with {scanRc}");
+
+            var sarifPlan = AxeCoreCli.ConvertToSarif(s => s
+                .SetWorkingDirectory(SpaProjectDir.Value)
+                .SetInputFile(SecurityJsonAxeCoreFile.Value)
+                .SetOutputFile(SecuritySarifAxeCoreFile.Value));
+            var convertRc = ProcessRunner.Execute(sarifPlan, Console.Out, Console.Error);
+            if (convertRc != 0) throw new Exception($"axe-sarif-converter exited with {convertRc}");
         });
 
     // Roslyn analyzer scan must skip the build project itself: dotnet build
@@ -448,6 +519,8 @@ class Build : SecurityPipelineBuild
             // (VitestCoverageIngestMapper also writes Flavor="web").
             var webCtx = ctx with { Flavor = "web" };
             await PostSarifAsync(client, webCtx, SecuritySarifEslintFile, "ESLint");
+            // TFND-27: axe-core a11y findings also target the SPA → "web" flavor.
+            await PostSarifAsync(client, webCtx, SecuritySarifAxeCoreFile, "AxeCore");
 
             // TruffleHog jsonl is not SARIF — its own adapter.
             var trufflehog = TrufflehogIngestMapper.Map(TrufflehogJsonFile.Value, ctx);
@@ -516,6 +589,8 @@ class Build : SecurityPipelineBuild
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifCveFile.Value));
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifTrivyFile.Value));
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifEslintFile.Value));
+            // TFND-27: axe-core receipt — same SARIF shape as the others.
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifAxeCoreFile.Value));
             var thReceipt = ScanRunReceiptBuilder.FromTrufflehogJsonl(TrufflehogJsonFile.Value);
             if (thReceipt is not null) receipts.Add(thReceipt);
             // Dedup by scanner (the merged sast.sarif may have already

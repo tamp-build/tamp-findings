@@ -1,0 +1,9 @@
+{
+  "_comment": "Replace <token> with your inter-agent token. The real .mcp.json is gitignored so the shared token does not leak. See C:/repos/claude.interAgentComs/AGENT_INSTRUCTIONS.md.",
+  "mcpServers": {
+    "interagent": {
+      "type": "http",
+      "url": "https://iac.brewingcoder.com/mcp/<token>"
+    }
+  }
+}

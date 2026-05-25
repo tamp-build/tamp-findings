@@ -22,13 +22,21 @@
 
   <ItemGroup Label="Tamp ecosystem (TFND-14 — dogfood pipeline)">
     <!-- Meta package brings: Core, NetCli.V10, CycloneDx.V6, OpenGrep,
-         OsvScanner.V2, Trivy, Sarif, Sbom, DependencyTrack.V1, DefectDojo.V2. -->
-    <PackageVersion Include="Tamp.Security.Pipeline" Version="1.11.1" />
+         OsvScanner.V2, Trivy, Sarif, Sbom, DependencyTrack.V1, DefectDojo.V2.
+         As of 1.12.0 (TAM-254), each security-chain wrapper ships from its own
+         satellite repo at 1.11.2+. PackageReferences resolve transparently.
+         1.13.0 (TAM-274/275) adds SecurityPipelineMetrics auto-target —
+         emits tamp.security.scan.findings_count + sbom.components_count
+         counters for free under `tamp Security`. -->
+    <PackageVersion Include="Tamp.Security.Pipeline" Version="1.13.0" />
     <!-- Not in the meta package — secrets scanning satellite. -->
     <PackageVersion Include="Tamp.TruffleHog.V3" Version="0.1.1" />
     <!-- TAM-276: TS/JS style + best-practice (the ReSharper analogue for the
          SPA). Covers what OpenGrep's security packs intentionally don't. -->
     <PackageVersion Include="Tamp.Eslint.V9" Version="0.1.0" />
+    <!-- TAM-277 / TFND-27: axe-core a11y. Scan + ConvertToSarif verbs. SARIF
+         output plugs into /ingest/findings the same way ESLint/Trivy do. -->
+    <PackageVersion Include="Tamp.AxeCore" Version="0.1.0" />
     <!-- Versioning + GitHub CLI for release/PR plumbing. -->
     <PackageVersion Include="Tamp.GitVersion.V6" Version="0.2.0" />
     <PackageVersion Include="Tamp.GitHubCli.V2" Version="0.1.1" />

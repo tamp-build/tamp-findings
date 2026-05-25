@@ -9,6 +9,7 @@ export type ScannerKind =
   | 'Checkov' | 'Tfsec' | 'Kics' | 'Zap' | 'Spectral' | 'Oasdiff'
   | 'Cosign' | 'NetArchTest' | 'DependencyCruiser' | 'Stryker' | 'Coverlet'
   | 'OsvScanner' | 'Roslyn' | 'Syft' | 'Grype' | 'ReSharper' | 'ESLint'
+  | 'AxeCore'
 
 export type Severity = 'Info' | 'Low' | 'Medium' | 'High' | 'Critical'
 export type FindingStatus = 'Open' | 'Fixed' | 'Suppressed' | 'Accepted'
