@@ -58,5 +58,10 @@ web/.turbo/
 .env.local
 .env.*.local
 
+# MCP config — holds the shared inter-agent server URL with its token
+# embedded. Each developer drops their own .mcp.json per the
+# instructions in C:/repos/claude.interAgentComs/AGENT_INSTRUCTIONS.md.
+.mcp.json
+
 # Docker dev volumes
 docker/.data/
