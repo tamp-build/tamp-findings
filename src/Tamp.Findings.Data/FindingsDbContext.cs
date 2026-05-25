@@ -57,6 +57,10 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // (every build passes). Distinct from RiskPolicy which is
             // also jsonb but lives in its own table.
             e.Property(x => x.GatesConfig).HasColumnType("jsonb");
+            // TFND-32: VDP metadata.
+            e.Property(x => x.VdpPolicyUrl).HasMaxLength(1024);
+            e.Property(x => x.VdpContactEmail).HasMaxLength(320);
+            e.Property(x => x.VdpReportingFormUrl).HasMaxLength(1024);
         });
 
         b.Entity<Component>(e =>

@@ -9,6 +9,7 @@ import type { ProjectGatesConfig, RiskPolicySummary } from '@/lib/api'
 import { RiskPolicyEditor } from '@/components/RiskPolicyEditor'
 import { VexStatementsPanel } from '@/components/VexStatementsPanel'
 import { PoamItemsPanel } from '@/components/PoamItemsPanel'
+import { VdpPanel } from '@/components/VdpPanel'
 
 // Per-gate UI schema — keys must match GateKeys on the backend.
 type GateField = { key: string; label: string; hint?: string; thresholdLabel?: string; thresholdStep?: number; thresholdDefault?: number }
@@ -272,6 +273,9 @@ export function ProjectSettingsDialog({
 
           {/* ---- POA&M items ---------------------------------------- */}
           <PoamItemsPanel projectId={projectId} />
+
+          {/* ---- Vulnerability disclosure --------------------------- */}
+          <VdpPanel projectId={projectId} />
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">

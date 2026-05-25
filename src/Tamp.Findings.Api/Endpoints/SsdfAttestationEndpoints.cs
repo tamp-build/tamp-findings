@@ -72,6 +72,9 @@ public static class SsdfAttestationEndpoints
         policy ??= await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
         if (policy is null) return Results.Conflict("no default risk policy seeded");
 
+        // TFND-32: VDP metadata drives RV.3.1 evidence.
+        var vdp = new VdpEvidence(project.VdpPolicyUrl, project.VdpContactEmail, project.VdpReportingFormUrl);
+
         var inputs = await inputsBuilder.BuildAsync(build, policy.Config, projectId, ct);
         var result = RiskScorer.Compute(policy.Config, inputs);
         var gates = project.GatesConfig ?? ProjectGatesDefaults.Empty();
@@ -136,7 +139,7 @@ public static class SsdfAttestationEndpoints
             Practices = BuildPractices(
                 inputs, succeeded, sbomToolsPresent, latestSbomTools?.IngestedAt,
                 vexCounts, liveOpen, liveInProgress, completed, riskAccepted,
-                gateEval),
+                gateEval, vdp),
         };
         doc.Summary = SummariseAttestation(doc);
         return Results.Ok(doc);
@@ -166,7 +169,7 @@ public static class SsdfAttestationEndpoints
         bool sbomToolsPresent, DateTimeOffset? sbomCreatedAt,
         Dictionary<VexStatementStatus, int> vexCounts,
         int poamOpen, int poamInProgress, int completed, int riskAccepted,
-        GateEvaluation gates)
+        GateEvaluation gates, VdpEvidence vdp)
     {
         var p = new List<SsdfPractice>();
 
@@ -260,7 +263,7 @@ public static class SsdfAttestationEndpoints
             "Manual", "Post-mortem records outside the tool"));
         p.Add(P("RV.3.1", "RV", "Have a Process for Reporting and Communicating Vulnerabilities",
             "Coordinated vulnerability disclosure",
-            "Manual", "VDP / security.txt — see TFND-32"));
+            VdpStatusAndEvidence(vdp)));
         p.Add(P("RV.3.2", "RV", "Document and Track Risk Acceptance Decisions",
             "Document VEX / accepted-risk decisions",
             VexAndAcceptedEvidence(vexCounts, riskAccepted)));
@@ -287,6 +290,23 @@ public static class SsdfAttestationEndpoints
         if (i.LicenseDenied > 0) return ("No", $"{i.LicenseDenied} denied-tier licenses in SBOM");
         if (i.LicenseUnknown > i.SbomComponents / 4) return ("Partial", $"{i.LicenseUnknown}/{i.SbomComponents} unknown-license components");
         return ("Yes", $"{i.SbomComponents} components vetted; {i.LicenseUnknown} unknown licenses");
+    }
+
+    // RV.3.1 evidence — published VDP. Yes when a policy URL is on
+    // file (the gold-standard artifact); Partial when only a contact
+    // email is set (the minimum BOD 20-01 requirement); No otherwise.
+    private static (string Status, string Evidence) VdpStatusAndEvidence(VdpEvidence v)
+    {
+        if (!string.IsNullOrWhiteSpace(v.PolicyUrl))
+        {
+            var bits = new List<string> { $"policy: {v.PolicyUrl}" };
+            if (!string.IsNullOrWhiteSpace(v.ContactEmail)) bits.Add($"contact: {v.ContactEmail}");
+            if (!string.IsNullOrWhiteSpace(v.ReportingFormUrl)) bits.Add($"form: {v.ReportingFormUrl}");
+            return ("Yes", string.Join(" · ", bits));
+        }
+        if (!string.IsNullOrWhiteSpace(v.ContactEmail))
+            return ("Partial", $"contact email on file ({v.ContactEmail}); publish a VDP page for full attestation");
+        return ("No", "no VDP metadata configured — set the policy URL on the project settings dialog");
     }
 
     private static (string Status, string Evidence) VexAndAcceptedEvidence(
@@ -357,3 +377,6 @@ public sealed record SsdfGates(int Enabled, int Passed, int Failed, IReadOnlyLis
 public sealed record SsdfGateLine(string Key, bool Passed, string Observed);
 public sealed record SsdfPractice(string Id, string Family, string Label, string Intent, string Status, string Evidence);
 public sealed record SsdfSummary(int Yes, int Partial, int No, int Manual, string Headline);
+
+// Internal-only — feeds RV.3.1 evaluation.
+internal sealed record VdpEvidence(string? PolicyUrl, string? ContactEmail, string? ReportingFormUrl);
