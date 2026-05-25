@@ -95,7 +95,7 @@ public static class BuildEvaluationEndpoints
         policy ??= await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
         if (policy is null) return Results.Conflict("no default risk policy seeded");
 
-        var currentInputs = await inputsBuilder.BuildAsync(currentBuild.CvIds, policy.Config, ct);
+        var currentInputs = await inputsBuilder.BuildAsync(currentBuild.CvIds, policy.Config, projectId, ct);
         var currentResult = RiskScorer.Compute(policy.Config, currentInputs);
 
         RiskInputs? priorInputs = null;
@@ -103,7 +103,7 @@ public static class BuildEvaluationEndpoints
         string? priorBand = null;
         if (priorBuild is not null)
         {
-            priorInputs = await inputsBuilder.BuildAsync(priorBuild.CvIds, policy.Config, ct);
+            priorInputs = await inputsBuilder.BuildAsync(priorBuild.CvIds, policy.Config, projectId, ct);
             var priorResult = RiskScorer.Compute(policy.Config, priorInputs);
             priorScore = Math.Round(priorResult.Score, 1);
             priorBand = priorResult.Band;

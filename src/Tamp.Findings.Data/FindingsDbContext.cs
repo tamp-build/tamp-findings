@@ -29,6 +29,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
     public DbSet<KevAdvisory> KevAdvisories => Set<KevAdvisory>();
+    public DbSet<VexStatement> VexStatements => Set<VexStatement>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -271,6 +272,21 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasIndex(x => x.ClientId);
             e.HasIndex(x => x.ProjectId);
+        });
+
+        b.Entity<VexStatement>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Purl).HasMaxLength(1024).IsRequired();
+            e.Property(x => x.ComponentVersion).HasMaxLength(128);
+            e.Property(x => x.AdvisoryId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.ImpactStatement).HasColumnType("text");
+            e.Property(x => x.ResponseReferenceUrl).HasMaxLength(1024);
+            // Lookup at score time: project + advisory + purl. Index
+            // matches that query shape.
+            e.HasIndex(x => new { x.ProjectId, x.AdvisoryId, x.Purl });
+            e.HasIndex(x => x.RetiredAt);
+            e.HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<KevAdvisory>(e =>
