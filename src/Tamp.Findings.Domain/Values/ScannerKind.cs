@@ -24,4 +24,7 @@ public enum ScannerKind
     Grype = 19,
     ReSharper = 20,
     ESLint = 21,
+    // TFND-27: axe-core a11y scanner via Tamp.AxeCore 0.1.0. Standalone
+    // CLI scan of a deployed SPA URL; SARIF emitted by axe-sarif-converter.
+    AxeCore = 22,
 }

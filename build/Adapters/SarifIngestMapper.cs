@@ -39,7 +39,11 @@ public static class SarifIngestMapper
                 // TFND-17: Trivy folds three classes of findings under one
                 // scanner name. Tamp.Sarif doesn't expose rule.properties.tags,
                 // so we infer from RuleId prefix. Non-Trivy scanners get null.
-                var subCategory = InferTrivySubCategory(scanner, r.RuleId);
+                // TFND-27: AxeCore findings all get sub-category "accessibility"
+                // so the SSDF attestation + dashboard can split them out.
+                var subCategory = scanner == ScannerKind.AxeCore
+                    ? "accessibility"
+                    : InferTrivySubCategory(scanner, r.RuleId);
 
                 // ESLint embeds the source-snippet + line context in
                     // message.text — can hit 1k+ chars. The Finding.Title column
@@ -103,6 +107,9 @@ public static class SarifIngestMapper
         // ESLint SARIF via @microsoft/eslint-formatter-sarif sets
         // tool.driver.name to "ESLint".
         if (n.Contains("eslint")) return ScannerKind.ESLint;
+        // TFND-27: axe-sarif-converter sets tool.driver.name to "axe"
+        // (sometimes "axe-core"); covers both with one contains check.
+        if (n.Contains("axe")) return ScannerKind.AxeCore;
         return ScannerKind.Unknown;
     }
 
