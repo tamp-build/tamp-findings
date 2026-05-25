@@ -8,6 +8,11 @@ namespace Tamp.Findings.Domain.Risk;
 public sealed record RiskInputs(
     // CVE counts in the SBOM, summed across components in scope.
     int CveCritical, int CveHigh, int CveMedium, int CveLow,
+    // Count of CVEs that are on the CISA Known Exploited Vulnerabilities
+    // catalog. Subset of CveCritical+High+Medium+Low — independent
+    // signal because KEV listing is binary "exploited in the wild,"
+    // not a severity bucket. Used by the kevExposure gate.
+    int KevListedCves,
     // Secret findings (TruffleHog: verified = live cred, unverified = match-only).
     int SecretsVerified, int SecretsUnverified,
     // SAST severities (Roslyn/ReSharper/OpenGrep/CodeQL, Code-Quality bucket).

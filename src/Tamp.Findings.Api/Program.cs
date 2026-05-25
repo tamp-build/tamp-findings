@@ -40,6 +40,11 @@ builder.Services.AddScoped<SbomEnrichmentService>();
 // latest-canonical set; a future refactor can consolidate.
 builder.Services.AddScoped<Tamp.Findings.Api.Services.RiskInputsBuilder>();
 
+// TFND-26: CISA Known Exploited Vulnerabilities catalog. Service does
+// the actual upsert; the hosted worker schedules it (startup + daily).
+builder.Services.AddScoped<Tamp.Findings.Api.Services.KevFeedSyncService>();
+builder.Services.AddHostedService<Tamp.Findings.Api.Services.KevFeedSyncWorker>();
+
 builder.Services.AddCors(options =>
 {
     // POC dev posture: any origin allowed. The SPA uses Vite's /api proxy

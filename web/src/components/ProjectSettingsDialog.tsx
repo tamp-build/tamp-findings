@@ -14,6 +14,8 @@ const GATE_FIELDS: GateField[] = [
   { key: 'riskScoreRegression', label: 'Risk score regression',
     hint: 'Fail when this build\'s score is higher than the prior canonical build\'s by more than X points.',
     thresholdLabel: 'Max allowed delta (points)', thresholdStep: 0.5, thresholdDefault: 0 },
+  { key: 'kevExposure', label: 'CISA KEV exposure',
+    hint: 'Fail if the SBOM contains any CVE on the CISA Known Exploited Vulnerabilities catalog (M-22-09 / BOD 22-01). KEV-listed CVEs are confirmed exploited in the wild.' },
   { key: 'anyCves', label: 'Any open CVE',
     hint: 'Fail if the SBOM has any open vulnerability, regardless of severity.' },
   { key: 'criticalCves', label: 'Critical CVE',

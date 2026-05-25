@@ -28,6 +28,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<TestCaseResult> TestCaseResults => Set<TestCaseResult>();
     public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
+    public DbSet<KevAdvisory> KevAdvisories => Set<KevAdvisory>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -270,6 +271,24 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => x.TokenHash).IsUnique();
             e.HasIndex(x => x.ClientId);
             e.HasIndex(x => x.ProjectId);
+        });
+
+        b.Entity<KevAdvisory>(e =>
+        {
+            // CveId is the natural primary key: the CISA catalog
+            // publishes exactly one row per CVE. Postgres can't index
+            // varchar(64) any cheaper than as the PK itself, so use it
+            // directly instead of carrying a synthetic GUID.
+            e.HasKey(x => x.CveId);
+            e.Property(x => x.CveId).HasMaxLength(64);
+            e.Property(x => x.VendorProject).HasMaxLength(256);
+            e.Property(x => x.Product).HasMaxLength(256);
+            e.Property(x => x.VulnerabilityName).HasMaxLength(512);
+            e.Property(x => x.ShortDescription).HasColumnType("text");
+            e.Property(x => x.RequiredAction).HasColumnType("text");
+            e.Property(x => x.Notes).HasColumnType("text");
+            e.HasIndex(x => x.DueDate);
+            e.HasIndex(x => x.KnownRansomwareCampaignUse);
         });
 
         b.Entity<RiskPolicy>(e =>

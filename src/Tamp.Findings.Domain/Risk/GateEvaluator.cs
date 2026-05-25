@@ -48,6 +48,7 @@ public static class GateEvaluator
     private static readonly string[] WellKnownGateKeys =
     [
         GateKeys.RiskScoreRegression,
+        GateKeys.KevExposure,
         GateKeys.AnyCves,
         GateKeys.CriticalCves,
         GateKeys.HighCves,
@@ -70,6 +71,7 @@ public static class GateEvaluator
         return key switch
         {
             GateKeys.RiskScoreRegression => EvaluateRiskRegression(key, cfg, currentScore, priorScore, deltaPoints),
+            GateKeys.KevExposure         => Threshold(key, cfg, current.KevListedCves, 0, "KEV-listed CVEs"),
             GateKeys.AnyCves             => Threshold(key, cfg, current.CveCritical + current.CveHigh + current.CveMedium + current.CveLow, 0, "open CVEs"),
             GateKeys.CriticalCves        => Threshold(key, cfg, current.CveCritical, 0, "critical CVEs"),
             GateKeys.HighCves            => Threshold(key, cfg, current.CveHigh, 0, "high CVEs"),
