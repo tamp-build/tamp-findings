@@ -149,6 +149,7 @@ app.MapProjectScanReceipts();
 app.MapBuildEvaluation();
 app.MapVexStatements();
 app.MapPoamItems();
+app.MapSsdfAttestation();
 
 app.Run();
 

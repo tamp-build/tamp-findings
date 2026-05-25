@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, ChevronRight, Settings } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Settings, FileCheck2 } from 'lucide-react'
 import { fetchClients, fetchProjects, fetchAggregates } from '@/lib/api'
 import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import type { FindingsPreset, ComponentsPreset } from '@/App'
@@ -28,6 +28,7 @@ export function ProjectPageView({
   onDrillToFindings,
   onDrillToComponents,
   onDrillToCoverage,
+  onDrillToAttestation,
 }: {
   projectId: string
   onBack: () => void
@@ -35,6 +36,7 @@ export function ProjectPageView({
   onDrillToFindings?: (preset: Omit<FindingsPreset, 'nonce'>) => void
   onDrillToComponents?: (preset?: Omit<ComponentsPreset, 'nonce'>) => void
   onDrillToCoverage?: () => void
+  onDrillToAttestation?: () => void
 }) {
   const { user } = useAuth()
   const allProjects = useQuery({ queryKey: ['projects', null], queryFn: () => fetchProjects() })
@@ -92,6 +94,17 @@ export function ProjectPageView({
             className="ml-1 rounded-md p-1 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
           >
             <Settings className="size-3.5" />
+          </button>
+        )}
+        {project && onDrillToAttestation && (
+          <button
+            type="button"
+            onClick={onDrillToAttestation}
+            title="Open CISA SSDF attestation for this project (TFND-31)"
+            className="ml-auto inline-flex items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+          >
+            <FileCheck2 className="size-3.5" />
+            SSDF attestation
           </button>
         )}
       </nav>

@@ -908,6 +908,56 @@ export async function cancelPoamItem(id: string): Promise<void> {
   if (!r.ok && r.status !== 404) throw new Error(`DELETE /poam-items/${id} failed: ${r.status}`)
 }
 
+// ----- SSDF attestation ---------------------------------------------------
+
+// TFND-31: CISA SSDF (NIST SP 800-218) attestation surface. The
+// backend assembles a doc with per-practice evidence drawn from
+// ingest data; the SPA renders + supports JSON export for the
+// FedRAMP package.
+export type SsdfPracticeStatus = 'Yes' | 'No' | 'Partial' | 'Manual'
+
+export type SsdfPractice = {
+  id: string
+  family: 'PO' | 'PS' | 'PW' | 'RV' | string
+  label: string
+  intent: string
+  status: SsdfPracticeStatus
+  evidence: string
+}
+
+export type SsdfGateLine = {
+  key: string
+  passed: boolean
+  observed: string
+}
+
+export type SsdfAttestation = {
+  generated: string
+  project: { id: string; name: string; clientName: string }
+  build: { commitSha: string | null; versionString: string; latestCreatedAt: string } | null
+  risk: { score: number; band: string; policyName: string } | null
+  gates: {
+    enabled: number
+    passed: number
+    failed: number
+    results: SsdfGateLine[]
+  } | null
+  practices: SsdfPractice[]
+  summary: {
+    yes: number
+    partial: number
+    no: number
+    manual: number
+    headline: string
+  }
+}
+
+export async function fetchSsdfAttestation(projectId: string): Promise<SsdfAttestation> {
+  const r = await fetch(`${API_BASE}/projects/${projectId}/ssdf-attestation`)
+  if (!r.ok) throw new Error(`GET /projects/${projectId}/ssdf-attestation failed: ${r.status}`)
+  return r.json()
+}
+
 // ----- Project scan receipts (per-build) ----------------------------------
 
 export async function fetchProjectScanReceipts(
