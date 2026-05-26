@@ -1,8 +1,14 @@
-// Tiny fetch wrapper. Goes through the Vite dev-proxy mapping /api → :5080
-// (see vite.config.ts). In prod the SPA is served from the same origin as
-// the API, so the same /api path works without a proxy.
-
-export const API_BASE = '/api'
+// Tiny fetch wrapper.
+//
+// In dev: Vite proxies /api/* → http://localhost:5080/* and strips
+//         the prefix (see vite.config.ts), so the SPA targets /api/*.
+// In prod: the SPA is served by the API on the same origin (no proxy
+//         strip), so we hit the API's real paths directly — empty prefix.
+//
+// Distinguishing via import.meta.env.DEV keeps the dev experience
+// (browser-visible /api/* paths, Network tab clarity) without
+// requiring every API endpoint to be remounted under /api/*.
+export const API_BASE = import.meta.env.DEV ? '/api' : ''
 
 export type ScannerKind =
   | 'Unknown' | 'OpenGrep' | 'TruffleHog' | 'CodeQL' | 'Trivy'
