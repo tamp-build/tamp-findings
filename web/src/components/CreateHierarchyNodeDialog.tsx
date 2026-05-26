@@ -95,21 +95,29 @@ export function CreateHierarchyNodeDialog({
 
   return (
     <div
-      // Mobile: use the dynamic viewport unit (100dvh) so the soft
-      // keyboard popping up shrinks the dialog instead of pushing the
-      // footer below the visible area. items-end on small screens
-      // anchors the card to the bottom so the input + the save button
-      // sit closest to where thumbs reach.
-      className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/60 p-2 sm:items-start sm:p-8"
+      // Bottom-sheet on mobile, centered modal on desktop. The card
+      // is positioned absolutely so flex layout doesn't fight the
+      // soft keyboard — iOS / Android shrink the visual viewport
+      // when the keyboard appears, and absolute-bottom anchoring
+      // keeps the footer pinned to that new bottom edge.
+      className="fixed inset-0 z-50 bg-black/60"
       role="dialog" aria-modal="true"
       onClick={onClose}
     >
       <div
-        // Card uses flex-column with a max-height tied to dvh so the
-        // body section becomes the scroll area when content overflows
-        // — the header and footer stay pinned and visible. my-4 on
-        // mobile (not my-16) leaves room for the keyboard.
-        className="flex max-h-[calc(100dvh-1rem)] w-full max-w-md flex-col rounded-md border bg-card shadow-lg sm:my-16 sm:max-h-[calc(100dvh-8rem)]"
+        // Mobile: pinned to bottom edge, rounded only on top.
+        // Desktop (sm+): centered with normal modal corners.
+        // max-h-[90dvh] uses the dynamic viewport unit so it adapts
+        // to the keyboard. flex-col + body's flex-1 + overflow-y-auto
+        // makes the body the scroll surface; header + footer stay
+        // pinned visible.
+        className="
+          absolute left-0 right-0 bottom-0 flex max-h-[90dvh] flex-col
+          rounded-t-lg border bg-card shadow-lg
+          sm:left-1/2 sm:right-auto sm:bottom-auto sm:top-12
+          sm:max-w-md sm:w-full sm:-translate-x-1/2
+          sm:max-h-[calc(100dvh-6rem)] sm:rounded-lg
+        "
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
