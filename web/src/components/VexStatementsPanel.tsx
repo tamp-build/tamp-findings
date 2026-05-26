@@ -4,7 +4,7 @@ import { Trash2, Plus, ShieldCheck, ShieldAlert, ShieldQuestion, Wrench } from '
 import {
   fetchVexStatements, createVexStatement, retireVexStatement,
 } from '@/lib/api'
-import type { VexStatement, VexStatementStatus, VexJustification } from '@/lib/api'
+import type { VexStatementStatus, VexJustification } from '@/lib/api'
 
 // Renders the per-project VEX management panel inside the project
 // settings dialog. Two responsibilities:

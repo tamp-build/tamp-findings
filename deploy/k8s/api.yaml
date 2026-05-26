@@ -51,17 +51,20 @@ spec:
             - containerPort: 5080
               name: http
           env:
-            # Connection string assembled inline — env-var interpolation
-            # in Kubernetes is shell-style $(VAR), evaluated when the
-            # container starts. DB_PASSWORD pulled from the secret first
-            # so the substitution resolves.
-            - name: ConnectionStrings__Findings
-              value: "Host=postgres.tamp-findings.svc.cluster.local;Port=5432;Database=tamp_findings;Username=tamp;Password=$(DB_PASSWORD)"
+            # K8s $(VAR) interpolation only resolves variables declared
+            # EARLIER in the same env list (per
+            # https://kubernetes.io/docs/tasks/inject-data-application/define-interdependent-environment-variables/).
+            # DB_PASSWORD must come before ConnectionStrings__Findings or
+            # the literal "$(DB_PASSWORD)" ends up in the connection
+            # string and Npgsql throws `28P01 password authentication
+            # failed`.
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: tamp-findings-db
                   key: password
+            - name: ConnectionStrings__Findings
+              value: "Host=postgres.tamp-findings.svc.cluster.local;Port=5432;Database=tamp_findings;Username=tamp;Password=$(DB_PASSWORD)"
             - name: GITHUB_CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -108,11 +111,20 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
+            # Match the numeric UID/GID from the aspnet:10.0-alpine base
+            # image (the prebaked `app` user). Required for PSS
+            # restricted admission — string usernames in `USER app`
+            # can't be verified non-root by the kubelet without
+            # resolving /etc/passwd inside the image.
+            runAsUser: 1654
+            runAsGroup: 1654
             capabilities:
               drop:
                 - ALL
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
         seccompProfile:
           type: RuntimeDefault
 
