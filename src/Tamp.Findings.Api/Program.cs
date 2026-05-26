@@ -37,6 +37,14 @@ builder.Services.Configure<ForwardedHeadersOptions>(o =>
 
 builder.Services.AddOpenApi();
 
+// Spec promises every error response is JSON. Without ProblemDetails,
+// minimal API deserialization failures return 400 with empty body —
+// adopters of /ingest/* (Tamp.Ingest.V1, etc.) can't debug a malformed
+// payload because the wire response says nothing. AddProblemDetails +
+// UseStatusCodePages downstream gives every 4xx/5xx a Problem Details
+// JSON body (RFC 9457: { type, title, status, detail, instance }).
+builder.Services.AddProblemDetails();
+
 // Enums on the wire are strings, not ints — friendlier for hand-written
 // payloads from scanners and for the agent surface in F11.
 builder.Services.ConfigureHttpJsonOptions(o =>
@@ -122,6 +130,13 @@ if (Environment.GetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE") != "true")
 // / Request.Host (auth, redirect builders, OAuth challenge URL
 // generation). Goes first in the pipeline.
 app.UseForwardedHeaders();
+
+// Backstop for any 4xx/5xx that reaches the client with an empty
+// body — pairs with AddProblemDetails() to ensure every error
+// response carries a parseable JSON payload. Specifically catches
+// the minimal-API deserialization 400 (record-binding failure) that
+// otherwise returns Content-Length: 0.
+app.UseStatusCodePages();
 
 app.UseCors();
 
