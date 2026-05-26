@@ -95,24 +95,20 @@ export function CreateHierarchyNodeDialog({
 
   return (
     <div
-      // Bottom-sheet on mobile, centered modal on desktop. The card
-      // is positioned absolutely so flex layout doesn't fight the
-      // soft keyboard — iOS / Android shrink the visual viewport
-      // when the keyboard appears, and absolute-bottom anchoring
-      // keeps the footer pinned to that new bottom edge.
+      // Bottom-sheet on mobile, centered modal on desktop.
+      // We avoid flex-col + flex-1 here because iOS Safari mangles
+      // the math when the soft keyboard pops up. Instead, the whole
+      // card is one scroll surface; the header sticks to the top of
+      // the visible portion and the footer sticks to the bottom.
+      // Behaviour: footer always reachable, no matter how short or
+      // tall the form, with or without keyboard up.
       className="fixed inset-0 z-50 bg-black/60"
       role="dialog" aria-modal="true"
       onClick={onClose}
     >
       <div
-        // Mobile: pinned to bottom edge, rounded only on top.
-        // Desktop (sm+): centered with normal modal corners.
-        // max-h-[90dvh] uses the dynamic viewport unit so it adapts
-        // to the keyboard. flex-col + body's flex-1 + overflow-y-auto
-        // makes the body the scroll surface; header + footer stay
-        // pinned visible.
         className="
-          absolute left-0 right-0 bottom-0 flex max-h-[90dvh] flex-col
+          absolute left-0 right-0 bottom-0 max-h-[90dvh] overflow-y-auto
           rounded-t-lg border bg-card shadow-lg
           sm:left-1/2 sm:right-auto sm:bottom-auto sm:top-12
           sm:max-w-md sm:w-full sm:-translate-x-1/2
@@ -120,14 +116,14 @@ export function CreateHierarchyNodeDialog({
         "
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h2 className="text-base font-semibold tracking-tight">{title}</h2>
           <button onClick={onClose} aria-label="Close" className="rounded-md p-1 text-muted-foreground hover:bg-muted/40 hover:text-foreground">
             <X className="size-4" />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4 text-sm">
+        <div className="space-y-3 px-5 py-4 text-sm">
           {kind === 'project' && (
             <Field label="Client">
               <select
@@ -203,7 +199,7 @@ export function CreateHierarchyNodeDialog({
           )}
         </div>
 
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
+        <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 border-t border-border bg-card px-5 py-3">
           <button
             type="button"
             onClick={onClose}
