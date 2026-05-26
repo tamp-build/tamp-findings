@@ -97,6 +97,20 @@ if (Environment.GetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE") != "true")
 }
 
 app.UseCors();
+
+// Serve the bundled SPA from wwwroot/ in prod. In dev the SPA runs
+// under Vite at :5173 and proxies /api/* to this host, so the
+// API never needs to serve static files locally. In the container
+// build the Dockerfile copies web/dist/ into wwwroot/ before
+// `dotnet publish`, so UseStaticFiles + MapFallbackToFile is the
+// pair that takes us from "white screen" to "SPA loads".
+//
+// UseDefaultFiles rewrites `/` requests to `/index.html` BEFORE
+// UseStaticFiles so the root URL hits the file middleware. Both
+// middlewares are no-ops when wwwroot/ is missing (dev runs).
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapOpenApi().AllowAnonymous();
@@ -152,6 +166,13 @@ app.MapPoamItems();
 app.MapSsdfAttestation();
 app.MapProjectVdp();
 app.MapSbomProvenance();
+
+// SPA fallback — any URL the API doesn't match (i.e. client-side
+// routes like /projects/<id>/attestation) serves index.html so the
+// React Router can pick it up on hydration. MUST come after all
+// API routes; otherwise it would shadow them. AllowAnonymous so a
+// signed-out visitor sees the SignInView rather than a 401.
+app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();
 
