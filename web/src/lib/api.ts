@@ -171,6 +171,36 @@ export async function fetchClients(): Promise<ClientListItem[]> {
   return r.json()
 }
 
+export async function createClient(name: string): Promise<ClientListItem> {
+  const r = await fetch(`${API_BASE}/clients`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!r.ok) throw new Error(await r.text() || `POST /clients failed: ${r.status}`)
+  return r.json()
+}
+
+export async function createProject(req: { name: string; clientId: string; description?: string | null }): Promise<ProjectListItem> {
+  const r = await fetch(`${API_BASE}/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!r.ok) throw new Error(await r.text() || `POST /projects failed: ${r.status}`)
+  return r.json()
+}
+
+export async function createComponent(req: { name: string; projectId: string; kind?: string | null }): Promise<ComponentListItem> {
+  const r = await fetch(`${API_BASE}/components`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!r.ok) throw new Error(await r.text() || `POST /components failed: ${r.status}`)
+  return r.json()
+}
+
 export async function fetchProjects(clientId?: string): Promise<ProjectListItem[]> {
   const qs = clientId ? `?clientId=${clientId}` : ''
   const r = await fetch(`${API_BASE}/projects${qs}`)
