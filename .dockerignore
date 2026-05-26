@@ -1,0 +1,49 @@
+# Build outputs — never copy into the image
+**/bin/
+**/obj/
+**/out/
+artifacts/
+
+# Test outputs
+**/TestResults/
+**/coverage/
+*.trx
+*.coverage
+*.coveragexml
+
+# IDE
+.vs/
+.idea/
+.vscode/
+
+# OS / SCM
+.git/
+.github/
+.DS_Store
+Thumbs.db
+
+# Node — the web-build stage installs fresh, never copy from host
+web/node_modules/
+web/dist/
+web/.vite/
+web/.turbo/
+**/*.tsbuildinfo
+
+# Local env
+.env
+.env.local
+.env.*.local
+.mcp.json
+
+# Docker compose dev
+docker/.data/
+
+# Build script (not part of the runtime image)
+build/bin/
+build/obj/
+
+# Tests (not part of the runtime image)
+tests/
+
+# Docs / screenshots (not needed at runtime)
+docs/
