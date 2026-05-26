@@ -1,0 +1,45 @@
+{
+  "client": "BrewingCoder",
+  "project": "tamp.findings",
+  "component": "tamp.findings",
+  "componentKind": "solution",
+  "flavor": "net10",
+  "version": "0.1.0-alpha+abc1234",
+  "commitSha": "abc1234567890",
+  "branch": "main",
+  "buildId": null,
+  "pullRequestRef": null,
+  "serialNumber": "urn:uuid:11111111-2222-3333-4444-555555555555",
+  "specVersion": "1.5",
+  "toolName": "syft",
+  "toolVersion": "1.42.0",
+  "metadataTools": [
+    { "vendor": "anchore", "name": "syft", "version": "1.42.0" }
+  ],
+  "components": [
+    {
+      "purl": "pkg:nuget/Microsoft.EntityFrameworkCore@10.0.8",
+      "name": "Microsoft.EntityFrameworkCore",
+      "version": "10.0.8",
+      "kind": "library",
+      "license": "MIT",
+      "vulnerabilities": [],
+      "hashes": { "SHA-256": "deadbeefcafef00ddeadbeefcafef00ddeadbeefcafef00ddeadbeefcafef00d" }
+    },
+    {
+      "purl": "pkg:npm/react@19.2.6",
+      "name": "react",
+      "version": "19.2.6",
+      "kind": "library",
+      "license": "MIT",
+      "vulnerabilities": [],
+      "hashes": null
+    }
+  ],
+  "dependencies": [
+    {
+      "parentPurl": "pkg:nuget/Microsoft.EntityFrameworkCore@10.0.8",
+      "childPurl": "pkg:npm/react@19.2.6"
+    }
+  ]
+}

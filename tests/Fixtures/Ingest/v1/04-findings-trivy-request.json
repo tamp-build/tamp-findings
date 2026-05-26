@@ -1,0 +1,35 @@
+{
+  "client": "BrewingCoder",
+  "project": "tamp.findings",
+  "component": "tamp.findings",
+  "componentKind": "solution",
+  "flavor": "net10",
+  "version": "0.1.0-alpha+abc1234",
+  "commitSha": "abc1234567890",
+  "branch": "main",
+  "buildId": null,
+  "pullRequestRef": null,
+  "scanner": "Trivy",
+  "findings": [
+    {
+      "ruleId": "DS002",
+      "severity": "High",
+      "title": "Image user should not be 'root'",
+      "description": "Last USER directive (USER root) is unsupported.",
+      "filePath": "Dockerfile",
+      "line": 84,
+      "snippet": null,
+      "subCategory": "misconfiguration"
+    },
+    {
+      "ruleId": "generic-jwt-token",
+      "severity": "Critical",
+      "title": "JWT token found",
+      "description": null,
+      "filePath": "artifacts/test-results/example.trx",
+      "line": 102,
+      "snippet": "Bearer eyJhbGciOiJIUzI1NiIsInR5...",
+      "subCategory": "secret"
+    }
+  ]
+}

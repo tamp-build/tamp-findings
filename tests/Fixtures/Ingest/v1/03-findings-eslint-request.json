@@ -1,0 +1,25 @@
+{
+  "client": "BrewingCoder",
+  "project": "tamp.findings",
+  "component": "tamp.findings",
+  "componentKind": "solution",
+  "flavor": "web",
+  "version": "0.1.0-alpha+abc1234",
+  "commitSha": "abc1234567890",
+  "branch": "main",
+  "buildId": null,
+  "pullRequestRef": null,
+  "scanner": "ESLint",
+  "findings": [
+    {
+      "ruleId": "@typescript-eslint/no-unused-vars",
+      "severity": "Medium",
+      "title": "'VexStatement' is declared but never used.",
+      "description": null,
+      "filePath": "web/src/components/VexStatementsPanel.tsx",
+      "line": 7,
+      "snippet": "import type { VexStatement, VexStatementStatus, VexJustification } from '@/lib/api'",
+      "subCategory": null
+    }
+  ]
+}

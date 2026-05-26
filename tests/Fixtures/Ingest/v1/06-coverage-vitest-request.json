@@ -1,0 +1,40 @@
+{
+  "client": "BrewingCoder",
+  "project": "tamp.findings",
+  "component": "tamp.findings",
+  "componentKind": "solution",
+  "flavor": "web",
+  "version": "0.1.0-alpha+abc1234",
+  "commitSha": "abc1234567890",
+  "branch": "main",
+  "buildId": null,
+  "pullRequestRef": null,
+  "toolName": "vitest@coverage-v8",
+  "toolVersion": "4.1.6",
+  "completedAt": "2026-05-26T01:32:00Z",
+  "sequenceCoverage": 4.9,
+  "branchCoverage": null,
+  "coveredSequences": 59,
+  "totalSequences": 1199,
+  "modules": [
+    {
+      "name": "web",
+      "sequenceCoverage": 4.9,
+      "branchCoverage": null,
+      "coveredSequences": 59,
+      "totalSequences": 1199,
+      "classes": [
+        {
+          "fullName": "web/src/lib/api.ts",
+          "sourceFile": "web/src/lib/api.ts",
+          "sequenceCoverage": 12.0,
+          "coveredSequences": 24,
+          "totalSequences": 200,
+          "visitedLines": [1, 5, 6, 7, 8, 60],
+          "unvisitedLines": [62, 63, 64]
+        }
+      ]
+    }
+  ],
+  "sourceFiles": []
+}
