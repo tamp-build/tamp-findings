@@ -74,12 +74,14 @@ public static class ScanRunIngestEndpoints
         var (_, project, scopeErr) = await IngestScopeGuard.ResolveAndGuardAsync(db, token, req.Client, req.Project, ct);
         if (scopeErr is not null) return (null, scopeErr);
 
-        var component = await db.Components.FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name == req.Component, ct)
+        var componentLower = req.Component.ToLower();
+        var component = await db.Components.FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name.ToLower() == componentLower, ct)
             ?? db.Components.Add(new Component { ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind }).Entity;
         ComponentFlavor? flavor = null;
         if (!string.IsNullOrWhiteSpace(req.Flavor))
         {
-            flavor = await db.ComponentFlavors.FirstOrDefaultAsync(f => f.ComponentId == component.Id && f.Name == req.Flavor, ct)
+            var flavorLower = req.Flavor.ToLower();
+            flavor = await db.ComponentFlavors.FirstOrDefaultAsync(f => f.ComponentId == component.Id && f.Name.ToLower() == flavorLower, ct)
                 ?? db.ComponentFlavors.Add(new ComponentFlavor { ComponentId = component.Id, Name = req.Flavor }).Entity;
         }
         var version = await db.ComponentVersions.FirstOrDefaultAsync(v =>
