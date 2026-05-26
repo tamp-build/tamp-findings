@@ -55,16 +55,25 @@ public static class IngestScopeGuard
         var clientSet = ((Tamp.Findings.Data.FindingsDbContext)db).Clients;
         var projectSet = ((Tamp.Findings.Data.FindingsDbContext)db).Projects;
 
+        // Case-insensitive Name lookup throughout the ingest path. Without
+        // this, an adopter posting `client="brewingcoder"` next to an
+        // existing `BrewingCoder` row would either 404 (cli_ token scope
+        // check) or auto-create a duplicate `Project` under a different
+        // casing. Same hazard for Project / Component / Flavor.
+        // Postgres translates `string.ToLower() == ...ToLower()` to
+        // `LOWER("Name") = LOWER('value')` cleanly.
+        var clientLower = clientName.ToLower();
         var client = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
-            .FirstOrDefaultAsync(clientSet, c => c.Name == clientName, ct);
+            .FirstOrDefaultAsync(clientSet, c => c.Name.ToLower() == clientLower, ct);
         if (client is null)
             return (null, null, Results.NotFound($"client '{clientName}' not found"));
 
         if (token.Scope == IngestTokenScope.Client && client.Id != token.ClientId)
             return (null, null, Results.Forbid());
 
+        var projectLower = projectName.ToLower();
         var project = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
-            .FirstOrDefaultAsync(projectSet, p => p.ClientId == client.Id && p.Name == projectName, ct);
+            .FirstOrDefaultAsync(projectSet, p => p.ClientId == client.Id && p.Name.ToLower() == projectLower, ct);
 
         if (token.Scope == IngestTokenScope.Project)
         {

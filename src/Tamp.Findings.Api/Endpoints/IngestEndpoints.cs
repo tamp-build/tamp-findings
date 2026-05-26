@@ -32,8 +32,11 @@ public static class IngestEndpoints
         var (client, project, scopeErr) = await IngestScopeGuard.ResolveAndGuardAsync(db, token, req.Client, req.Project, ct);
         if (scopeErr is not null) return scopeErr;
 
+        // Case-insensitive Component / Flavor lookup so ingest with
+        // a case-variant of an existing name doesn't auto-create a dupe.
+        var componentLower = req.Component.ToLower();
         var component = await db.Components
-            .FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name == req.Component, ct);
+            .FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name.ToLower() == componentLower, ct);
         if (component is null)
         {
             component = new Component { ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind };
@@ -47,8 +50,9 @@ public static class IngestEndpoints
         ComponentFlavor? flavor = null;
         if (!string.IsNullOrWhiteSpace(req.Flavor))
         {
+            var flavorLower = req.Flavor.ToLower();
             flavor = await db.ComponentFlavors
-                .FirstOrDefaultAsync(f => f.ComponentId == component.Id && f.Name == req.Flavor, ct);
+                .FirstOrDefaultAsync(f => f.ComponentId == component.Id && f.Name.ToLower() == flavorLower, ct);
             if (flavor is null)
             {
                 flavor = new ComponentFlavor { ComponentId = component.Id, Name = req.Flavor };
