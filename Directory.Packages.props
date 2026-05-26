@@ -49,6 +49,12 @@
     <!-- SBOM + CVE scanners (not in Security.Pipeline meta yet). -->
     <PackageVersion Include="Tamp.Syft.V1" Version="1.11.0" />
     <PackageVersion Include="Tamp.Grype" Version="0.1.0" />
+    <!-- TFND-43 lab cluster deploy: container build + push, kubectl apply.
+         Tamp.Kubectl 0.1.0 (TAM-221), Tamp.Docker.V27 0.3.1. Helm reserved
+         for if we move to a chart later. -->
+    <PackageVersion Include="Tamp.Docker.V27" Version="0.3.1" />
+    <PackageVersion Include="Tamp.Kubectl" Version="0.1.0" />
+    <PackageVersion Include="Tamp.Helm.V3" Version="0.1.0" />
   </ItemGroup>
 
   <ItemGroup Label="Roslyn security analyzers (TFND-14 — TAM-248 pattern; gated by /p:IncludeSecurityAnalyzers=true)">

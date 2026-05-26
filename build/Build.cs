@@ -16,6 +16,10 @@ using Tamp.Eslint.V9;
 using EslintCli = Tamp.Eslint.V9.Eslint;
 using Tamp.AxeCore;
 using AxeCoreCli = Tamp.AxeCore.AxeCore;
+using Tamp.Docker.V27;
+using DockerCli = Tamp.Docker.V27.Docker;
+using Tamp.Kubectl;
+using KubectlCli = Tamp.Kubectl.Kubectl;
 
 // tamp.findings self-hosted build script. Run with:
 //   dotnet run --project build -- <target>
@@ -627,6 +631,123 @@ class Build : SecurityPipelineBuild
             {
                 Console.WriteLine("[ingest] ScanRuns   — no scan artifacts to receipt");
             }
+        });
+
+    // ----- TFND-43 lab cluster deploy -------------------------------------
+    //
+    // Three-step roll, all driven by Tamp.* wrappers:
+    //   1. DockerBuildImage — `docker buildx build` against repo root,
+    //      tags <registry>/tamp-findings:{sha,latest}.
+    //   2. DockerPushImage  — push both tags to the lab registry.
+    //   3. Deploy           — `kubectl apply -f deploy/k8s/` then
+    //      `kubectl set image deploy/tamp-findings-api api=<image>:<sha>`
+    //      followed by `kubectl rollout status` to wait for healthy.
+    //
+    // Image registry is `registry.home.local/tamp-findings:<tag>` —
+    // referencing by node-IP fails ImagePullBackOff because containerd's
+    // mirror config is keyed on `localhost:32000` (per microk8s agent).
+    //
+    // KUBECONFIG flows as an env var through Tamp.Kubectl's posture —
+    // never as a --kubeconfig CLI flag (keeps the path out of the process
+    // table). The Build inherits the env from the user's shell.
+
+    [Parameter("Container image registry", EnvironmentVariable = "TAMP_FINDINGS_REGISTRY")]
+    readonly string ImageRegistry = "registry.home.local";
+
+    [Parameter("Container image name (without registry prefix)", EnvironmentVariable = "TAMP_FINDINGS_IMAGE_NAME")]
+    readonly string ImageName = "tamp-findings";
+
+    [Parameter("Cluster namespace", EnvironmentVariable = "TAMP_FINDINGS_NAMESPACE")]
+    readonly string DeployNamespace = "tamp-findings";
+
+    string ImageTag => Git.Commit is { Length: >= 7 } ? Git.Commit[..7] : "dev";
+    string ImageRefShaTag => $"{ImageRegistry}/{ImageName}:{ImageTag}";
+    string ImageRefLatestTag => $"{ImageRegistry}/{ImageName}:latest";
+
+    Target DockerBuildImage => _ => _
+        .Description("Build the multi-stage container image: pnpm build SPA → dotnet publish API → ASP.NET 10 alpine runtime. Tags both :<short-sha> and :latest.")
+        .Executes(() =>
+        {
+            // Tamp.Docker.V27 resolves the docker binary internally — no
+            // Tool parameter on the verb. We rely on `docker` being on
+            // PATH; Docker Desktop / Rancher Desktop both put it there.
+            var plan = DockerCli.Build(s => s
+                .SetWorkingDirectory(RootDirectory)
+                .SetDockerfile((RootDirectory / "Dockerfile").Value)
+                .AddTag(ImageRefShaTag)
+                .AddTag(ImageRefLatestTag)
+                // SetLoad puts the image in the local engine's image
+                // store so the subsequent Push step has something to
+                // tag-and-push. Push-direct skips local but blocks a
+                // local smoke `docker run`.
+                .SetLoad(true)
+                .SetContext("."));
+            var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
+            if (rc != 0) throw new Exception($"docker build exited with {rc}");
+            Console.WriteLine($"[deploy] built {ImageRefShaTag} (+ :latest)");
+        });
+
+    Target DockerPushImage => _ => _
+        .DependsOn(nameof(DockerBuildImage))
+        .Description("Push both tags to the lab registry.")
+        .Executes(() =>
+        {
+            foreach (var tag in new[] { ImageRefShaTag, ImageRefLatestTag })
+            {
+                var plan = DockerCli.Push(s => s
+                    .SetWorkingDirectory(RootDirectory)
+                    .SetImage(tag));
+                var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
+                if (rc != 0) throw new Exception($"docker push {tag} exited with {rc}");
+                Console.WriteLine($"[deploy] pushed {tag}");
+            }
+        });
+
+    Target Deploy => _ => _
+        .DependsOn(nameof(DockerPushImage))
+        .Description("Apply deploy/k8s/ then pin the api Deployment to the just-pushed image SHA and wait for rollout. KUBECONFIG flows from env.")
+        .Executes(() =>
+        {
+            var kubectlTool = Tool.TryFromPath("kubectl", RootDirectory.Value)
+                ?? throw new InvalidOperationException("kubectl not on PATH — install kubectl and point KUBECONFIG at the lab cluster.");
+
+            // Apply ALL manifests under deploy/k8s/. Today that's just
+            // api.yaml; future manifests (NetworkPolicy, HPA, etc.) drop
+            // in here without changing the target.
+            var applyPlan = KubectlCli.Apply(kubectlTool, s => s
+                .SetWorkingDirectory(RootDirectory)
+                .AddFile((RootDirectory / "deploy" / "k8s").Value)
+                .SetRecursive(true)
+                .SetNamespace(DeployNamespace));
+            var applyRc = ProcessRunner.Execute(applyPlan, Console.Out, Console.Error);
+            if (applyRc != 0) throw new Exception($"kubectl apply exited with {applyRc}");
+
+            // Pin the api container to the just-pushed SHA tag. The apply
+            // step uses whatever the YAML says (`:latest`); set-image
+            // immediately overrides with the unique SHA so the pod
+            // identifier matches the build that produced it. This is the
+            // path that lets a fresh `:latest` push trigger a rollout
+            // even when imagePullPolicy is honoured.
+            var setImagePlan = KubectlCli.SetImage(kubectlTool, s => s
+                .SetWorkingDirectory(RootDirectory)
+                .SetNamespace(DeployNamespace)
+                .SetResource("deployment/tamp-findings-api")
+                .SetContainerImage("api", ImageRefShaTag));
+            var setRc = ProcessRunner.Execute(setImagePlan, Console.Out, Console.Error);
+            if (setRc != 0) throw new Exception($"kubectl set image exited with {setRc}");
+
+            // Wait for the rollout to finish so Ci/CD knows when the new
+            // pod is serving. Default 5m timeout is plenty for a single-
+            // replica deployment; bump via Tamp.Kubectl's timeout knob if
+            // migrations grow.
+            var statusPlan = KubectlCli.RolloutStatus(kubectlTool, s => s
+                .SetWorkingDirectory(RootDirectory)
+                .SetNamespace(DeployNamespace)
+                .SetResource("deployment/tamp-findings-api"));
+            var statusRc = ProcessRunner.Execute(statusPlan, Console.Out, Console.Error);
+            if (statusRc != 0) throw new Exception($"kubectl rollout status exited with {statusRc}");
+
+            Console.WriteLine($"[deploy] ✓ tamp-findings-api now running {ImageRefShaTag} in ns/{DeployNamespace}");
         });
 
     Target ScanAll => _ => _

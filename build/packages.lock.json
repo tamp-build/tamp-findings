@@ -21,6 +21,15 @@
           "Tamp.NetCli.V10": "1.5.0"
         }
       },
+      "Tamp.Docker.V27": {
+        "type": "Direct",
+        "requested": "[0.3.1, )",
+        "resolved": "0.3.1",
+        "contentHash": "3nCftVNov1OAS51D/ISEKkbGBO9GLH3HVb2KAFzM32Q58wVVOLqs1gYg+pxSV1HoSqoroQROogh1DOcjPqx31Q==",
+        "dependencies": {
+          "Tamp.Core": "1.2.0"
+        }
+      },
       "Tamp.DotNetCoverage.V18": {
         "type": "Direct",
         "requested": "[1.11.1, )",
@@ -56,6 +65,15 @@
         "contentHash": "BgzxkyXZSaPCmXoji5KUwSlb4XPXRa+4Tmz3lQmRM7NnEQEt97U/0Q/I5nBMkL94MeIj0zMafcqWggwA8t1sYw==",
         "dependencies": {
           "Tamp.Core": "1.6.0"
+        }
+      },
+      "Tamp.Kubectl": {
+        "type": "Direct",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "W2/Pe96MyqogTxg6Pe/YMSodkzjqHCiYpOZ49rJSSGhMmk8eKJgB2RqtZNpGNs9txx+nnlXkpaZxEqyjQvfQQA==",
+        "dependencies": {
+          "Tamp.Core": "1.11.1"
         }
       },
       "Tamp.ReportGenerator.V5": {

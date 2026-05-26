@@ -1,0 +1,137 @@
+# tamp.findings — API Deployment + Service.
+#
+# Namespace `tamp-findings`, Postgres StatefulSet, Secrets, and the
+# Cloudflare tunnel ingress rule (tamp-findings.brewingcoder.com →
+# tamp-findings-api Service) are owned by the microk8s repo. This file
+# owns only the api workload.
+#
+# Image registry: registry.home.local/tamp-findings:<tag>.
+#   Always reference by `registry.home.local/...` — node-IP forms fail
+#   ImagePullBackOff because containerd's mirror is keyed on
+#   localhost:32000. Confirmed by the microk8s agent.
+#
+# EF Core migrations apply on startup (Program.cs db.Database.Migrate()).
+# No separate migration Job. Readiness probe at /health holds the pod
+# from receiving traffic until startup completes.
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tamp-findings-api
+  namespace: tamp-findings
+  labels:
+    app: tamp-findings
+    component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tamp-findings
+      component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: tamp-findings
+        component: api
+    spec:
+      containers:
+        - name: api
+          # Image tag is rewritten in-place by the Deploy Nuke target —
+          # see build/Build.cs (DeployToCluster). Default keeps `latest`
+          # for direct `kubectl apply -f` against a freshly-pushed tag.
+          image: registry.home.local/tamp-findings:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5080
+              name: http
+          env:
+            # Connection string assembled inline — env-var interpolation
+            # in Kubernetes is shell-style $(VAR), evaluated when the
+            # container starts. DB_PASSWORD pulled from the secret first
+            # so the substitution resolves.
+            - name: ConnectionStrings__Findings
+              value: "Host=postgres.tamp-findings.svc.cluster.local;Port=5432;Database=tamp_findings;Username=tamp;Password=$(DB_PASSWORD)"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tamp-findings-db
+                  key: password
+            - name: GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: tamp-findings-oauth
+                  key: GITHUB_CLIENT_ID
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tamp-findings-oauth
+                  key: GITHUB_CLIENT_SECRET
+            - name: GITHUB_BOOTSTRAP_ADMIN_LOGIN
+              valueFrom:
+                secretKeyRef:
+                  name: tamp-findings-oauth
+                  key: GITHUB_BOOTSTRAP_ADMIN_LOGIN
+            - name: ASPNETCORE_URLS
+              value: "http://+:5080"
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tamp-findings-api
+  namespace: tamp-findings
+  labels:
+    app: tamp-findings
+    component: api
+spec:
+  type: ClusterIP
+  selector:
+    app: tamp-findings
+    component: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5080
+      protocol: TCP
