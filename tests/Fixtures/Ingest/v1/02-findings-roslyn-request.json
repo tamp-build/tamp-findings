@@ -1,0 +1,35 @@
+{
+  "client": "BrewingCoder",
+  "project": "tamp.findings",
+  "component": "tamp.findings",
+  "componentKind": "solution",
+  "flavor": "net10",
+  "version": "0.1.0-alpha+abc1234",
+  "commitSha": "abc1234567890",
+  "branch": "main",
+  "buildId": null,
+  "pullRequestRef": null,
+  "scanner": "Roslyn",
+  "findings": [
+    {
+      "ruleId": "S125",
+      "severity": "Low",
+      "title": "Remove this commented out code.",
+      "description": "Sections of code should not be commented out.",
+      "filePath": "src/Tamp.Findings.Domain/Entities/RiskPolicy.cs",
+      "line": 5,
+      "snippet": "// public Guid? CreatedByUserId { get; set; }",
+      "subCategory": null
+    },
+    {
+      "ruleId": "S3267",
+      "severity": "Medium",
+      "title": "Loops should be simplified using the \"Where\" LINQ method",
+      "description": null,
+      "filePath": "src/Tamp.Findings.Domain/Suppressions/SuppressionMatcher.cs",
+      "line": 51,
+      "snippet": null,
+      "subCategory": null
+    }
+  ]
+}

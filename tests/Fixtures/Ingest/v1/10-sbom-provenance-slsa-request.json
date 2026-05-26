@@ -1,0 +1,32 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicateType": "https://slsa.dev/provenance/v1",
+  "subject": [
+    {
+      "name": "registry.home.local/tamp-findings",
+      "digest": { "sha256": "b9cc2adf4064fb8b7755b9ac56925f5cf0144fc1b9b0120ae6e527d2dc407ebc" }
+    }
+  ],
+  "predicate": {
+    "buildDefinition": {
+      "buildType": "https://tamp-build.example/build-v1",
+      "externalParameters": {
+        "source": "git+https://github.com/tamp-build/tamp-findings@refs/heads/main"
+      },
+      "internalParameters": {
+        "runner": "windows-amd64",
+        "tampVersion": "1.13.0"
+      },
+      "resolvedDependencies": []
+    },
+    "runDetails": {
+      "builder": { "id": "https://github.com/tamp-build/tamp" },
+      "metadata": {
+        "invocationId": "build-abc1234",
+        "startedOn": "2026-05-26T01:00:00Z",
+        "finishedOn": "2026-05-26T01:14:00Z"
+      },
+      "byproducts": []
+    }
+  }
+}

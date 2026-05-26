@@ -1,0 +1,54 @@
+{
+  "client": "BrewingCoder",
+  "project": "tamp.findings",
+  "component": "tamp.findings",
+  "componentKind": "solution",
+  "flavor": "net10",
+  "version": "0.1.0-alpha+abc1234",
+  "commitSha": "abc1234567890",
+  "branch": "main",
+  "buildId": null,
+  "pullRequestRef": null,
+  "receipts": [
+    {
+      "scanner": "Roslyn",
+      "status": "Succeeded",
+      "startedAt": "2026-05-26T01:10:00Z",
+      "completedAt": "2026-05-26T01:10:42Z",
+      "findingsCount": 135,
+      "toolName": "Microsoft (R) Visual C# Compiler",
+      "toolVersion": "5.0.0",
+      "notes": null
+    },
+    {
+      "scanner": "OpenGrep",
+      "status": "Succeeded",
+      "startedAt": "2026-05-26T01:09:00Z",
+      "completedAt": "2026-05-26T01:09:18Z",
+      "findingsCount": 0,
+      "toolName": "OpenGrep",
+      "toolVersion": "1.22.0",
+      "notes": null
+    },
+    {
+      "scanner": "Trivy",
+      "status": "Succeeded",
+      "startedAt": "2026-05-26T01:11:30Z",
+      "completedAt": "2026-05-26T01:11:55Z",
+      "findingsCount": 4,
+      "toolName": "Trivy",
+      "toolVersion": "0.55.1",
+      "notes": null
+    },
+    {
+      "scanner": "TruffleHog",
+      "status": "Failed",
+      "startedAt": "2026-05-26T01:12:00Z",
+      "completedAt": "2026-05-26T01:58:00Z",
+      "findingsCount": 99,
+      "toolName": "trufflehog",
+      "toolVersion": "3.79.0",
+      "notes": "Killed externally — git-history walk on a wrapper artifact dir hung for 46 min."
+    }
+  ]
+}

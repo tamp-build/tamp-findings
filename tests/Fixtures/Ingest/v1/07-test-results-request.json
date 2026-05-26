@@ -1,0 +1,59 @@
+{
+  "client": "BrewingCoder",
+  "project": "tamp.findings",
+  "component": "tamp.findings",
+  "componentKind": "solution",
+  "flavor": "net10",
+  "version": "0.1.0-alpha+abc1234",
+  "commitSha": "abc1234567890",
+  "branch": "main",
+  "buildId": null,
+  "pullRequestRef": null,
+  "toolName": "VSTest",
+  "toolVersion": "17.12.0",
+  "completedAt": "2026-05-26T01:25:00Z",
+  "durationMs": 14700,
+  "totalCount": 56,
+  "passedCount": 55,
+  "failedCount": 1,
+  "skippedCount": 0,
+  "inconclusiveCount": 0,
+  "suites": [
+    {
+      "assemblyName": "Tamp.Findings.Domain.Tests",
+      "className": "Tamp.Findings.Domain.Tests.RiskScorerTests",
+      "totalCount": 7,
+      "passedCount": 7,
+      "failedCount": 0,
+      "skippedCount": 0,
+      "durationMs": 26,
+      "cases": [
+        {
+          "name": "Compute_Empty_ReturnsZeroScore",
+          "outcome": "Passed",
+          "durationMs": 3,
+          "errorMessage": null,
+          "errorStackTrace": null
+        }
+      ]
+    },
+    {
+      "assemblyName": "Tamp.Findings.Api.Tests",
+      "className": "Tamp.Findings.Api.Tests.HealthEndpointTests",
+      "totalCount": 1,
+      "passedCount": 0,
+      "failedCount": 1,
+      "skippedCount": 0,
+      "durationMs": 418,
+      "cases": [
+        {
+          "name": "GET_health_returns_ok",
+          "outcome": "Failed",
+          "durationMs": 418,
+          "errorMessage": "Assert.Equal() Failure: Values differ\nExpected: OK\nActual:   InternalServerError",
+          "errorStackTrace": "at Tamp.Findings.Api.Tests.HealthEndpointTests.GET_health_returns_ok() in HealthEndpointTests.cs:line 22"
+        }
+      ]
+    }
+  ]
+}

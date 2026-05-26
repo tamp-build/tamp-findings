@@ -1,0 +1,45 @@
+{
+  "client": "BrewingCoder",
+  "project": "tamp.findings",
+  "component": "tamp.findings",
+  "componentKind": "solution",
+  "flavor": "net10",
+  "version": "0.1.0-alpha+abc1234",
+  "commitSha": "abc1234567890",
+  "branch": "main",
+  "buildId": null,
+  "pullRequestRef": null,
+  "toolName": "OpenCover",
+  "toolVersion": "4.7.1221",
+  "completedAt": "2026-05-26T01:30:00Z",
+  "sequenceCoverage": 12.5,
+  "branchCoverage": 9.8,
+  "coveredSequences": 656,
+  "totalSequences": 5240,
+  "modules": [
+    {
+      "name": "Tamp.Findings.Domain",
+      "sequenceCoverage": 22.4,
+      "branchCoverage": 18.1,
+      "coveredSequences": 220,
+      "totalSequences": 982,
+      "classes": [
+        {
+          "fullName": "Tamp.Findings.Domain.Risk.RiskScorer",
+          "sourceFile": "src/Tamp.Findings.Domain/Risk/RiskScorer.cs",
+          "sequenceCoverage": 91.2,
+          "coveredSequences": 145,
+          "totalSequences": 159,
+          "visitedLines": [44, 45, 46, 50, 53, 60, 71, 100, 161, 162, 163, 164, 165],
+          "unvisitedLines": [47, 70]
+        }
+      ]
+    }
+  ],
+  "sourceFiles": [
+    {
+      "relativePath": "src/Tamp.Findings.Domain/Risk/RiskScorer.cs",
+      "sourceText": "using Tamp.Findings.Domain.Entities;\n\nnamespace Tamp.Findings.Domain.Risk;\n\n// (...elided for fixture brevity...)"
+    }
+  ]
+}
