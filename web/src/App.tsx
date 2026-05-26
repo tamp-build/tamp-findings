@@ -13,6 +13,7 @@ import { SignInView } from '@/views/SignInView'
 import { ProfileView } from '@/views/ProfileView'
 import { SettingsView } from '@/views/SettingsView'
 import { AttestationView } from '@/views/AttestationView'
+import { CreateHierarchyNodeDialog, type CreateHierarchyNodeKind } from '@/components/CreateHierarchyNodeDialog'
 import { AuthProvider, useAuth, type AuthUser } from '@/lib/auth'
 
 type Tab = 'overview' | 'client' | 'project'
@@ -221,6 +222,7 @@ function UserAvatarButton({ user, onClick }: { user: AuthUser | null; onClick: (
 
 function AddMenu() {
   const [open, setOpen] = useState(false)
+  const [dialog, setDialog] = useState<CreateHierarchyNodeKind | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -239,12 +241,10 @@ function AddMenu() {
     }
   }, [open])
 
-  // TODO: each item should open its real create form. Stubbed for now so
-  // the UI affordance is in place ahead of the create endpoints.
-  const items: { label: string; onClick: () => void }[] = [
-    { label: 'New client', onClick: () => alert('TODO: new client form') },
-    { label: 'New project', onClick: () => alert('TODO: new project form') },
-    { label: 'New component', onClick: () => alert('TODO: new component form') },
+  const items: { label: string; kind: CreateHierarchyNodeKind }[] = [
+    { label: 'New client',    kind: 'client'    },
+    { label: 'New project',   kind: 'project'   },
+    { label: 'New component', kind: 'component' },
   ]
 
   return (
@@ -264,13 +264,19 @@ function AddMenu() {
             <button
               key={it.label}
               type="button"
-              onClick={() => { setOpen(false); it.onClick() }}
+              onClick={() => { setOpen(false); setDialog(it.kind) }}
               className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted/40"
             >
               {it.label}
             </button>
           ))}
         </div>
+      )}
+      {dialog && (
+        <CreateHierarchyNodeDialog
+          kind={dialog}
+          onClose={() => setDialog(null)}
+        />
       )}
     </div>
   )

@@ -193,6 +193,7 @@ app.MapPoamItems();
 app.MapSsdfAttestation();
 app.MapProjectVdp();
 app.MapSbomProvenance();
+app.MapHierarchyCreate();
 
 // SPA fallback — any URL the API doesn't match (i.e. client-side
 // routes like /projects/<id>/attestation) serves index.html so the
