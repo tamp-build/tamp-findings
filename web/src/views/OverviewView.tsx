@@ -9,11 +9,15 @@ import { cn } from '@/lib/utils'
 // navigates to that client's page (which then lists project cards).
 // Drill-through into Findings/Components/Coverage/Tests is *not*
 // available at this level — you reach details only by clicking through
-// to a project card. The hierarchy tree on the left is browse-only.
+// to a project card. The hierarchy tree on the left is the JUMP-TO
+// surface: client name → client page, project name → project page,
+// component name → its project page.
 export function OverviewView({
   onSelectClient,
+  onSelectProject,
 }: {
   onSelectClient: (clientId: string) => void
+  onSelectProject: (projectId: string) => void
 }) {
   const clients = useQuery({ queryKey: ['clients'], queryFn: fetchClients })
 
@@ -31,7 +35,10 @@ export function OverviewView({
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-[240px_minmax(0,1fr)]">
       <aside>
-        <HierarchyTree />
+        <HierarchyTree
+          onSelectClient={onSelectClient}
+          onSelectProject={onSelectProject}
+        />
       </aside>
       <main className="space-y-3 sm:space-y-6">
         {clients.data?.map(c => (
@@ -46,11 +53,21 @@ export function OverviewView({
   )
 }
 
-// Browse-only hierarchy. Chevrons toggle expansion so the user can see
-// the tree structure for every client/project/component, but rows are
-// not clickable filters today. The real role of this nav will be
-// nailed down separately (jump-to-card, pin scope, etc.).
-function HierarchyTree() {
+// Hierarchy tree as a JUMP-TO surface. Each row's chevron toggles
+// expansion (browse-without-leaving); each row's name is a button
+// that pushes the corresponding tab:
+//   client name    → ClientPageView via onSelectClient(id)
+//   project name   → ProjectPageView via onSelectProject(id)
+//   component name → ProjectPageView for the component's project
+//                    (no standalone component view today; you reach
+//                    component detail through the project's rings).
+function HierarchyTree({
+  onSelectClient,
+  onSelectProject,
+}: {
+  onSelectClient: (clientId: string) => void
+  onSelectProject: (projectId: string) => void
+}) {
   const clients = useQuery({ queryKey: ['clients'], queryFn: fetchClients })
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set())
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
@@ -71,11 +88,19 @@ function HierarchyTree() {
               expandable
               expanded={expanded}
               onToggle={() => toggleClient(c.id)}
+              onSelect={() => onSelectClient(c.id)}
             >
               <span className="font-medium">{c.name}</span>
               <span className="ml-auto text-xs text-muted-foreground">{c.projectCount}p</span>
             </TreeRow>
-            {expanded && <ProjectsBranch clientId={c.id} expanded={expandedProjects} onToggleProject={toggleProject} />}
+            {expanded && (
+              <ProjectsBranch
+                clientId={c.id}
+                expanded={expandedProjects}
+                onToggleProject={toggleProject}
+                onSelectProject={onSelectProject}
+              />
+            )}
           </div>
         )
       })}
@@ -84,11 +109,12 @@ function HierarchyTree() {
 }
 
 function ProjectsBranch({
-  clientId, expanded, onToggleProject,
+  clientId, expanded, onToggleProject, onSelectProject,
 }: {
   clientId: string
   expanded: Set<string>
   onToggleProject: (id: string) => void
+  onSelectProject: (projectId: string) => void
 }) {
   const projects = useQuery({
     queryKey: ['projects', clientId],
@@ -107,11 +133,17 @@ function ProjectsBranch({
               expandable
               expanded={isExpanded}
               onToggle={() => onToggleProject(p.id)}
+              onSelect={() => onSelectProject(p.id)}
             >
               <span>{p.name}</span>
               <span className="ml-auto text-xs text-muted-foreground">{p.componentCount}c</span>
             </TreeRow>
-            {isExpanded && <ComponentsBranch projectId={p.id} />}
+            {isExpanded && (
+              <ComponentsBranch
+                projectId={p.id}
+                onSelectProject={onSelectProject}
+              />
+            )}
           </div>
         )
       })}
@@ -119,7 +151,13 @@ function ProjectsBranch({
   )
 }
 
-function ComponentsBranch({ projectId }: { projectId: string }) {
+function ComponentsBranch({
+  projectId,
+  onSelectProject,
+}: {
+  projectId: string
+  onSelectProject: (projectId: string) => void
+}) {
   const components = useQuery({
     queryKey: ['components', projectId],
     queryFn: () => fetchComponents(projectId),
@@ -129,7 +167,14 @@ function ComponentsBranch({ projectId }: { projectId: string }) {
   return (
     <>
       {components.data?.map(c => (
-        <TreeRow key={c.id} depth={3}>
+        // Component rows route to their project. There's no standalone
+        // component view today — component-level drill happens via the
+        // project's ring chart.
+        <TreeRow
+          key={c.id}
+          depth={3}
+          onSelect={() => onSelectProject(c.projectId)}
+        >
           <span>{c.name}</span>
           {c.kind && (
             <span className="ml-auto text-xs text-muted-foreground">{c.kind}</span>
@@ -141,16 +186,17 @@ function ComponentsBranch({ projectId }: { projectId: string }) {
 }
 
 function TreeRow({
-  depth, children, expandable, expanded, onToggle,
+  depth, children, expandable, expanded, onToggle, onSelect,
 }: {
   depth: number
   expandable?: boolean
   expanded?: boolean
   children: React.ReactNode
   onToggle?: () => void
+  onSelect?: () => void
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-muted/40">
+    <div className="flex items-center gap-1 rounded-md text-sm hover:bg-muted/40">
       <div style={{ width: depth * 14 }} />
       {expandable ? (
         <button
@@ -164,9 +210,14 @@ function TreeRow({
       ) : (
         <div className="size-[18px]" />
       )}
-      <div className="flex flex-1 items-center text-left">
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={!onSelect}
+        className="flex flex-1 items-center px-1 py-1 text-left enabled:hover:underline"
+      >
         {children}
-      </div>
+      </button>
     </div>
   )
 }

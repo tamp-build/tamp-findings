@@ -136,7 +136,7 @@ function Dashboard() {
       </header>
 
       <div className="mx-auto max-w-7xl px-3 py-3 sm:px-4 sm:py-6">
-        {tab === 'overview' && <OverviewView onSelectClient={goToClient} />}
+        {tab === 'overview' && <OverviewView onSelectClient={goToClient} onSelectProject={goToProject} />}
         {tab === 'client' && scopeClientId && (
           <ClientPageView
             clientId={scopeClientId}
