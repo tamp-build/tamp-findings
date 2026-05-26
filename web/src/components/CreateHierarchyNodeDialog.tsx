@@ -95,22 +95,31 @@ export function CreateHierarchyNodeDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:p-8"
+      // Mobile: use the dynamic viewport unit (100dvh) so the soft
+      // keyboard popping up shrinks the dialog instead of pushing the
+      // footer below the visible area. items-end on small screens
+      // anchors the card to the bottom so the input + the save button
+      // sit closest to where thumbs reach.
+      className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/60 p-2 sm:items-start sm:p-8"
       role="dialog" aria-modal="true"
       onClick={onClose}
     >
       <div
-        className="my-16 w-full max-w-md rounded-md border bg-card shadow-lg"
+        // Card uses flex-column with a max-height tied to dvh so the
+        // body section becomes the scroll area when content overflows
+        // — the header and footer stay pinned and visible. my-4 on
+        // mobile (not my-16) leaves room for the keyboard.
+        className="flex max-h-[calc(100dvh-1rem)] w-full max-w-md flex-col rounded-md border bg-card shadow-lg sm:my-16 sm:max-h-[calc(100dvh-8rem)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
           <h2 className="text-base font-semibold tracking-tight">{title}</h2>
           <button onClick={onClose} aria-label="Close" className="rounded-md p-1 text-muted-foreground hover:bg-muted/40 hover:text-foreground">
             <X className="size-4" />
           </button>
         </div>
 
-        <div className="space-y-3 px-5 py-4 text-sm">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4 text-sm">
           {kind === 'project' && (
             <Field label="Client">
               <select
@@ -186,11 +195,11 @@ export function CreateHierarchyNodeDialog({
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-muted/40 hover:text-foreground"
           >
             Cancel
           </button>
@@ -198,7 +207,7 @@ export function CreateHierarchyNodeDialog({
             type="button"
             onClick={() => submit.mutate()}
             disabled={!ready || submit.isPending}
-            className="rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-background disabled:opacity-50"
+            className="rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
           >
             {submit.isPending ? 'Creating…' : 'Create'}
           </button>
