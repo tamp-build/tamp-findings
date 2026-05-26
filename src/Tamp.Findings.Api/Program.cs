@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Endpoints;
@@ -12,6 +13,27 @@ var builder = WebApplication.CreateBuilder(args);
 // post a few MB of payload without the framework refusing it. 100 MB ceiling
 // is generous for a single-repo scan; cap stays well below shenanigan territory.
 builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 100L * 1024 * 1024);
+
+// Behind the Cloudflare tunnel in prod: the tunnel terminates TLS at
+// the edge and forwards plain HTTP to the in-cluster Service. Without
+// this, ASP.NET Core builds OAuth redirect URIs from the Host it
+// actually sees (an internal pod IP, scheme http://) — which GitHub
+// rejects with "redirect_uri is not associated with this application".
+//
+// Trust X-Forwarded-Proto + X-Forwarded-Host (Cloudflare adds both)
+// so HttpContext.Request reflects the public-origin URL.
+//
+// Empty KnownNetworks/KnownProxies + ForwardLimit=null = trust the
+// tunnel regardless of source IP. Safe because the cluster Service is
+// only reachable via the tunnel; no direct LAN ingress to the pod.
+builder.Services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+                       | ForwardedHeaders.XForwardedProto
+                       | ForwardedHeaders.XForwardedHost;
+    o.KnownIPNetworks.Clear();
+    o.KnownProxies.Clear();
+});
 
 builder.Services.AddOpenApi();
 
@@ -95,6 +117,11 @@ if (Environment.GetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE") != "true")
         await db.SaveChangesAsync();
     }
 }
+
+// ForwardedHeaders MUST run before anything that reads Request.Scheme
+// / Request.Host (auth, redirect builders, OAuth challenge URL
+// generation). Goes first in the pipeline.
+app.UseForwardedHeaders();
 
 app.UseCors();
 
