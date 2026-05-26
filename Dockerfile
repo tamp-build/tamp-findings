@@ -74,14 +74,19 @@ RUN dotnet publish src/Tamp.Findings.Api/Tamp.Findings.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 
 # Non-root user — Kubernetes pod security standards "restricted" profile
-# expects pods to run as a non-root UID. ASP.NET Core can bind to high
-# ports without privileges.
-RUN addgroup -S app && adduser -S app -G app
-
+# expects pods to run as a non-root UID. The aspnet:10.0-alpine base
+# image already ships an `app` user / group; we reuse it rather than
+# creating a duplicate (addgroup -S app would fail with "group in use").
 WORKDIR /app
 COPY --from=api-build --chown=app:app /app/publish .
 
-USER app
+# Numeric UID — Kubernetes PSS restricted requires runAsNonRoot to be
+# proven by a numeric user (string usernames can't be verified non-root
+# without resolving /etc/passwd inside the image at admission time).
+# aspnet:10.0-alpine's `app` user is uid 1654 / gid 1654; pinning the
+# numeric form lets the kubelet pass admission. Stay in sync with
+# deploy/k8s/api.yaml's runAsUser / runAsGroup.
+USER 1654:1654
 
 # Match the dev API's port + the Service / probe config in deploy/k8s.
 EXPOSE 5080
