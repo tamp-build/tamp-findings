@@ -89,6 +89,67 @@ public class GateEvaluatorTests
     }
 
     // ------------------------------------------------------------------
+    // High gates — the reachable ones
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void High_gates_fire_where_the_critical_gates_cannot()
+    {
+        // The situation that motivated these: SARIF's level vocabulary has no
+        // "critical", so a scanner reporting through levels alone tops out at
+        // High. ZAP found a confirmed SQL injection on a live target and it
+        // arrived as High — criticalDast stayed green.
+        var inputs = Clean() with { SastHigh = 3, DastHigh = 1 };
+
+        var criticals = GateEvaluator.Evaluate(
+            Gates((GateKeys.CriticalSast, null), (GateKeys.CriticalDast, null)), inputs, 20, null, null);
+        Assert.True(Result(criticals, GateKeys.CriticalSast).Passed);
+        Assert.True(Result(criticals, GateKeys.CriticalDast).Passed);
+
+        var highs = GateEvaluator.Evaluate(
+            Gates((GateKeys.HighSast, null), (GateKeys.HighDast, null)), inputs, 20, null, null);
+        Assert.False(Result(highs, GateKeys.HighSast).Passed);
+        Assert.False(Result(highs, GateKeys.HighDast).Passed);
+    }
+
+    [Fact]
+    public void High_gates_read_their_own_severity_bucket()
+    {
+        // A copy-paste slip would have highSast reading Critical, which would
+        // put it right back in the unreachable state it exists to escape.
+        var criticalOnly = Clean() with { SastCritical = 9, DastCritical = 9, SastHigh = 0, DastHigh = 0 };
+        var eval = GateEvaluator.Evaluate(
+            Gates((GateKeys.HighSast, null), (GateKeys.HighDast, null)), criticalOnly, 40, null, null);
+
+        Assert.True(Result(eval, GateKeys.HighSast).Passed);
+        Assert.True(Result(eval, GateKeys.HighDast).Passed);
+    }
+
+    [Fact]
+    public void High_gates_do_not_cross_wire_sast_and_dast()
+    {
+        var sastOnly = Clean() with { SastHigh = 4, DastHigh = 0 };
+        var eval = GateEvaluator.Evaluate(
+            Gates((GateKeys.HighSast, null), (GateKeys.HighDast, null)), sastOnly, 20, null, null);
+
+        Assert.False(Result(eval, GateKeys.HighSast).Passed);
+        Assert.True(Result(eval, GateKeys.HighDast).Passed);
+    }
+
+    [Fact]
+    public void High_gates_honour_a_threshold()
+    {
+        // A team with existing High debt can hold the line at today's count
+        // instead of being forced to disable the gate entirely.
+        var inputs = Clean() with { SastHigh = 5 };
+
+        Assert.True(Result(GateEvaluator.Evaluate(Gates((GateKeys.HighSast, 5)), inputs, 1, null, null),
+            GateKeys.HighSast).Passed);
+        Assert.False(Result(GateEvaluator.Evaluate(Gates((GateKeys.HighSast, 4)), inputs, 1, null, null),
+            GateKeys.HighSast).Passed);
+    }
+
+    // ------------------------------------------------------------------
     // Shape guarantees the SPA relies on
     // ------------------------------------------------------------------
 
@@ -101,7 +162,8 @@ public class GateEvaluatorTests
         {
             GateKeys.RiskScoreRegression, GateKeys.KevExposure, GateKeys.AnyCves,
             GateKeys.CriticalCves, GateKeys.HighCves, GateKeys.CriticalSast,
-            GateKeys.CriticalDast, GateKeys.CriticalIac, GateKeys.VerifiedSecrets,
+            GateKeys.HighSast, GateKeys.CriticalDast, GateKeys.HighDast,
+            GateKeys.CriticalIac, GateKeys.VerifiedSecrets,
             GateKeys.DeniedLicenses, GateKeys.TestFailures, GateKeys.CoverageRegression,
             GateKeys.PoamPastDue,
         })
