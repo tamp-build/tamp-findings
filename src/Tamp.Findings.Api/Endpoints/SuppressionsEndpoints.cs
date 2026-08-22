@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Contracts;
@@ -30,6 +31,8 @@ public static class SuppressionsEndpoints
         SuppressionCreateRequest req,
         HttpContext http,
         FindingsDbContext db,
+        CapabilityEvaluator capabilities,
+        ILoggerFactory logs,
         CancellationToken ct)
     {
         // POC auth — header-based. Real OIDC plumbing lands in F3.3.
@@ -41,7 +44,32 @@ public static class SuppressionsEndpoints
 
         if (!Enum.TryParse<ProjectRole>(roleStr, ignoreCase: true, out var role))
         {
-            return TypedResults.BadRequest($"X-Author-Role must be one of: InfoSecOfficer, LeadDev, Architect (was '{roleStr}')");
+            return TypedResults.BadRequest(
+                $"X-Author-Role must be one of: {string.Join(", ", Enum.GetNames<ProjectRole>())} (was '{roleStr}')");
+        }
+
+        // Parsing a role is not the same as that role being ALLOWED to do this.
+        //
+        // Before TFND-69 the enum happened to contain only roles that could
+        // author suppressions, so parsing doubled as authorization by accident.
+        // Adding Auditor — which reads and exports but authors nothing — broke
+        // that coincidence, and every future role would break it again. Ask the
+        // capability evaluator instead of inferring from the enum's membership.
+        //
+        // The header itself is STILL TRUSTED here; that is TFND-71's job. This
+        // only stops a new role silently widening an existing surface.
+        var claimed = Principal.For(Guid.Empty, userLogin, isAdmin: false, [role]);
+        var decision = capabilities.Evaluate(claimed, Capability.AuthorSuppression);
+        if (!decision.Allowed)
+        {
+            // ForbidHttpResult carries no body, so the reason goes to the log
+            // rather than being lost — a 403 nobody can explain is a support
+            // ticket. The Blazor UI reads the evaluator directly and shows the
+            // reason inline instead (ADR 0002).
+            logs.CreateLogger("Tamp.Findings.Suppressions")
+                .LogWarning("Suppression authoring denied for {Login} as {Role}: {Reason}",
+                    userLogin, role, decision.Reason);
+            return TypedResults.Forbid();
         }
 
         // Validate scope-specific fields.
