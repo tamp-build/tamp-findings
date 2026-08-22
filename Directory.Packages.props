@@ -37,6 +37,16 @@
     <!-- TAM-277 / TFND-27: axe-core a11y. Scan + ConvertToSarif verbs. SARIF
          output plugs into /ingest/findings the same way ESLint/Trivy do. -->
     <PackageVersion Include="Tamp.AxeCore" Version="0.1.0" />
+    <!-- TAM-278 / TAM-280 / TFND-38: DAST against a deployed target. Both
+         emit SARIF natively, so unlike axe-core there's no converter leg. -->
+    <PackageVersion Include="Tamp.Zap" Version="0.1.1" />
+    <PackageVersion Include="Tamp.Nuclei" Version="0.1.0" />
+    <!-- TAM-279: pinned ahead of what Tamp.Security.Pipeline 1.13.0 pulls in
+         transitively (1.13.0). 1.14.0 models region.snippet, which is what
+         lets SarifIngestMapper stop passing Snippet: null — that improves
+         cross-build dedup for EVERY SARIF scanner, not just the DAST ones.
+         Transitive pinning is on, so this wins over the transitive version. -->
+    <PackageVersion Include="Tamp.Sarif" Version="1.14.0" />
     <!-- Versioning + GitHub CLI for release/PR plumbing. -->
     <PackageVersion Include="Tamp.GitVersion.V6" Version="0.2.0" />
     <PackageVersion Include="Tamp.GitHubCli.V2" Version="0.1.1" />

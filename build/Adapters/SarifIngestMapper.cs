@@ -66,9 +66,12 @@ public static class SarifIngestMapper
                     Description: rawMsg,
                     FilePath: artifact,
                     Line: region?.StartLine,
-                    // Tamp.Sarif's minimal model doesn't surface snippets;
-                    // dedup will fall back to (scanner, rule, path) only.
-                    Snippet: null,
+                    // TAM-279: Tamp.Sarif 1.14.0 models region.snippet, so
+                    // dedup no longer falls back to (scanner, rule, path) plus
+                    // a line number. This helps every SARIF scanner, not just
+                    // the DAST ones — a line-based hash churns whenever code
+                    // moves, a snippet-based one survives the edit.
+                    Snippet: region?.Snippet?.Text,
                     SubCategory: subCategory));
             }
         }

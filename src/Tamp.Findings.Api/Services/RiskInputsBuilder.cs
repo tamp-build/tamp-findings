@@ -13,19 +13,11 @@ namespace Tamp.Findings.Api.Services;
 // CV set OR an arbitrary prior CV set.
 public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResolver)
 {
-    private static readonly HashSet<ScannerKind> SastSet =
-    [
-        ScannerKind.Roslyn, ScannerKind.ReSharper, ScannerKind.OpenGrep,
-        ScannerKind.CodeQL, ScannerKind.ESLint,
-    ];
-
-    // Dynamic scanners — findings observed against a running deployment
-    // rather than the source tree. Kept out of SastSet so the two can be
-    // weighted and gated independently.
-    private static readonly HashSet<ScannerKind> DastSet =
-    [
-        ScannerKind.Zap, ScannerKind.Nuclei,
-    ];
+    // Canonical groupings live in Domain — the same sets decide which hash a
+    // finding gets at ingest and which browse surface renders it, and those
+    // three must not drift apart.
+    private static readonly IReadOnlySet<ScannerKind> SastSet = ScannerKinds.Sast;
+    private static readonly IReadOnlySet<ScannerKind> DastSet = ScannerKinds.Dast;
 
     public Task<RiskInputs> BuildAsync(IReadOnlyList<Guid> cvIds, RiskPolicyConfig policy, CancellationToken ct)
         => BuildAsync(cvIds, policy, projectId: null, ct);
