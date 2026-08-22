@@ -193,14 +193,24 @@ app.UseCors();
 // middlewares are no-ops when wwwroot/ is missing (dev runs).
 app.UseDefaultFiles();
 app.UseStaticFiles();
-// Serves wwwroot/ from referenced RCLs too, so Tamp.Findings.Web's assets
-// resolve under _content/Tamp.Findings.Web/.
+// NOTE: deliberately UseStaticFiles rather than MapStaticAssets.
 //
-// AllowAnonymous because the host applies a fallback authorization policy to
-// every endpoint, and stylesheets and the Blazor framework script are not
-// secrets. Without this the sign-in page (TFND-126) could not load its own CSS
-// or boot a circuit — the user has to see the page BEFORE they authenticate.
-app.MapStaticAssets().AllowAnonymous();
+// UseStaticFiles is middleware — it runs before routing and authorization, so
+// stylesheets, fonts and the Blazor framework script are served without an
+// authorization check. That is what we want: they are not secrets, and the
+// sign-in page (TFND-126) has to load its own CSS and boot a circuit BEFORE
+// the visitor is authenticated.
+//
+// MapStaticAssets was tried first and is the modern default, but it registers
+// ENDPOINTS, which inherit the host's RequireAuthenticatedUser fallback policy
+// — and marking them AllowAnonymous produced 200s with empty bodies for every
+// asset, including the fingerprinted URLs its own Assets[] helper emits. The
+// middleware path has no such interaction. Revisit only with a test that
+// actually fetches an asset and asserts its length; a status code alone does
+// not catch this.
+//
+// UseStaticFiles above already serves the RCL's wwwroot through the static
+// web assets file provider, so _content/Tamp.Findings.Web/ resolves here.
 
 app.UseAuthentication();
 app.UseAuthorization();

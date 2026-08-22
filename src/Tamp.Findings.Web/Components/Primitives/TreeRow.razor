@@ -1,0 +1,32 @@
+@* Explorer tree row. Group rows (module, host, ecosystem, assembly) are
+   600-weight and NOT selectable; leaf rows indent 12px per level.
+
+   Names truncate rather than wrap — but the badge on the right must not be
+   squeezed, so the name owns the flex and the badge does not. *@
+
+<div class="tree-row @(Group ? "tree-row--group" : null) @(Selected ? "tree-row--selected" : null) @Class"
+     style="padding-left: calc(var(--space-2) + @(Depth * 12)px)"
+     role="@(Group ? "presentation" : "treeitem")"
+     aria-selected="@(Group ? null : Selected.ToString().ToLowerInvariant())"
+     tabindex="@(Group ? -1 : 0)"
+     @onclick="Activate" @onkeydown="Key">
+    <span class="tree-row__name" title="@Name">@Name</span>
+    @Badge
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+    /// <summary>Severity ladder, CVE count, coverage percentage, passed/failed.</summary>
+    [Parameter] public RenderFragment? Badge { get; set; }
+    [Parameter] public int Depth { get; set; }
+    [Parameter] public bool Group { get; set; }
+    [Parameter] public bool Selected { get; set; }
+    [Parameter] public EventCallback OnSelect { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    private Task Activate() => Group ? Task.CompletedTask : OnSelect.InvokeAsync();
+
+    // A div is not a button, so keyboard activation is ours to provide.
+    private Task Key(KeyboardEventArgs e) =>
+        !Group && e.Key is "Enter" or " " ? OnSelect.InvokeAsync() : Task.CompletedTask;
+}
