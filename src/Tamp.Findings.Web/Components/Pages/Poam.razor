@@ -1,0 +1,22 @@
+@page "/c/{Client}/p/{Project}/poam"
+@page "/c/{Client}/p/{Project}/poam/{ItemId}"
+@attribute [Authorize]
+@inject RouteScope Scope
+
+<PageTitle>POA&amp;M — @Project</PageTitle>
+
+<Placeholder Title="POA&amp;M" Ticket="TFND-95 … TFND-98"
+             Description="The federal record (NIST SP 800-53 CA-5) that a weakness exists, who owns it, and when it closes. Reviewed monthly by the Authorizing Official."
+             Scope="Params" />
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+    /// <summary>Null on the list route; set when a single item is deep-linked.</summary>
+    [Parameter] public string? ItemId { get; set; }
+
+    private List<KeyValuePair<string, string?>> Params =>
+        [new("client", Client), new("project", Project), new("item", ItemId)];
+
+    protected override void OnParametersSet() => Scope.SetProject(Client, Project);
+}

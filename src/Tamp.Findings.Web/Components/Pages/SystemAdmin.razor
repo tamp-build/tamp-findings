@@ -1,0 +1,43 @@
+@* Instance-level. Outside any client or project scope, which is why the nav
+   separates it and the tab strip marks it differently.
+
+   Named SystemAdmin, not System: a component's class name is its file name,
+   and a class called System shadows the System NAMESPACE for every other file
+   in the assembly — "@using System.Net.Http" then fails to resolve. *@
+@page "/system"
+@page "/system/{Panel}"
+@attribute [Authorize]
+@inject RouteScope Scope
+@inject NavigationManager Nav
+
+<PageTitle>System — tamp.findings</PageTitle>
+
+@if (Panel is not null && !SystemPanels.IsValid(Panel))
+{
+    <div class="stack">
+        <h1>Unknown panel</h1>
+        <Card>
+            <p><code class="mono">@Panel</code> is not one of @KnownPanels.</p>
+            <Button Variant="Button.ButtonVariant.Primary" OnClick="GoToUsers">
+                Go to Users &amp; RBAC
+            </Button>
+        </Card>
+    </div>
+}
+else
+{
+    <Placeholder Title="@Heading" Ticket="TFND-110 … TFND-114"
+                 Description="Instance-wide settings — outside any client or project scope. Changes here affect every tenant on this deployment." />
+}
+
+@code {
+    [Parameter] public string? Panel { get; set; }
+
+    private static readonly string KnownPanels = string.Join(", ", SystemPanels.All);
+
+    private string Heading => $"System · {Panel ?? SystemPanels.Users}";
+
+    private void GoToUsers() => Nav.NavigateTo(Routes.System());
+
+    protected override void OnParametersSet() => Scope.Clear();
+}

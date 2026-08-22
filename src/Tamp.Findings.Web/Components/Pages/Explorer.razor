@@ -1,0 +1,59 @@
+@* One shell, five spines.
+
+   The selection is a CATCH-ALL because it is usually a source path and the
+   slashes have to survive — ".../sast/src/Api/Program.cs" is one selection,
+   not three segments. *@
+@page "/c/{Client}/p/{Project}/build/{Sha}/{Spine}"
+@page "/c/{Client}/p/{Project}/build/{Sha}/{Spine}/{*Selection}"
+@attribute [Authorize]
+@inject RouteScope Scope
+@inject NavigationManager Nav
+
+<PageTitle>@Spine — @Project</PageTitle>
+
+@if (!Spines.IsValid(Spine))
+{
+    @* An unknown spine is a broken link, not an empty screen. Say so, and
+       offer a way out, rather than rendering a shell with nothing in it. *@
+    <div class="stack">
+        <h1>Unknown spine</h1>
+        <Card>
+            <p>
+                <code class="mono">@Spine</code> is not one of @KnownSpines.
+            </p>
+            <Button Variant="Button.ButtonVariant.Primary" OnClick="GoToSast">
+                Go to the SAST spine
+            </Button>
+        </Card>
+    </div>
+}
+else
+{
+    <Placeholder Title="@Heading" Ticket="TFND-86 … TFND-94"
+                 Description="Replaces the four near-identical two-pane screens plus the SBOM table. Same navigation, same detail grammar, different evidence."
+                 Scope="Params" />
+}
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+    [Parameter] public string Sha { get; set; } = "";
+    [Parameter] public string Spine { get; set; } = "";
+    [Parameter] public string? Selection { get; set; }
+
+    private static readonly string KnownSpines = string.Join(", ", Spines.All);
+
+    private string Heading => $"Explorer · {Spine}";
+
+    private List<KeyValuePair<string, string?>> Params =>
+        [new("client", Client), new("project", Project), new("build", Sha),
+         new("spine", Spine), new("selection", Selection)];
+
+    private void GoToSast() => Nav.NavigateTo(Routes.Explorer(Client, Project, Sha, Spines.Sast));
+
+    protected override void OnParametersSet()
+    {
+        Scope.SetProject(Client, Project, Sha);
+        Scope.SetExplorer(Spine, Selection);
+    }
+}

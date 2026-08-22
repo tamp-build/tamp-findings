@@ -1,0 +1,37 @@
+@* Interim body for a route that exists but whose screen has not been built.
+
+   Every route in the design scheme is registered NOW, because deep linking is
+   the headline fix and half a router is worse than none — a link that 404s
+   today and works next month is indistinguishable from a bug. The screens fill
+   in behind these. *@
+
+<div class="stack">
+    <div>
+        <h1>@Title</h1>
+        <p class="kicker">@Ticket · route registered, screen pending</p>
+    </div>
+
+    <Card>
+        <p>@Description</p>
+        @if (Scope.Count > 0)
+        {
+            <table class="table">
+                <thead><tr><th>Route parameter</th><th>Value</th></tr></thead>
+                <tbody>
+                    @foreach (var (k, v) in Scope)
+                    {
+                        <tr><td>@k</td><td class="mono">@(v ?? "—")</td></tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </Card>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter, EditorRequired] public string Ticket { get; set; } = "";
+    [Parameter] public string? Description { get; set; }
+    /// <summary>Shown so a deep link can be verified by eye before the screen exists.</summary>
+    [Parameter] public IReadOnlyList<KeyValuePair<string, string?>> Scope { get; set; } = [];
+}
