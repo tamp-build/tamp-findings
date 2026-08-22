@@ -2,6 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
+// Side-effect import: initialises i18next and applies <html lang>/<dir> before
+// the first render, so no component ever sees an uninitialised catalogue.
+import './i18n'
 import App from './App.tsx'
 
 const queryClient = new QueryClient({

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Search, LogOut, Settings, Plus, ChevronDown } from 'lucide-react'
 import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import { FindingsView } from '@/views/FindingsView'
+import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 import { DastView } from '@/views/DastView'
 import { ComponentsView } from '@/views/ComponentsView'
 import { OverviewView } from '@/views/OverviewView'
@@ -123,6 +124,7 @@ function Dashboard() {
                 <Settings className="size-4" />
               </button>
             )}
+            <LanguageSwitcher className="mr-1" />
             <UserAvatarButton user={user} onClick={() => setTab('profile')} />
             <button
               type="button"

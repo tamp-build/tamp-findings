@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Trans, useTranslation } from 'react-i18next'
 import { AlertCircle, ChevronRight, Globe, Radio } from 'lucide-react'
 import { fetchDastTree } from '@/lib/api'
 import type { DastHostNode, DastRouteNode, DastFinding, Severity } from '@/lib/api'
@@ -75,6 +76,7 @@ function SeverityPips({ counts }: { counts: Counts }) {
 }
 
 export function DastView({ projectId }: { projectId?: string }) {
+  const { t } = useTranslation()
   const tree = useQuery({
     queryKey: ['dast-tree', projectId],
     queryFn: () => fetchDastTree({ projectId }),
@@ -100,14 +102,14 @@ export function DastView({ projectId }: { projectId?: string }) {
   }, [hosts, selected])
 
   if (tree.isLoading) {
-    return <div className="p-8 text-sm text-muted-foreground">Loading dynamic scan results…</div>
+    return <div className="p-8 text-sm text-muted-foreground">{t('dast.loading')}</div>
   }
 
   if (tree.isError) {
     return (
       <div className="flex items-center gap-2 p-8 text-sm text-red-600 dark:text-red-400">
         <AlertCircle className="size-4" />
-        Couldn’t load dynamic scan results.
+        {t('dast.loadError')}
       </div>
     )
   }
@@ -116,15 +118,19 @@ export function DastView({ projectId }: { projectId?: string }) {
     return (
       <div className="mx-auto max-w-lg p-10 text-center">
         <Radio className="mx-auto mb-3 size-8 text-muted-foreground/60" />
-        <p className="text-sm font-medium">No dynamic scan findings</p>
+        <p className="text-sm font-medium">{t('dast.empty.title')}</p>
+        {/* <Trans> keeps the markup here and the prose in the catalogue:
+            translators get one sentence with numbered placeholders and never
+            have to reproduce a <code> tag or a className. */}
         <p className="mt-2 text-xs text-muted-foreground">
-          Nothing has been ingested from a DAST scanner for this scope. Run a ZAP or
-          Nuclei scan against a deployed environment and post its SARIF to
-          <code className="mx-1 rounded bg-muted px-1 py-0.5">/ingest/findings</code>.
+          <Trans
+            i18nKey="dast.empty.body"
+            values={{ endpoint: '/ingest/findings' }}
+            components={[<code key="0" className="mx-1 rounded bg-muted px-1 py-0.5" />]}
+          />
         </p>
         <p className="mt-3 text-xs text-muted-foreground">
-          An empty result here is not the same as a clean one — a project with no DAST
-          receipt at all caps SSDF PW.8.1 at <em>Partial</em>.
+          <Trans i18nKey="dast.empty.note" components={[<em key="0" />]} />
         </p>
       </div>
     )
@@ -136,10 +142,10 @@ export function DastView({ projectId }: { projectId?: string }) {
       <aside className="w-[22rem] shrink-0 overflow-y-auto rounded-md border border-border">
         <div className="sticky top-0 flex items-baseline justify-between border-b border-border bg-card px-3 py-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Endpoints
+            {t('dast.endpoints')}
           </h2>
           <span className="text-[11px] tabular-nums text-muted-foreground">
-            {tree.data!.totalCount} open
+            {t('dast.openCount', { count: tree.data!.totalCount })}
           </span>
         </div>
         {hosts.map(host => (
@@ -155,7 +161,7 @@ export function DastView({ projectId }: { projectId?: string }) {
       {/* Right — findings on the selected route */}
       <section className="min-w-0 flex-1 overflow-y-auto rounded-md border border-border">
         {active ? <RouteDetail route={active} /> : (
-          <div className="p-8 text-sm text-muted-foreground">Select a route.</div>
+          <div className="p-8 text-sm text-muted-foreground">{t('dast.selectRoute')}</div>
         )}
       </section>
     </div>
@@ -204,6 +210,7 @@ function HostGroup({
 }
 
 function RouteDetail({ route }: { route: DastRouteNode }) {
+  const { t } = useTranslation()
   return (
     <div>
       <div className="sticky top-0 border-b border-border bg-card px-4 py-3">
@@ -211,7 +218,7 @@ function RouteDetail({ route }: { route: DastRouteNode }) {
         <div className="mt-1 flex items-center gap-3">
           <SeverityPips counts={route.counts} />
           <span className="text-[11px] text-muted-foreground">
-            {route.findings.length} finding{route.findings.length === 1 ? '' : 's'}
+            {t('dast.findingCount', { count: route.findings.length })}
           </span>
         </div>
       </div>
@@ -223,6 +230,7 @@ function RouteDetail({ route }: { route: DastRouteNode }) {
 }
 
 function FindingRow({ finding }: { finding: DastFinding }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   return (
     <li className={cn('border-l-2 px-4 py-3', SEV_BORDER[finding.severity])}>
@@ -251,7 +259,7 @@ function FindingRow({ finding }: { finding: DastFinding }) {
           {finding.evidence && (
             <div>
               <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Evidence
+                {t('dast.finding.evidence')}
               </p>
               <pre className="overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-[11px]">
                 {finding.evidence}
@@ -261,7 +269,7 @@ function FindingRow({ finding }: { finding: DastFinding }) {
           {finding.url && (
             <div>
               <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Request URL
+                {t('dast.finding.requestUrl')}
               </p>
               {/* Deliberately NOT a link. This URL carries the scanner's attack
                   payload; making it clickable invites someone to fire it from a
