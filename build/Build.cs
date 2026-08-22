@@ -16,6 +16,10 @@ using Tamp.Eslint.V9;
 using EslintCli = Tamp.Eslint.V9.Eslint;
 using Tamp.AxeCore;
 using AxeCoreCli = Tamp.AxeCore.AxeCore;
+using Tamp.Zap;
+using ZapCli = Tamp.Zap.Zap;
+using Tamp.Nuclei;
+using NucleiCli = Tamp.Nuclei.Nuclei;
 using Tamp.Docker.V27;
 using DockerCli = Tamp.Docker.V27.Docker;
 using Tamp.Kubectl;
@@ -107,6 +111,22 @@ class Build : SecurityPipelineBuild
 #pragma warning disable CS0649
     [Parameter("Target URL for axe-core a11y scan (defaults to local dev SPA)", EnvironmentVariable = "TAMP_FINDINGS_AXE_TARGET_URL")]
     readonly string? AxeTargetUrl;
+
+    // TFND-38: deployed target for the DAST leg. Separate from AxeTargetUrl
+    // because axe-core scans the SPA specifically while ZAP/Nuclei scan the
+    // whole running service. Empty → both DAST targets skip with a clear log
+    // line rather than failing the build.
+    [Parameter("Target URL for the DAST scan (ZAP / Nuclei)", EnvironmentVariable = "TAMP_FINDINGS_DAST_TARGET_URL")]
+    readonly string? DastTargetUrl;
+
+    // ZAP runs in a container and bind-mounts its work directory, so that path
+    // has to be one the Docker daemon can actually mount. The repo checkout
+    // isn't always: Docker Desktop file sharing may not cover the drive, and
+    // restricted CI runners often only allow mounts under a scratch path.
+    // Override to relocate the scan's scratch space; the SARIF is copied back
+    // into artifacts/security either way, so nothing downstream changes.
+    [Parameter("Host directory ZAP bind-mounts as its work dir (default: artifacts/security)", EnvironmentVariable = "TAMP_FINDINGS_ZAP_WORK_DIR")]
+    readonly string? ZapWorkDirOverride;
 #pragma warning restore CS0649
 
     // ----- SecurityPipelineBuild overrides --------------------------------
@@ -295,6 +315,110 @@ class Build : SecurityPipelineBuild
                 .SetOutputFile(SecuritySarifAxeCoreFile.Value));
             var convertRc = ProcessRunner.Execute(sarifPlan, Console.Out, Console.Error);
             if (convertRc != 0) throw new Exception($"axe-sarif-converter exited with {convertRc}");
+        });
+
+    // TFND-38 / TAM-278: ZAP DAST via Tamp.Zap 0.1.0.
+    //
+    // Runs the Automation Framework rather than the packaged zap-baseline.py:
+    // the framework composes contexts/auth, spec import, spidering, scanning
+    // and reporting as one declarative plan, and the packaged scripts have no
+    // way to express an authentication context.
+    //
+    // Anonymous profile deliberately. It spiders and runs passive rules only,
+    // so it is safe against any environment, and its job is to assert that
+    // nothing outside the intended public allow-list answers without
+    // credentials. The authenticated + active profiles need a disposable
+    // target and a session/token, which is a separate opt-in target.
+    Target SecurityScanZap => _ => _
+        .Description("ZAP DAST (anonymous baseline) against the deployed app; SARIF for /ingest/findings. Requires Docker.")
+        .Executes(() =>
+        {
+            SecurityArtifactsDir.CreateDirectory();
+            if (string.IsNullOrWhiteSpace(DastTargetUrl))
+            {
+                Console.WriteLine("[security] ZAP skipped — no target URL (set TAMP_FINDINGS_DAST_TARGET_URL).");
+                return;
+            }
+
+            var workDir = string.IsNullOrWhiteSpace(ZapWorkDirOverride)
+                ? SecurityArtifactsDir
+                : AbsolutePath.Create(ZapWorkDirOverride!);
+            workDir.CreateDirectory();
+
+            var planFile = ZapAutomationPlan.Write(
+                workDir / "zap-anon.yaml",
+                ZapAutomationPlan.Anonymous(DastTargetUrl!, SecuritySarifZapFile.Name));
+
+            var plan = ZapCli.Automation(s => s
+                .SetWorkingDirectory(RootDirectory)
+                .SetWorkDirectory(workDir)
+                .SetPlanFile(planFile));
+
+            var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
+            // The Automation Framework exits 0 when the plan completes,
+            // regardless of what it found — findings live in the report. A
+            // non-zero exit means the plan itself failed (bad YAML, target
+            // unreachable, unknown report template), which is a real failure.
+            if (rc != 0) throw new Exception($"zap exited with {rc}");
+
+            // Bring the report back under artifacts/security so the Ingest
+            // target finds it at the usual path regardless of where the scan
+            // ran — and resolve the name through the wrapper, because ZAP
+            // appends the template extension (zap.sarif -> zap.sarif.json).
+            var produced = workDir / ZapAutomationPlan.SarifReportFileOnDisk(SecuritySarifZapFile.Name);
+            if (!File.Exists(produced))
+                throw new Exception($"zap reported success but produced no report at {produced}");
+            if (produced.Value != SecuritySarifZapFile.Value)
+            {
+                produced.CopyTo(SecuritySarifZapFile, overwrite: true);
+                Console.WriteLine($"[security] ZAP report {produced.Name} -> {SecuritySarifZapFile}");
+            }
+        });
+
+    // TFND-38 / TAM-280: Nuclei DAST via Tamp.Nuclei 0.1.0.
+    //
+    // Template-driven probing, not fuzzing: -dast is deliberately NOT set
+    // here. Fuzzing templates submit crafted payloads to every parameter they
+    // find, which creates/modifies/deletes data through whatever endpoints
+    // answer — fine against a disposable target, not something the default
+    // pipeline should do. Info severity is excluded because the corpus emits a
+    // large volume of fingerprinting notes that would swamp the findings list.
+    //
+    // -duc pins the template set for this run: the corpus moves daily, and an
+    // unpinned scan can report a finding today it didn't yesterday with no
+    // code change to explain it. -ni keeps out-of-band callbacks off a
+    // third-party interactsh server.
+    Target SecurityScanNuclei => _ => _
+        .Description("Nuclei template scan against the deployed app; SARIF for /ingest/findings. Requires the nuclei binary on PATH.")
+        .Executes(() =>
+        {
+            SecurityArtifactsDir.CreateDirectory();
+            if (string.IsNullOrWhiteSpace(DastTargetUrl))
+            {
+                Console.WriteLine("[security] Nuclei skipped — no target URL (set TAMP_FINDINGS_DAST_TARGET_URL).");
+                return;
+            }
+            if (Tool.TryFromPath("nuclei", RootDirectory.Value) is null)
+            {
+                Console.WriteLine("[security] Nuclei skipped — nuclei not on PATH (go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest).");
+                return;
+            }
+
+            var plan = NucleiCli.Scan(s => s
+                .SetWorkingDirectory(RootDirectory)
+                .AddTarget(DastTargetUrl!)
+                .SetSarifExportFile(SecuritySarifNucleiFile.Value)
+                .AddExcludeSeverity(NucleiSeverity.Info)
+                .SetNoInteractsh()
+                .SetDisableUpdateCheck()
+                .SetSilent()
+                .SetNoColor());
+
+            var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
+            // Nuclei exits 0 on a completed scan whether or not it found
+            // anything. Non-zero means the scan failed — do NOT copy the
+            // `rc > 1` pattern used for OpenGrep/ESLint here.
+            if (rc != 0) throw new Exception($"nuclei exited with {rc}");
         });
 
     // Roslyn analyzer scan must skip the build project itself: dotnet build

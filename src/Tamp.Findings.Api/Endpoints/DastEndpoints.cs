@@ -20,9 +20,9 @@ namespace Tamp.Findings.Api.Endpoints;
 // this the way /findings/tree + /findings/file are split is the fix.
 public static class DastEndpoints
 {
-    // Scanners whose findings are runtime observations. Mirrors
-    // RiskInputsBuilder.DastSet — see the note there about keeping them aligned.
-    private static readonly ScannerKind[] DastScanners = [ScannerKind.Zap, ScannerKind.Nuclei];
+    // Scanners whose findings are runtime observations. Canonical set lives
+    // in Domain alongside the one that selects the dynamic hasher.
+    private static readonly ScannerKind[] DastScanners = [.. ScannerKinds.Dast];
 
     public static IEndpointRouteBuilder MapDast(this IEndpointRouteBuilder app)
     {

@@ -76,6 +76,15 @@
           "Tamp.Core": "1.11.1"
         }
       },
+      "Tamp.Nuclei": {
+        "type": "Direct",
+        "requested": "[0.1.0, )",
+        "resolved": "0.1.0",
+        "contentHash": "ZbrDkG/Afp9F+zjY5m0qn88+BIuksceo3x7HDHax2dYicqOP4G9oIuqRAztynh88/ypjvsaL4KoLS4/Oi+cLsA==",
+        "dependencies": {
+          "Tamp.Core": "1.11.1"
+        }
+      },
       "Tamp.ReportGenerator.V5": {
         "type": "Direct",
         "requested": "[0.1.1, )",
@@ -123,6 +132,15 @@
           "Tamp.Core": "1.2.0"
         }
       },
+      "Tamp.Zap": {
+        "type": "Direct",
+        "requested": "[0.1.1, )",
+        "resolved": "0.1.1",
+        "contentHash": "U/Me8wEPz1VXeiRhOGXkLvygiQOspiSo8r3hAN+rABUoDpajE92vBGiyUAX3qCBO0fzFokRJSsC5MHPUnGMiUQ==",
+        "dependencies": {
+          "Tamp.Core": "1.11.1"
+        }
+      },
       "Microsoft.Extensions.FileSystemGlobbing": {
         "type": "Transitive",
         "resolved": "9.0.0",
@@ -130,8 +148,8 @@
       },
       "Tamp.Core": {
         "type": "Transitive",
-        "resolved": "1.13.0",
-        "contentHash": "ToMZIkcuW57LoVanSC0AWFIEiUF6pB/k9n1JKGGW3OSbtqaF3dfoWlsTQU6ETHMDNU3rNKfXcdmAH9HuE+BKsQ==",
+        "resolved": "1.14.0",
+        "contentHash": "mCwMGSqiCqzRYM9ZxjbDoreKCpfn2A1jtbvdE1jG6qRR0Lc7BK0w2i1adHe0LTe0aJO5nbc74YxU/R3rDz1L3Q==",
         "dependencies": {
           "Microsoft.Extensions.FileSystemGlobbing": "9.0.0"
         }
@@ -187,15 +205,6 @@
           "Tamp.Core": "1.11.1"
         }
       },
-      "Tamp.Sarif": {
-        "type": "Transitive",
-        "resolved": "1.13.0",
-        "contentHash": "Bn9rfAWSjdiqFG+QtSAocztGNVzc5ijEzqO0GPq4uTA7uGe0/kkHOM++pJQ8YHaqW5rO0VvHC/C8JH5F89XIIA==",
-        "dependencies": {
-          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
-          "Tamp.Core": "1.13.0"
-        }
-      },
       "Tamp.Sbom": {
         "type": "Transitive",
         "resolved": "1.13.0",
@@ -215,6 +224,16 @@
       },
       "tamp.findings.domain": {
         "type": "Project"
+      },
+      "Tamp.Sarif": {
+        "type": "CentralTransitive",
+        "requested": "[1.14.0, )",
+        "resolved": "1.14.0",
+        "contentHash": "NpVeVm4B07mV2IiowRtEyJn8NgK/ClmXzjRLoLnuMuNdqQII5g+6TAi3fW+ogOnxBQE5Tpt46nva9RTBFHVcaw==",
+        "dependencies": {
+          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
+          "Tamp.Core": "1.14.0"
+        }
       }
     }
   }

@@ -126,7 +126,15 @@ public static class IngestEndpoints
 
         foreach (var f in req.Findings)
         {
-            var hash = FindingHasher.Compute(req.Scanner, f.RuleId, f.FilePath, f.Snippet, f.Line);
+            // TFND-38: a dynamic scanner reports the request it made, not a
+            // place in the source tree, so it needs the route-based hash.
+            // Using the file/line hasher here would key on the raw URI —
+            // which for a dynamic scan carries the attack payload — and mint
+            // a fresh identity on every scan: nothing would ever dedup and
+            // FirstSeen would reset each run.
+            var hash = ScannerKinds.IsDynamic(req.Scanner)
+                ? FindingHasher.ComputeForDynamic(req.Scanner, f.RuleId, f.FilePath)
+                : FindingHasher.Compute(req.Scanner, f.RuleId, f.FilePath, f.Snippet, f.Line);
             incomingHashes.Add(hash);
 
             if (existing.TryGetValue(hash, out var current))

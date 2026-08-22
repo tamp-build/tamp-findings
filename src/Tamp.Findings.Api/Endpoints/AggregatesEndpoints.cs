@@ -533,21 +533,10 @@ public static class AggregatesEndpoints
             risk));
     }
 
-    // SAST scanner set used by the Code Quality ring. Kept here so the
-    // risk scorer's SAST inputs match what the donut shows the user.
-    private static readonly HashSet<ScannerKind> RingChartSastSet =
-    [
-        ScannerKind.Roslyn, ScannerKind.ReSharper, ScannerKind.OpenGrep, ScannerKind.CodeQL,
-        ScannerKind.ESLint,
-    ];
-
-    // Dynamic scanners. Mirrors RiskInputsBuilder.DastSet — the two must
-    // agree or /aggregates and the per-build evaluator would disagree about
-    // the same build.
-    private static readonly HashSet<ScannerKind> RingChartDastSet =
-    [
-        ScannerKind.Zap, ScannerKind.Nuclei,
-    ];
+    // Shared with RiskInputsBuilder via Domain so /aggregates and the
+    // per-build evaluator can't disagree about the same build.
+    private static readonly IReadOnlySet<ScannerKind> RingChartSastSet = ScannerKinds.Sast;
+    private static readonly IReadOnlySet<ScannerKind> RingChartDastSet = ScannerKinds.Dast;
 
     // Canonical = the project's actual state, NOT a PR/branch acceptance
     // gate. Risk score always uses canonical-only (acceptance-gate posture).
