@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
@@ -17,8 +18,16 @@ public static class SbomVulnerabilitiesEndpoints
     {
         app.MapPost("/sbom-vulnerabilities/upsert", UpsertAsync)
            .WithName("UpsertSbomVulnerabilities")
-           .WithSummary("Upsert Vulnerability rows on SbomComponents in a snapshot. Body: { snapshotId, vulnerabilities: [{ packageName, packageVersion, advisoryId, severity, title, description, referenceUrl }] }. Matching is (Name, Version) exact within the snapshot.")
-           .AllowAnonymous();
+           .WithSummary("Upsert Vulnerability rows on SbomComponents in a snapshot. Body: { snapshotId, vulnerabilities: [{ packageName, packageVersion, advisoryId, severity, title, description, referenceUrl }] }. Matching is (Name, Version) exact within the snapshot. Requires Authorization: Bearer cli_… or prj_…")
+           // AllowAnonymous opts out of the cookie FallbackPolicy; the
+           // bearer filter is what actually guards the route. Without the
+           // filter this was an unauthenticated write into any snapshot by
+           // guid, bypassing IngestScopeGuard's cli_/prj_ scoping entirely
+           // — injected rows feed the risk score, KEV gate, and SSDF
+           // attestation. The build already sends the token (IngestClient
+           // line 84), so this is a no-op for the pipeline.
+           .AllowAnonymous()
+           .AddEndpointFilter<IngestAuthFilter>();
         return app;
     }
 
