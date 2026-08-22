@@ -25,7 +25,12 @@ public class GateEvaluatorTests
         SbomComponents: 10, SbomOutdated: 0, SbomStale: 0,
         TestsMeasured: true, TestsTotal: 100, TestsFailed: 0,
         LicenseDenied: 0, LicenseStrongCopyleft: 0, LicenseUnknown: 0,
-        RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true);
+        RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true,
+        // Clean() means EVERY expected scanner ran and found nothing. Without
+        // this the DAST gates would be Unknown rather than Pass, and a test
+        // that sets DastCritical while RanDast is false describes a build
+        // that cannot exist (TFND-74).
+        RanDast: true);
 
     private static GateResult Result(GateEvaluation e, string key) => e.Results.Single(r => r.Key == key);
 
@@ -41,7 +46,7 @@ public class GateEvaluatorTests
 
         var gate = Result(eval, GateKeys.CriticalDast);
         Assert.True(gate.Enabled);
-        Assert.False(gate.Passed);
+        Assert.Equal(GateVerdict.Fail, gate.Verdict);
         Assert.Contains("critical DAST", gate.Observed, StringComparison.Ordinal);
     }
 
@@ -53,7 +58,7 @@ public class GateEvaluatorTests
         var sastOnly = Clean() with { SastCritical = 5, DastCritical = 0 };
         var eval = GateEvaluator.Evaluate(Gates((GateKeys.CriticalDast, null)), sastOnly, 12, null, null);
 
-        Assert.True(Result(eval, GateKeys.CriticalDast).Passed);
+        Assert.Equal(GateVerdict.Pass, Result(eval, GateKeys.CriticalDast).Verdict);
     }
 
     [Fact]
@@ -62,7 +67,7 @@ public class GateEvaluatorTests
         var dastOnly = Clean() with { DastCritical = 5, SastCritical = 0 };
         var eval = GateEvaluator.Evaluate(Gates((GateKeys.CriticalSast, null)), dastOnly, 12, null, null);
 
-        Assert.True(Result(eval, GateKeys.CriticalSast).Passed);
+        Assert.Equal(GateVerdict.Pass, Result(eval, GateKeys.CriticalSast).Verdict);
     }
 
     [Fact]
@@ -70,10 +75,10 @@ public class GateEvaluatorTests
     {
         var inputs = Clean() with { DastCritical = 2 };
 
-        Assert.True(Result(GateEvaluator.Evaluate(Gates((GateKeys.CriticalDast, 2)), inputs, 1, null, null),
-            GateKeys.CriticalDast).Passed);
-        Assert.False(Result(GateEvaluator.Evaluate(Gates((GateKeys.CriticalDast, 1)), inputs, 1, null, null),
-            GateKeys.CriticalDast).Passed);
+        Assert.Equal(GateVerdict.Pass, Result(GateEvaluator.Evaluate(Gates((GateKeys.CriticalDast, 2)), inputs, 1, null, null),
+            GateKeys.CriticalDast).Verdict);
+        Assert.Equal(GateVerdict.Fail, Result(GateEvaluator.Evaluate(Gates((GateKeys.CriticalDast, 1)), inputs, 1, null, null),
+            GateKeys.CriticalDast).Verdict);
     }
 
     [Fact]
@@ -84,8 +89,9 @@ public class GateEvaluatorTests
 
         var gate = Result(eval, GateKeys.CriticalDast);
         Assert.False(gate.Enabled);
-        Assert.True(gate.Passed);
+        Assert.False(gate.Blocks);
         Assert.Equal(0, eval.Failed);
+        Assert.Equal(0, eval.Blocking);
     }
 
     // ------------------------------------------------------------------
@@ -103,13 +109,13 @@ public class GateEvaluatorTests
 
         var criticals = GateEvaluator.Evaluate(
             Gates((GateKeys.CriticalSast, null), (GateKeys.CriticalDast, null)), inputs, 20, null, null);
-        Assert.True(Result(criticals, GateKeys.CriticalSast).Passed);
-        Assert.True(Result(criticals, GateKeys.CriticalDast).Passed);
+        Assert.Equal(GateVerdict.Pass, Result(criticals, GateKeys.CriticalSast).Verdict);
+        Assert.Equal(GateVerdict.Pass, Result(criticals, GateKeys.CriticalDast).Verdict);
 
         var highs = GateEvaluator.Evaluate(
             Gates((GateKeys.HighSast, null), (GateKeys.HighDast, null)), inputs, 20, null, null);
-        Assert.False(Result(highs, GateKeys.HighSast).Passed);
-        Assert.False(Result(highs, GateKeys.HighDast).Passed);
+        Assert.Equal(GateVerdict.Fail, Result(highs, GateKeys.HighSast).Verdict);
+        Assert.Equal(GateVerdict.Fail, Result(highs, GateKeys.HighDast).Verdict);
     }
 
     [Fact]
@@ -121,8 +127,8 @@ public class GateEvaluatorTests
         var eval = GateEvaluator.Evaluate(
             Gates((GateKeys.HighSast, null), (GateKeys.HighDast, null)), criticalOnly, 40, null, null);
 
-        Assert.True(Result(eval, GateKeys.HighSast).Passed);
-        Assert.True(Result(eval, GateKeys.HighDast).Passed);
+        Assert.Equal(GateVerdict.Pass, Result(eval, GateKeys.HighSast).Verdict);
+        Assert.Equal(GateVerdict.Pass, Result(eval, GateKeys.HighDast).Verdict);
     }
 
     [Fact]
@@ -132,8 +138,8 @@ public class GateEvaluatorTests
         var eval = GateEvaluator.Evaluate(
             Gates((GateKeys.HighSast, null), (GateKeys.HighDast, null)), sastOnly, 20, null, null);
 
-        Assert.False(Result(eval, GateKeys.HighSast).Passed);
-        Assert.True(Result(eval, GateKeys.HighDast).Passed);
+        Assert.Equal(GateVerdict.Fail, Result(eval, GateKeys.HighSast).Verdict);
+        Assert.Equal(GateVerdict.Pass, Result(eval, GateKeys.HighDast).Verdict);
     }
 
     [Fact]
@@ -143,10 +149,10 @@ public class GateEvaluatorTests
         // instead of being forced to disable the gate entirely.
         var inputs = Clean() with { SastHigh = 5 };
 
-        Assert.True(Result(GateEvaluator.Evaluate(Gates((GateKeys.HighSast, 5)), inputs, 1, null, null),
-            GateKeys.HighSast).Passed);
-        Assert.False(Result(GateEvaluator.Evaluate(Gates((GateKeys.HighSast, 4)), inputs, 1, null, null),
-            GateKeys.HighSast).Passed);
+        Assert.Equal(GateVerdict.Pass, Result(GateEvaluator.Evaluate(Gates((GateKeys.HighSast, 5)), inputs, 1, null, null),
+            GateKeys.HighSast).Verdict);
+        Assert.Equal(GateVerdict.Fail, Result(GateEvaluator.Evaluate(Gates((GateKeys.HighSast, 4)), inputs, 1, null, null),
+            GateKeys.HighSast).Verdict);
     }
 
     // ------------------------------------------------------------------
@@ -182,5 +188,173 @@ public class GateEvaluatorTests
 
         Assert.Equal(2, eval.Failed);
         Assert.Equal(0, eval.Passed);
+    }
+
+    // ------------------------------------------------------------------
+    // Four-valued verdicts (TFND-74 / ADR 0001)
+    // ------------------------------------------------------------------
+    //
+    // The defect these exist for, quoted from ADR 0001:
+    //
+    //   "A project that has never been scanned PASSES every severity gate.
+    //    criticalSast, highSast, criticalDast, highDast — all green,
+    //    Failed = 0."
+    //
+    // The counts were zero because no scanner ran, and 0 <= 0 is a pass.
+    // Two-valued logic had no way to say "I cannot answer that".
+
+    // Nothing ran, nothing was found — the shape of a brand-new project
+    // whose pipeline is not wired up yet.
+    private static RiskInputs NeverScanned() => Clean() with
+    {
+        CoverageMeasured = false, TestsMeasured = false, SbomComponents = 0,
+        RanSast = false, RanSecrets = false, RanIac = false,
+        RanSbom = false, RanCoverage = false, RanDast = false,
+    };
+
+    private static ProjectGatesConfig AllSeverityGates() => Gates(
+        (GateKeys.CriticalSast, null), (GateKeys.HighSast, null),
+        (GateKeys.CriticalDast, null), (GateKeys.HighDast, null),
+        (GateKeys.CriticalCves, null), (GateKeys.HighCves, null),
+        (GateKeys.KevExposure, null), (GateKeys.CriticalIac, null),
+        (GateKeys.VerifiedSecrets, null), (GateKeys.DeniedLicenses, null));
+
+    [Fact]
+    public void An_unscanned_project_does_not_pass_the_severity_gates()
+    {
+        var eval = GateEvaluator.Evaluate(AllSeverityGates(), NeverScanned(), 0, null, null);
+
+        // The regression test for the exact sentence in ADR 0001.
+        Assert.Equal(0, eval.Passed);
+        Assert.Equal(10, eval.Unknown);
+        Assert.False(eval.ClearToShip);
+    }
+
+    [Theory]
+    [InlineData(GateKeys.CriticalSast)]
+    [InlineData(GateKeys.HighSast)]
+    [InlineData(GateKeys.CriticalDast)]
+    [InlineData(GateKeys.HighDast)]
+    [InlineData(GateKeys.CriticalCves)]
+    [InlineData(GateKeys.KevExposure)]
+    [InlineData(GateKeys.CriticalIac)]
+    [InlineData(GateKeys.VerifiedSecrets)]
+    [InlineData(GateKeys.DeniedLicenses)]
+    public void A_gate_whose_scanner_never_ran_is_unknown_and_blocks(string key)
+    {
+        var eval = GateEvaluator.Evaluate(Gates((key, null)), NeverScanned(), 0, null, null);
+
+        var gate = Result(eval, key);
+        Assert.Equal(GateVerdict.Unknown, gate.Verdict);
+        Assert.True(gate.Blocks);
+        // Unknown and Fail block for different reasons, so the prose has to
+        // point at the pipeline rather than at findings that do not exist.
+        // The bug being guarded is Observed reading "0 critical SAST" — a
+        // count of zero that came from nobody looking.
+        Assert.DoesNotContain("0 ", gate.Observed, StringComparison.Ordinal);
+        Assert.Contains("scan", gate.Observed, StringComparison.Ordinal);
+        Assert.Contains("nobody looked", gate.Reason!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Unknown_is_distinguishable_from_fail()
+    {
+        var unscanned = GateEvaluator.Evaluate(Gates((GateKeys.CriticalSast, null)), NeverScanned(), 0, null, null);
+        var scanned   = GateEvaluator.Evaluate(Gates((GateKeys.CriticalSast, null)), Clean() with { SastCritical = 3 }, 0, null, null);
+
+        // Both block, and that is the point: they are the same release
+        // decision reached for different reasons, with different remedies.
+        Assert.True(Result(unscanned, GateKeys.CriticalSast).Blocks);
+        Assert.True(Result(scanned, GateKeys.CriticalSast).Blocks);
+        Assert.NotEqual(
+            Result(unscanned, GateKeys.CriticalSast).Verdict,
+            Result(scanned, GateKeys.CriticalSast).Verdict);
+    }
+
+    [Fact]
+    public void A_suite_that_never_ran_is_not_a_passing_suite()
+    {
+        // Same defect class as SSDF PW.8.1 answering "Yes" off a green test
+        // run that did not exist.
+        var eval = GateEvaluator.Evaluate(Gates((GateKeys.TestFailures, null)),
+            Clean() with { TestsMeasured = false, TestsTotal = 0, TestsFailed = 0 }, 50, null, null);
+
+        Assert.Equal(GateVerdict.Unknown, Result(eval, GateKeys.TestFailures).Verdict);
+    }
+
+    [Fact]
+    public void Unmeasured_coverage_is_unknown_but_a_first_measurement_passes()
+    {
+        var unmeasured = GateEvaluator.Evaluate(Gates((GateKeys.CoverageRegression, null)),
+            Clean() with { CoverageMeasured = false }, 50, null, null);
+        Assert.Equal(GateVerdict.Unknown, Result(unmeasured, GateKeys.CoverageRegression).Verdict);
+
+        // Coverage IS measured here; there is simply nothing earlier to
+        // compare against. That is a real answer, not an inability to answer.
+        var noPrior = GateEvaluator.Evaluate(Gates((GateKeys.CoverageRegression, null)),
+            Clean(), 50, null, null);
+        Assert.Equal(GateVerdict.Pass, Result(noPrior, GateKeys.CoverageRegression).Verdict);
+    }
+
+    [Fact]
+    public void A_first_build_passes_the_regression_gate_rather_than_blocking_forever()
+    {
+        // Unknown here would block every brand-new project on its first build
+        // until a second one exists — and "no prior build" is not a pipeline
+        // defect anyone can fix.
+        var eval = GateEvaluator.Evaluate(Gates((GateKeys.RiskScoreRegression, null)),
+            Clean(), 42, null, null);
+
+        var gate = Result(eval, GateKeys.RiskScoreRegression);
+        Assert.Equal(GateVerdict.Pass, gate.Verdict);
+        Assert.False(gate.Blocks);
+    }
+
+    [Fact]
+    public void Poam_gates_are_answerable_without_any_scanner()
+    {
+        // POA&M items are user-entered records, not scanner output.
+        var eval = GateEvaluator.Evaluate(Gates((GateKeys.PoamPastDue, null)),
+            NeverScanned() with { OpenPastDuePoams = 2 }, 0, null, null);
+
+        Assert.Equal(GateVerdict.Fail, Result(eval, GateKeys.PoamPastDue).Verdict);
+    }
+
+    [Fact]
+    public void An_unimplemented_gate_key_is_an_error_and_blocks()
+    {
+        var eval = GateEvaluator.Evaluate(Gates(("notAGateKey", null)), Clean(), 50, null, null);
+
+        // Never silently green: a gate the evaluator cannot implement is a
+        // broken release contract, and an operator should hear about it.
+        var gate = eval.Results.SingleOrDefault(r => r.Key == "notAGateKey");
+        if (gate is not null)
+        {
+            Assert.Equal(GateVerdict.Error, gate.Verdict);
+            Assert.True(gate.Blocks);
+        }
+    }
+
+    [Fact]
+    public void Enabled_count_is_derived_not_reconstructed_from_pass_plus_fail()
+    {
+        // The "9 gates enabled" bug: Passed + Failed silently drops every
+        // Unknown, so an unscanned project reported fewer enabled gates than
+        // it had.
+        var eval = GateEvaluator.Evaluate(AllSeverityGates(), NeverScanned(), 0, null, null);
+
+        Assert.Equal(10, eval.Enabled);
+        Assert.NotEqual(eval.Enabled, eval.Passed + eval.Failed);
+    }
+
+    [Fact]
+    public void A_fully_scanned_clean_project_is_clear_to_ship()
+    {
+        var eval = GateEvaluator.Evaluate(AllSeverityGates(), Clean(), 95, null, null);
+
+        Assert.Equal(10, eval.Passed);
+        Assert.Equal(0, eval.Unknown);
+        Assert.Equal(0, eval.Blocking);
+        Assert.True(eval.ClearToShip);
     }
 }

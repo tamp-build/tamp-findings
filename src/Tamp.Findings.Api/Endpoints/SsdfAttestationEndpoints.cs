@@ -135,12 +135,17 @@ public static class SsdfAttestationEndpoints
                 Band: result.Band,
                 PolicyName: policy.Name),
             Gates = new(
-                Enabled: gateEval.Failed + gateEval.Passed,
+                // Derived on the evaluation, not reconstructed here. The old
+                // Failed + Passed arithmetic is what let the attestation state
+                // an enabled-gate count that contradicted the computed one,
+                // and it now also drops every Unknown.
+                Enabled: gateEval.Enabled,
                 Passed: gateEval.Passed,
                 Failed: gateEval.Failed,
+                Unknown: gateEval.Unknown,
                 Results: gateEval.Results
                     .Where(r => r.Enabled)
-                    .Select(r => new SsdfGateLine(r.Key, r.Passed, r.Observed))
+                    .Select(r => new SsdfGateLine(r.Key, r.Verdict.ToString(), r.Blocks, r.Observed))
                     .ToList()),
             Practices = BuildPractices(
                 inputs, succeeded, sbomToolsPresent, latestSbomTools?.IngestedAt,
@@ -195,8 +200,8 @@ public static class SsdfAttestationEndpoints
             ScannerEvidence(inputs, succeeded)));
         p.Add(P("PO.4.1", "PO", "Define Criteria for Software Security Checks",
             "Define and use criteria to evaluate security",
-            gates.Failed + gates.Passed > 0 ? "Yes" : "Partial",
-            $"{gates.Failed + gates.Passed} gates enabled — risk policy + acceptance gates configured"));
+            gates.Enabled > 0 ? "Yes" : "Partial",
+            $"{gates.Enabled} gates enabled — risk policy + acceptance gates configured"));
         p.Add(P("PO.5.1", "PO", "Implement and Maintain Secure Environments",
             "Protect the production-equivalent build env",
             "Manual", "CI/CD posture not introspected by tamp.findings"));
@@ -423,8 +428,11 @@ public sealed class SsdfAttestationDoc
 public sealed record SsdfProject(Guid Id, string Name, string ClientName);
 public sealed record SsdfBuild(string? CommitSha, string VersionString, DateTimeOffset LatestCreatedAt);
 public sealed record SsdfRisk(double Score, string Band, string PolicyName);
-public sealed record SsdfGates(int Enabled, int Passed, int Failed, IReadOnlyList<SsdfGateLine> Results);
-public sealed record SsdfGateLine(string Key, bool Passed, string Observed);
+public sealed record SsdfGates(int Enabled, int Passed, int Failed, int Unknown, IReadOnlyList<SsdfGateLine> Results);
+// Verdict is "Pass" | "Fail" | "Unknown" | "Error". An attestation must be
+// able to say a gate was unanswerable — reporting it as passed is how the
+// evidence becomes false.
+public sealed record SsdfGateLine(string Key, string Verdict, bool Blocks, string Observed);
 public sealed record SsdfPractice(string Id, string Family, string Label, string Intent, string Status, string Evidence);
 public sealed record SsdfSummary(int Yes, int Partial, int No, int Manual, string Headline);
 
