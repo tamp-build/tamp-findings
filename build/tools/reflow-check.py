@@ -20,7 +20,10 @@ from urllib.request import urlopen
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 URL = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:5099/dev/primitives"
 PORT = 9333
-PROFILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chrome-reflow")
+# Scratch profile in the OS temp dir, NOT next to this script — Chrome
+# writes a full profile tree here and it must never land in the repo.
+import tempfile
+PROFILE = os.path.join(tempfile.gettempdir(), "tamp-findings-reflow-profile")
 
 proc = subprocess.Popen([
     CHROME, "--headless=new", f"--remote-debugging-port={PORT}",

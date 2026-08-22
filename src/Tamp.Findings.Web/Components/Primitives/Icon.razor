@@ -1,0 +1,40 @@
+@* Inline lucide SVG on currentColor.
+
+   stroke-width 1.5 is not a default to be overridden casually — it is part of
+   the aesthetic, and the whole reason a Material or Fluent set cannot be
+   substituted here.
+
+   Decorative by default: aria-hidden with no accessible name, because an icon
+   beside a written label would otherwise be announced twice. Pass a Title only
+   when the icon is the ONLY carrier of meaning — which in this design should
+   be rare, since colour and glyph are always paired with a written label. *@
+
+<svg xmlns="http://www.w3.org/2000/svg" width="@Size" height="@Size"
+     viewBox="0 0 24 24" fill="none" stroke="currentColor"
+     stroke-width="@StrokeWidth" stroke-linecap="round" stroke-linejoin="round"
+     class="icon @Class"
+     aria-hidden="@(Title is null ? "true" : null)"
+     role="@(Title is null ? null : "img")"
+     focusable="false">
+    @if (Title is not null)
+    {
+        <title>@Title</title>
+    }
+    @Body
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+    [Parameter] public int Size { get; set; } = 16;
+    [Parameter] public double StrokeWidth { get; set; } = 1.5;
+    /// <summary>Only when the icon alone carries the meaning. Otherwise leave null.</summary>
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    private MarkupString Body =>
+        new(LucideIcons.Paths.TryGetValue(Name, out var d)
+            ? d
+            // Loud rather than silent: a missing glyph should be obvious in
+            // review, not an invisible gap in the UI.
+            : "<rect x='3' y='3' width='18' height='18' /><line x1='3' y1='3' x2='21' y2='21' />");
+}
