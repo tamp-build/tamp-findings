@@ -115,6 +115,11 @@ builder.Services.AddCascadingAuthenticationState();
 // each parsing the URL for themselves (TFND-63).
 builder.Services.AddScoped<Tamp.Findings.Web.Routing.RouteScope>();
 
+// Row density and the per-build delta toggle. Persona-dependent rather than
+// screen-dependent — the four personas want very different densities of the
+// same data, which the brief called the central design problem (TFND-66).
+builder.Services.AddScoped<Tamp.Findings.Web.Routing.ViewPreferences>();
+
 // Authorization, query/command services and the audit write path all live
 // behind this one call, shared by the API endpoints, the Blazor components and
 // (in process) the MCP tools. Empty until TFND-68.
