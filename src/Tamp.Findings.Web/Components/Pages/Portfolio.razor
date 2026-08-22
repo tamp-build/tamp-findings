@@ -1,0 +1,15 @@
+@* Portfolio does NOT claim "/" while the React SPA still serves the root — an
+   explicit Blazor route would shadow index.html. At cutover (TFND-128) add
+   `@page "/"` here and update Routes.Portfolio. *@
+@page "/portfolio"
+@attribute [Authorize]
+@inject RouteScope Scope
+
+<PageTitle>Portfolio — tamp.findings</PageTitle>
+
+<Placeholder Title="Portfolio" Ticket="TFND-84"
+             Description="Which project is worst right now. Worst-posture-first, where 'no canonical build in 41 days' is a first-class blocking reason." />
+
+@code {
+    protected override void OnInitialized() => Scope.Clear();
+}

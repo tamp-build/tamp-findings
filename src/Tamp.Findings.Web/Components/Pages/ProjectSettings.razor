@@ -1,0 +1,30 @@
+@* Two routes, one component: policy and keys share a settings shell and
+   differ only in which tab is active. *@
+@page "/c/{Client}/p/{Project}/settings/policy"
+@page "/c/{Client}/p/{Project}/settings/keys"
+@attribute [Authorize]
+@inject RouteScope Scope
+@inject NavigationManager Nav
+
+<PageTitle>Settings — @Project</PageTitle>
+
+<Placeholder Title="@Heading" Ticket="@Ticket" Description="@Description" Scope="Params" />
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+
+    private bool IsPolicy => Nav.Uri.EndsWith("/policy", StringComparison.Ordinal);
+
+    private string Heading => IsPolicy ? "Policy & gates" : "Ingest keys";
+    private string Ticket => IsPolicy ? "TFND-104 … TFND-106" : "TFND-107 … TFND-109";
+
+    private string Description => IsPolicy
+        ? "Effective maxima recompute live as weights change and as categories are switched on and off — that is why a category's ceiling is not a fixed number, and demonstrating it is the point of the screen."
+        : "Ingest tokens, disclosure policy, account. Secrets reveal exactly once, in a panel that says so.";
+
+    private List<KeyValuePair<string, string?>> Params =>
+        [new("client", Client), new("project", Project)];
+
+    protected override void OnParametersSet() => Scope.SetProject(Client, Project);
+}
