@@ -14,6 +14,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   tests: 'Test failures',
   license: 'License risk',
   sastLow: 'SAST · medium + low',
+  dastSevere: 'DAST · critical + high',
+  dastLow: 'DAST · medium + low',
   missingScanners: 'Missing scanners',
 }
 
@@ -83,7 +85,10 @@ export function RiskBadge({ risk }: { risk: RiskScore | null }) {
                   <td className="py-1 text-muted-foreground">{CATEGORY_LABELS[b.key] ?? b.key}</td>
                   <td className="py-1 text-right tabular-nums">
                     {b.contribution.toFixed(2)}
-                    <span className="text-muted-foreground"> / {b.max}</span>
+                    {/* effectiveMax, not max — under schema 2 the authored
+                        weight isn't a point value, so "3.1 / 12" would be
+                        nonsense against a normalised contribution. */}
+                    <span className="text-muted-foreground"> / {b.effectiveMax.toFixed(1)}</span>
                   </td>
                 </tr>
               ))}

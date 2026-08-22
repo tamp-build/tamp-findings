@@ -33,47 +33,104 @@ public sealed record RiskInputs(
     // whose ScheduledCompletionDate is in the past. Drives the
     // poamPastDue gate. RiskScorer ignores it — POA&M is a process
     // signal, not a score input.
-    int OpenPastDuePoams = 0);
+    int OpenPastDuePoams = 0,
+    // DAST severities — dynamic scan of a deployed target (ZAP / Nuclei).
+    // Deliberately a separate bucket from SAST: a runtime-confirmed
+    // exploit path is categorically stronger evidence than a static
+    // pattern match against the same CWE, so the two shouldn't share a
+    // saturation budget. Defaulted so existing construction sites — and
+    // any policy that predates the dast categories — compile and score
+    // unchanged.
+    int DastCritical = 0, int DastHigh = 0, int DastMedium = 0, int DastLow = 0,
+    bool RanDast = false);
 
 public sealed record RiskCategoryBreakdown(
-    string Key, bool Enabled, double Max, double SubScore, double Contribution);
+    string Key,
+    bool Enabled,
+    // The weight exactly as authored in the policy. Under SchemaVersion 1
+    // this is absolute points out of 100; under 2 it's a relative weight
+    // whose scale is arbitrary (10/20/30 scores the same as 1/2/3).
+    double Max,
+    // Points this category can actually cost at full saturation, after
+    // normalisation: 100 * Max / WeightBasis. For a well-formed v1 policy
+    // (everything enabled, weights summing to 100) this equals Max. This
+    // is the number worth showing an admin — it stays truthful when they
+    // author weights that don't sum to anything in particular.
+    double EffectiveMax,
+    double SubScore,
+    double Contribution);
 
 public sealed record RiskResult(
     double Score,           // 0..100
     string Band,            // "green" | "yellow" | "orange" | "red"
     int SchemaVersion,
+    // Sum of Max across ENABLED categories. 100 for a well-formed v1
+    // policy. Zero when every category is disabled — the caller should
+    // treat that as "unscored" rather than "scored zero".
+    double WeightBasis,
     IReadOnlyList<RiskCategoryBreakdown> Breakdown);
 
 public static class RiskScorer
 {
+    // SchemaVersion 1 — fixed 100-point budget. Category.Max is absolute
+    //   points; the weights are expected to sum to 100 and nothing enforces
+    //   it. Disabling a category shrinks the numerator but not the implicit
+    //   denominator, so turning a check OFF makes a project score BETTER.
+    //
+    // SchemaVersion 2 — normalised. Category.Max is a relative weight and
+    //   the denominator is derived from whichever categories are enabled.
+    //   Disabling a category redistributes its share across the rest
+    //   instead of deflating the score, and adding a new category (dast)
+    //   no longer requires stealing points from existing ones.
+    //
+    // The two agree exactly for a well-formed v1 policy: when every
+    // category is enabled and the weights sum to 100, 100 * S / 100 == S.
+    // Divergence is confined to configs that were already miscalibrated.
+    public const int MaxSupportedSchemaVersion = 2;
+
     public static RiskResult Compute(RiskPolicyConfig policy, RiskInputs i)
     {
-        if (policy.SchemaVersion != 1)
+        if (policy.SchemaVersion is < 1 or > MaxSupportedSchemaVersion)
             throw new InvalidOperationException(
-                $"RiskScorer only understands SchemaVersion=1 (got {policy.SchemaVersion}).");
+                $"RiskScorer understands SchemaVersion 1..{MaxSupportedSchemaVersion} (got {policy.SchemaVersion}).");
 
-        var rows = new List<RiskCategoryBreakdown>();
+        // Weight basis over enabled categories only — this is what makes
+        // disabling a category redistribute rather than deflate.
+        var basis = 0.0;
+        foreach (var (_, cat) in policy.Categories)
+        {
+            if (cat.Enabled && cat.Max > 0) basis += cat.Max;
+        }
+
+        // The entire behavioural difference between the two schema
+        // versions is this denominator.
+        var denominator = policy.SchemaVersion >= 2 ? basis : 100.0;
+
+        var rows = new List<RiskCategoryBreakdown>(policy.Categories.Count);
         var total = 0.0;
 
         foreach (var (key, cat) in policy.Categories)
         {
             if (!cat.Enabled || cat.Max <= 0)
             {
-                rows.Add(new RiskCategoryBreakdown(key, false, cat.Max, 0, 0));
+                // Disabled rows still render so the policy editor can show
+                // the full category set with its zeroed contribution.
+                rows.Add(new RiskCategoryBreakdown(key, false, cat.Max, 0, 0, 0));
                 continue;
             }
 
-            var sub = ComputeSubScore(key, cat.Weights, i);
-            sub = Math.Clamp(sub, 0, 1);
-            var contribution = sub * cat.Max;
-            rows.Add(new RiskCategoryBreakdown(key, true, cat.Max, sub, contribution));
+            var effectiveMax = denominator <= 0 ? 0 : 100.0 * cat.Max / denominator;
+            var sub = Math.Clamp(ComputeSubScore(key, cat.Weights, i), 0, 1);
+            var contribution = sub * effectiveMax;
+
+            rows.Add(new RiskCategoryBreakdown(key, true, cat.Max, effectiveMax, sub, contribution));
             total += contribution;
         }
 
-        // Defensive clamp — a misconfigured policy that sums > 100 across
-        // categories would otherwise push the score off-scale.
+        // v2 cannot exceed 100 by construction. The clamp stays because it
+        // still does real work for a v1 policy whose weights sum past 100.
         total = Math.Clamp(total, 0, 100);
-        return new RiskResult(total, BandFor(total, policy.Bands), policy.SchemaVersion, rows);
+        return new RiskResult(total, BandFor(total, policy.Bands), policy.SchemaVersion, basis, rows);
     }
 
     private static double ComputeSubScore(string key, Dictionary<string, double> w, RiskInputs i)
@@ -95,6 +152,10 @@ public static class RiskScorer
             case RiskCategoryNames.SastSevere:
                 return i.SastCritical * Get("critical")
                      + i.SastHigh     * Get("high");
+
+            case RiskCategoryNames.DastSevere:
+                return i.DastCritical * Get("critical")
+                     + i.DastHigh     * Get("high");
 
             case RiskCategoryNames.IacSevere:
                 return i.IacCritical * Get("critical")
@@ -139,19 +200,12 @@ public static class RiskScorer
                 return i.SastMedium * Get("medium")
                      + i.SastLow    * Get("low");
 
+            case RiskCategoryNames.DastLow:
+                return i.DastMedium * Get("medium")
+                     + i.DastLow    * Get("low");
+
             case RiskCategoryNames.MissingScanners:
-            {
-                // Expected scanners we'd want to see at least one of:
-                // SAST, Secrets, IaC, SBOM, Coverage.
-                var expected = 5;
-                var missing = 0;
-                if (!i.RanSast)     missing++;
-                if (!i.RanSecrets)  missing++;
-                if (!i.RanIac)      missing++;
-                if (!i.RanSbom)     missing++;
-                if (!i.RanCoverage) missing++;
-                return (double)missing / expected;
-            }
+                return MissingScannersSubScore(w, i);
 
             default:
                 // Unknown category in the policy — skip silently. Lets new
@@ -161,6 +215,56 @@ public static class RiskScorer
         }
     }
 
+    // Which scanner classes we expect to see for this project, and how
+    // heavily each absence counts.
+    //
+    // v1 hardcoded five classes with equal weight, which permanently dinged
+    // projects that legitimately have no such surface — a pure library has
+    // no Terraform to scan, and nothing without a deployed endpoint can run
+    // DAST. v2 reads the expected set from Weights: a weight > 0 means "we
+    // expect this class here", 0 or absent means "not applicable".
+    //
+    // An empty/unconfigured bag falls back to the original five (DAST
+    // excluded) so every policy authored before this change scores
+    // identically.
+    private static double MissingScannersSubScore(Dictionary<string, double> w, RiskInputs i)
+    {
+        ReadOnlySpan<(string Key, bool Ran)> expectations =
+        [
+            (ExpectedScannerKeys.Sast,     i.RanSast),
+            (ExpectedScannerKeys.Secrets,  i.RanSecrets),
+            (ExpectedScannerKeys.Iac,      i.RanIac),
+            (ExpectedScannerKeys.Sbom,     i.RanSbom),
+            (ExpectedScannerKeys.Coverage, i.RanCoverage),
+            (ExpectedScannerKeys.Dast,     i.RanDast),
+        ];
+
+        double Weight(string k) => w.TryGetValue(k, out var v) ? v : 0;
+
+        var configured = false;
+        foreach (var (key, _) in expectations)
+        {
+            if (Weight(key) > 0) { configured = true; break; }
+        }
+
+        double expected = 0, missing = 0;
+        foreach (var (key, ran) in expectations)
+        {
+            // Legacy fallback reproduces the v1 five-class denominator
+            // exactly: every class weighted 1 except dast, which v1 had
+            // no concept of.
+            var weight = configured
+                ? Weight(key)
+                : (key == ExpectedScannerKeys.Dast ? 0 : 1);
+
+            if (weight <= 0) continue;
+            expected += weight;
+            if (!ran) missing += weight;
+        }
+
+        return expected <= 0 ? 0 : missing / expected;
+    }
+
     private static string BandFor(double score, RiskBands b)
     {
         if (score <= b.GreenMax) return "green";
@@ -168,4 +272,17 @@ public static class RiskScorer
         if (score <= b.OrangeMax) return "orange";
         return "red";
     }
+}
+
+// Weight keys understood by the missingScanners category. Each names a
+// class of scanner rather than a specific tool, so swapping Trivy for
+// Checkov doesn't change the policy.
+public static class ExpectedScannerKeys
+{
+    public const string Sast = "sast";
+    public const string Secrets = "secrets";
+    public const string Iac = "iac";
+    public const string Sbom = "sbom";
+    public const string Coverage = "coverage";
+    public const string Dast = "dast";
 }

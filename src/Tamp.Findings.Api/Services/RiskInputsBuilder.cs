@@ -19,6 +19,14 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         ScannerKind.CodeQL, ScannerKind.ESLint,
     ];
 
+    // Dynamic scanners — findings observed against a running deployment
+    // rather than the source tree. Kept out of SastSet so the two can be
+    // weighted and gated independently.
+    private static readonly HashSet<ScannerKind> DastSet =
+    [
+        ScannerKind.Zap, ScannerKind.Nuclei,
+    ];
+
     public Task<RiskInputs> BuildAsync(IReadOnlyList<Guid> cvIds, RiskPolicyConfig policy, CancellationToken ct)
         => BuildAsync(cvIds, policy, projectId: null, ct);
 
@@ -55,6 +63,11 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         var sastHigh = findings.Where(x => SastSet.Contains(x.Scanner) && x.Severity == Severity.High).Sum(x => x.Count);
         var sastMed  = findings.Where(x => SastSet.Contains(x.Scanner) && x.Severity == Severity.Medium).Sum(x => x.Count);
         var sastLow  = findings.Where(x => SastSet.Contains(x.Scanner) && x.Severity == Severity.Low).Sum(x => x.Count);
+
+        var dastCrit = findings.Where(x => DastSet.Contains(x.Scanner) && x.Severity == Severity.Critical).Sum(x => x.Count);
+        var dastHigh = findings.Where(x => DastSet.Contains(x.Scanner) && x.Severity == Severity.High).Sum(x => x.Count);
+        var dastMed  = findings.Where(x => DastSet.Contains(x.Scanner) && x.Severity == Severity.Medium).Sum(x => x.Count);
+        var dastLow  = findings.Where(x => DastSet.Contains(x.Scanner) && x.Severity == Severity.Low).Sum(x => x.Count);
 
         // Trivy splits across IaC vs secret vs vuln via SubCategory.
         bool IsIac(ScannerKind s, string? sub) => s == ScannerKind.Trivy && (sub is null || sub == "misconfiguration");
@@ -161,6 +174,7 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             .ToListAsync(ct);
         var receiptSet = new HashSet<ScannerKind>(receipts);
         var ranSast = SastSet.Any(s => receiptSet.Contains(s));
+        var ranDast = DastSet.Any(s => receiptSet.Contains(s));
         var ranSecrets = receiptSet.Contains(ScannerKind.TruffleHog);
         var ranIac = receiptSet.Contains(ScannerKind.Trivy);
         var ranSbom = compsCount > 0 || receiptSet.Contains(ScannerKind.Syft) || receiptSet.Contains(ScannerKind.OsvScanner);
@@ -196,7 +210,9 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             LicenseDenied: denied, LicenseStrongCopyleft: strong, LicenseUnknown: unknown,
             RanSast: ranSast, RanSecrets: ranSecrets, RanIac: ranIac,
             RanSbom: ranSbom, RanCoverage: ranCoverage,
-            OpenPastDuePoams: openPastDuePoams);
+            OpenPastDuePoams: openPastDuePoams,
+            DastCritical: dastCrit, DastHigh: dastHigh, DastMedium: dastMed, DastLow: dastLow,
+            RanDast: ranDast);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the

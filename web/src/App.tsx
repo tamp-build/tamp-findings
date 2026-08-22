@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Search, LogOut, Settings, Plus, ChevronDown } from 'lucide-react'
 import type { ScannerKind, Severity, FindingStatus, SbomHealthStatus } from '@/lib/api'
 import { FindingsView } from '@/views/FindingsView'
+import { DastView } from '@/views/DastView'
 import { ComponentsView } from '@/views/ComponentsView'
 import { OverviewView } from '@/views/OverviewView'
 import { DrillBreadcrumb } from '@/components/DrillBreadcrumb'
@@ -17,7 +18,7 @@ import { CreateHierarchyNodeDialog, type CreateHierarchyNodeKind } from '@/compo
 import { AuthProvider, useAuth, type AuthUser } from '@/lib/auth'
 
 type Tab = 'overview' | 'client' | 'project'
-  | 'findings' | 'components' | 'coverage' | 'tests'
+  | 'findings' | 'dast' | 'components' | 'coverage' | 'tests'
   | 'attestation'
   | 'profile' | 'settings'
 
@@ -153,14 +154,16 @@ function Dashboard() {
             onDrillToComponents={goToComponents}
             onDrillToCoverage={() => setTab('coverage')}
             onDrillToAttestation={() => setTab('attestation')}
+            onDrillToDast={() => setTab('dast')}
           />
         )}
-        {(tab === 'findings' || tab === 'components' || tab === 'coverage' || tab === 'tests') && scopeProjectId && (
+        {(tab === 'findings' || tab === 'dast' || tab === 'components' || tab === 'coverage' || tab === 'tests') && scopeProjectId && (
           <DrillBreadcrumb
             clientId={scopeClientId}
             projectId={scopeProjectId}
             currentLabel={
               tab === 'findings'   ? 'Findings' :
+              tab === 'dast'       ? 'Dynamic scan' :
               tab === 'components' ? 'SBOM components' :
               tab === 'coverage'   ? 'Coverage' :
               'Tests'
@@ -171,6 +174,7 @@ function Dashboard() {
           />
         )}
         {tab === 'findings' && <FindingsView search={search} preset={findingsPreset} />}
+        {tab === 'dast' && <DastView projectId={scopeProjectId ?? undefined} />}
         {tab === 'components' && <ComponentsView preset={componentsPreset} />}
         {tab === 'coverage' && <CoverageView />}
         {tab === 'tests' && <TestsView />}

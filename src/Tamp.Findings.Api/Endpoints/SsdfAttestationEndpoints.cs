@@ -191,7 +191,7 @@ public static class SsdfAttestationEndpoints
             "Manual", "Org policy artifacts outside the tool"));
         p.Add(P("PO.3.1", "PO", "Implement Supporting Toolchains",
             "Use automated security tooling consistently",
-            inputs.RanSast || inputs.RanSecrets || inputs.RanIac || inputs.RanSbom ? "Yes" : "No",
+            inputs.RanSast || inputs.RanSecrets || inputs.RanIac || inputs.RanSbom || inputs.RanDast ? "Yes" : "No",
             ScannerEvidence(inputs, succeeded)));
         p.Add(P("PO.4.1", "PO", "Define Criteria for Software Security Checks",
             "Define and use criteria to evaluate security",
@@ -242,10 +242,7 @@ public static class SsdfAttestationEndpoints
             inputs.RanSast ? GateBased(inputs.SastCritical, inputs.SastHigh, "SAST") : ("No", "no SAST ingest receipt")));
         p.Add(P("PW.8.1", "PW", "Test Executable Code",
             "Test + dynamic analysis",
-            inputs.TestsMeasured
-                ? (inputs.TestsFailed == 0 ? "Yes" : "Partial",
-                   $"{inputs.TestsTotal} tests run, {inputs.TestsFailed} failed; coverage {inputs.SequenceCoveragePercent:F1}%")
-                : ("No", "no test reports in scope")));
+            TestAndDynamicAnalysisEvidence(inputs)));
         p.Add(P("PW.9.1", "PW", "Configure Software to Have Secure Settings by Default",
             "Ship secure-by-default configs",
             inputs.RanIac
@@ -276,6 +273,35 @@ public static class SsdfAttestationEndpoints
         return p;
     }
 
+    // PW.8.1 is THE dynamic-analysis practice in SP 800-218, and the one an
+    // assessor reads when a contract specifies DAST. Unit tests alone do not
+    // satisfy it: answering "Yes" off a passing test suite would assert a
+    // control that was never exercised. So a full "Yes" requires a DAST
+    // receipt with no critical findings; tests-only caps at "Partial" and
+    // says so in the evidence string.
+    private static (string Status, string Evidence) TestAndDynamicAnalysisEvidence(RiskInputs i)
+    {
+        var testEvidence = i.TestsMeasured
+            ? $"{i.TestsTotal} tests run, {i.TestsFailed} failed; coverage {i.SequenceCoveragePercent:F1}%"
+            : "no test reports in scope";
+
+        if (!i.RanDast)
+        {
+            return (i.TestsMeasured && i.TestsFailed == 0 ? "Partial" : "No",
+                $"{testEvidence}; NO dynamic analysis (DAST) receipt — static testing alone does not satisfy PW.8.1");
+        }
+
+        var dastEvidence = i.DastCritical > 0
+            ? $"DAST run; {i.DastCritical} critical, {i.DastHigh} high findings open"
+            : i.DastHigh > 0
+                ? $"DAST run; no critical, {i.DastHigh} high findings open"
+                : "DAST run; no critical/high findings";
+
+        if (!i.TestsMeasured) return ("Partial", $"{dastEvidence}; {testEvidence}");
+        if (i.DastCritical > 0 || i.TestsFailed > 0) return ("Partial", $"{testEvidence}; {dastEvidence}");
+        return ("Yes", $"{testEvidence}; {dastEvidence}");
+    }
+
     private static (string Status, string Evidence) GateBased(int crit, int high, string label)
     {
         if (crit > 0) return ("No", $"{crit} critical {label} findings open");
@@ -284,7 +310,7 @@ public static class SsdfAttestationEndpoints
     }
 
     private static string ScannerEvidence(RiskInputs i, HashSet<ScannerKind> succeeded) =>
-        $"SAST={B(i.RanSast)} Secrets={B(i.RanSecrets)} IaC={B(i.RanIac)} SBOM={B(i.RanSbom)} Coverage={B(i.RanCoverage)}"
+        $"SAST={B(i.RanSast)} DAST={B(i.RanDast)} Secrets={B(i.RanSecrets)} IaC={B(i.RanIac)} SBOM={B(i.RanSbom)} Coverage={B(i.RanCoverage)}"
         + $" ({succeeded.Count} succeeded scanners on latest build)";
 
     private static string B(bool b) => b ? "✓" : "—";

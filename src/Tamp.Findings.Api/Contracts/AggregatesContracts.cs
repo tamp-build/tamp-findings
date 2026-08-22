@@ -33,7 +33,15 @@ public sealed record RiskScoreDto(
     IReadOnlyList<RiskBreakdownDto> Breakdown);
 
 public sealed record RiskBreakdownDto(
-    string Key, bool Enabled, double Max, double SubScore, double Contribution);
+    string Key, bool Enabled,
+    // Weight as authored in the policy. Absolute points under schema 1,
+    // a relative weight under schema 2.
+    double Max,
+    // Points the category can cost at full saturation once normalised
+    // against the enabled weight basis. Equals Max for a well-formed
+    // schema-1 policy. This is the figure the policy editor should show.
+    double EffectiveMax,
+    double SubScore, double Contribution);
 
 // Secrets ring (innermost concentric) — verified credentials are the
 // closest thing we can render to "actively exploitable right now".
