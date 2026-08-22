@@ -9,13 +9,14 @@
    passing because no scanner ran. *@
 
 @inject RouteScope Scope
+@inject IStringLocalizer<UiStrings> L
 @inject NavigationManager Nav
 @implements IDisposable
 
 <nav class="sidebar" aria-label="Primary">
     <div class="sidebar__brand">
         <div class="brand">tamp<span class="brand__accent">.findings</span></div>
-        <div class="kicker">attestation evidence</div>
+        <div class="kicker">@L["Brand.Kicker"]</div>
     </div>
 
     @* The four tiers of the domain model. This hierarchy is load-bearing and
@@ -54,25 +55,25 @@
         <AuthorizeView>
             <Authorized>
                 <div class="mono">@context.User.Identity?.Name</div>
-                <div class="kicker">signed in</div>
+                <div class="kicker">@L["Account.SignedIn"]</div>
             </Authorized>
             <NotAuthorized>
-                <div class="kicker">not signed in</div>
+                <div class="kicker">@L["Account.NotSignedIn"]</div>
             </NotAuthorized>
         </AuthorizeView>
     </div>
 </nav>
 
 @code {
-    private sealed record NavItem(string Label, string Href, string? Count = null);
-    private sealed record NavGroup(string Label, IReadOnlyList<NavItem> Items, bool Instance = false);
+    private sealed record NavItem(LocalizedString Label, string Href, string? Count = null);
+    private sealed record NavGroup(LocalizedString Label, IReadOnlyList<NavItem> Items, bool Instance = false);
 
-    private (string Label, string? Value)[] Tiers =>
+    private (LocalizedString Label, string? Value)[] Tiers =>
     [
-        ("Client", Scope.Client),
-        ("Project", Scope.Project),
-        ("Component", Scope.Component),
-        ("Build", Scope.Build),
+        (L["Scope.Client"], Scope.Client),
+        (L["Scope.Project"], Scope.Project),
+        (L["Scope.Component"], Scope.Component),
+        (L["Scope.Build"], Scope.Build),
     ];
 
     private IReadOnlyList<NavGroup> Groups
@@ -86,11 +87,11 @@
 
             var groups = new List<NavGroup>
             {
-                new("Scope",
+                new(L["Nav.Group.Scope"],
                 [
-                    new("Portfolio", Routes.Portfolio),
+                    new(L["Nav.Portfolio"], Routes.Portfolio),
                     .. scoped && b is not null
-                        ? new[] { new NavItem("Project hub", Routes.ProjectHub(c!, p!, b)) }
+                        ? new[] { new NavItem(L["Nav.ProjectHub"], Routes.ProjectHub(c!, p!, b)) }
                         : [],
                 ]),
             };
@@ -99,13 +100,13 @@
             // project, so they are absent rather than dead outside one.
             if (scoped && b is not null)
             {
-                groups.Add(new("Explore",
+                groups.Add(new(L["Nav.Group.Explore"],
                 [
-                    new("Findings", Routes.Explorer(c!, p!, b, Spines.Sast)),
-                    new("Dynamic scan", Routes.Explorer(c!, p!, b, Spines.Dast)),
-                    new("SBOM", Routes.Explorer(c!, p!, b, Spines.Sbom)),
-                    new("Coverage", Routes.Explorer(c!, p!, b, Spines.Coverage)),
-                    new("Tests", Routes.Explorer(c!, p!, b, Spines.Tests)),
+                    new(L["Nav.Findings"], Routes.Explorer(c!, p!, b, Spines.Sast)),
+                    new(L["Nav.DynamicScan"], Routes.Explorer(c!, p!, b, Spines.Dast)),
+                    new(L["Nav.Sbom"], Routes.Explorer(c!, p!, b, Spines.Sbom)),
+                    new(L["Nav.Coverage"], Routes.Explorer(c!, p!, b, Spines.Coverage)),
+                    new(L["Nav.Tests"], Routes.Explorer(c!, p!, b, Spines.Tests)),
                 ]));
             }
 
@@ -113,29 +114,29 @@
             {
                 var evidence = new List<NavItem>
                 {
-                    new("POA&M", Routes.Poam(c!, p!)),
-                    new("VEX statements", Routes.Vex(c!, p!)),
+                    new(L["Nav.Poam"], Routes.Poam(c!, p!)),
+                    new(L["Nav.Vex"], Routes.Vex(c!, p!)),
                 };
-                if (b is not null) evidence.Add(new("Attestation", Routes.Attestation(c!, p!, b)));
-                groups.Add(new("Evidence", evidence));
+                if (b is not null) evidence.Add(new(L["Nav.Attestation"], Routes.Attestation(c!, p!, b)));
+                groups.Add(new(L["Nav.Group.Evidence"], evidence));
 
-                groups.Add(new("Project admin",
+                groups.Add(new(L["Nav.Group.ProjectAdmin"],
                 [
-                    new("Policy & gates", Routes.Policy(c!, p!)),
-                    new("Ingest keys", Routes.Keys(c!, p!)),
+                    new(L["Nav.PolicyAndGates"], Routes.Policy(c!, p!)),
+                    new(L["Nav.IngestKeys"], Routes.Keys(c!, p!)),
                 ]));
             }
 
             // Visually separated: a top hairline, extra padding above, and a
             // group label in the accent rather than neutral — it sits outside
             // the project scope and the nav says so.
-            groups.Add(new("System · instance",
+            groups.Add(new(L["Nav.Group.System"],
             [
-                new("Users & RBAC", Routes.System(SystemPanels.Users)),
-                new("Authentication", Routes.System(SystemPanels.Authentication)),
-                new("Scanners & ingest", Routes.System(SystemPanels.Scanners)),
-                new("Instance settings", Routes.System(SystemPanels.Settings)),
-                new("Audit log", Routes.System(SystemPanels.Audit)),
+                new(L["Nav.Users"], Routes.System(SystemPanels.Users)),
+                new(L["Nav.Authentication"], Routes.System(SystemPanels.Authentication)),
+                new(L["Nav.Scanners"], Routes.System(SystemPanels.Scanners)),
+                new(L["Nav.InstanceSettings"], Routes.System(SystemPanels.Settings)),
+                new(L["Nav.AuditLog"], Routes.System(SystemPanels.Audit)),
             ], Instance: true));
 
             return groups;

@@ -217,11 +217,13 @@
 @code {
     private static readonly IReadOnlyList<Tabs.TabItem> TabItems =
     [
-        new("portfolio", "Portfolio"),
-        new("hub", "Project hub"),
-        new("poam", "POA&M"),
-        new("attestation", "Attestation"),
-        new("system", "System", System: true),
+        // A dev gallery, so these are sample labels rather than catalogue
+        // entries — UiText.Data keeps them out of the translation surface.
+        new("portfolio", UiText.Data("Portfolio")),
+        new("hub", UiText.Data("Project hub")),
+        new("poam", UiText.Data("POA&M")),
+        new("attestation", UiText.Data("Attestation")),
+        new("system", UiText.Data("System"), System: true),
     ];
 
     private static readonly string[] Spines = ["sast", "dast", "sbom", "coverage", "tests"];
