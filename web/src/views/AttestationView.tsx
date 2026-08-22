@@ -165,14 +165,20 @@ function AttestationBody({ doc }: { doc: SsdfAttestation }) {
           <h2 className="text-sm font-semibold">Acceptance gates</h2>
           <p className="text-[11px] text-muted-foreground">
             {doc.gates.passed} of {doc.gates.enabled} passed · {doc.gates.failed} failing
+            {doc.gates.unknown > 0 && ` · ${doc.gates.unknown} unanswered`}
           </p>
           <ul className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {doc.gates.results.map(g => (
               <li key={g.key} className="flex items-center justify-between gap-2 rounded-md border bg-background/40 px-2.5 py-1.5 text-xs">
                 <span className="flex items-center gap-1.5">
-                  {g.passed
+                  {/* Three states, not two: an unanswered gate is not a
+                      passing one, and rendering it green is how a compliance
+                      attestation becomes false (ADR 0001 / TFND-74). */}
+                  {g.verdict === 'Pass'
                     ? <span className="inline-block size-2 rounded-full bg-emerald-500" />
-                    : <span className="inline-block size-2 rounded-full bg-destructive" />}
+                    : g.verdict === 'Fail'
+                      ? <span className="inline-block size-2 rounded-full bg-destructive" />
+                      : <span className="inline-block size-2 rounded-full bg-amber-500" title={g.verdict} />}
                   <code className="text-[11px]">{g.key}</code>
                 </span>
                 <span className="text-muted-foreground">{g.observed}</span>

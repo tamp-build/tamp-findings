@@ -20,7 +20,13 @@ public sealed record BuildEvaluationResponse(
     IReadOnlyList<GateResultDto> Gates,
     int GatesEnabled,
     int GatesPassed,
-    int GatesFailed);
+    int GatesFailed,
+    // Gates that could not be evaluated at all — the scanner did not run.
+    // A build with unknowns is not a clean build.
+    int GatesUnknown,
+    // Everything that is not a Pass. This is the number the ship verdict
+    // reads; GatesFailed alone would let an unscanned build look clear.
+    int GatesBlocking);
 
 public sealed record BuildPointer(
     string? CommitSha,
@@ -28,7 +34,14 @@ public sealed record BuildPointer(
     DateTimeOffset LatestCreatedAt);
 
 public sealed record GateResultDto(
-    string Key, bool Enabled, bool Passed,
+    string Key, bool Enabled,
+    // "Pass" | "Fail" | "Unknown" | "Error" (ADR 0001). Unknown means the
+    // gate could not be evaluated — typically the scanner never ran — and
+    // blocks the release just as Fail does, but with a different remedy.
+    string Verdict,
+    // True for everything except Pass. The release decision, so a client
+    // does not have to know which verdicts block.
+    bool Blocks,
     string Observed, double? Threshold, string? Reason);
 
 // Evaluates the *latest canonical* build of a project against its
@@ -124,9 +137,15 @@ public static class BuildEvaluationEndpoints
             PolicyId: policy.Id,
             PolicyName: policy.Name,
             Gates: evaluation.Results.Select(g => new GateResultDto(
-                g.Key, g.Enabled, g.Passed, g.Observed, g.Threshold, g.Reason)).ToList(),
-            GatesEnabled: evaluation.Failed + evaluation.Passed,
+                g.Key, g.Enabled, g.Verdict.ToString(), g.Blocks, g.Observed, g.Threshold, g.Reason)).ToList(),
+            // Read straight off the evaluation. Reconstructing this as
+            // Passed + Failed is what produced the "9 gates enabled" line
+            // that contradicted a computed 10, and it silently drops
+            // Unknown and Error.
+            GatesEnabled: evaluation.Enabled,
             GatesPassed: evaluation.Passed,
-            GatesFailed: evaluation.Failed));
+            GatesFailed: evaluation.Failed,
+            GatesUnknown: evaluation.Unknown,
+            GatesBlocking: evaluation.Blocking));
     }
 }
