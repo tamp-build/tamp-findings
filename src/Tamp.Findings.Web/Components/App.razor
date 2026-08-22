@@ -5,7 +5,10 @@
    also feeds the PDF generator) and sign-in stay static SSR. So there is no
    @rendermode on <Routes /> here — each page declares its own. *@
 <!DOCTYPE html>
-<html lang="en">
+@* lang must reflect the ACTUAL culture, not a hardcoded "en" — WCAG 2.1
+   SC 3.1.1 Language of Page, and screen readers pick a voice from it. A
+   hardcoded value is a lie the moment a second locale exists. *@
+<html lang="@System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

@@ -5,6 +5,7 @@
    destructive actions look destructive applies to leaving, not just deleting. *@
 
 @inject NavigationManager Nav
+@inject IStringLocalizer<UiStrings> L
 
 <AuthorizeView>
     <Authorized>
@@ -27,7 +28,7 @@
                         <span class="avatar avatar--lg" aria-hidden="true">@Initials(context.User.Identity?.Name)</span>
                         <div>
                             <div class="mono">@context.User.Identity?.Name</div>
-                            <div class="kicker">signed in</div>
+                            <div class="kicker">@L["Account.SignedIn"]</div>
                         </div>
                     </div>
 
@@ -43,21 +44,21 @@
         </div>
     </Authorized>
     <NotAuthorized>
-        <a class="btn" href="/auth/login">Sign in</a>
+        <a class="btn" href="/auth/login">@L["Account.SignIn"]</a>
     </NotAuthorized>
 </AuthorizeView>
 
 @code {
-    private sealed record MenuItem(string Label, string Sub, string Href, bool Danger = false);
+    private sealed record MenuItem(LocalizedString Label, LocalizedString Sub, string Href, bool Danger = false);
 
     private bool _open;
 
-    private static readonly IReadOnlyList<MenuItem> Items =
+    private IReadOnlyList<MenuItem> Items =>
     [
-        new("Profile", "Identity, session, default scope", "/c/-/p/-/settings/keys"),
-        new("API keys & ingest tokens", "Reveal once, then never again", "/c/-/p/-/settings/keys"),
-        new("Policy & gates", "Weights, thresholds, bands", "/c/-/p/-/settings/policy"),
-        new("Sign out", "Ends this session", "/auth/logout", Danger: true),
+        new(L["Account.Profile"], L["Account.ProfileSub"], "/c/-/p/-/settings/keys"),
+        new(L["Account.ApiKeys"], L["Account.ApiKeysSub"], "/c/-/p/-/settings/keys"),
+        new(L["Nav.PolicyAndGates"], L["Account.PolicySub"], "/c/-/p/-/settings/policy"),
+        new(L["Account.SignOut"], L["Account.SignOutSub"], "/auth/logout", Danger: true),
     ];
 
     private void Toggle() => _open = !_open;

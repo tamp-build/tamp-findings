@@ -17,7 +17,9 @@
 </div>
 
 @code {
-    public sealed record TabItem(string Key, string Label, bool System = false);
+    // Label is a LocalizedString: tabs are chrome and their text always
+    // comes from the catalogue.
+    public sealed record TabItem(string Key, Microsoft.Extensions.Localization.LocalizedString Label, bool System = false);
 
     [Parameter, EditorRequired] public IReadOnlyList<TabItem> Items { get; set; } = [];
     [Parameter] public string? Active { get; set; }
