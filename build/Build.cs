@@ -127,6 +127,29 @@ class Build : SecurityPipelineBuild
     // into artifacts/security either way, so nothing downstream changes.
     [Parameter("Host directory ZAP bind-mounts as its work dir (default: artifacts/security)", EnvironmentVariable = "TAMP_FINDINGS_ZAP_WORK_DIR")]
     readonly string? ZapWorkDirOverride;
+
+    // Which ZAP plan to run. Default "anonymous" is spider + passive rules
+    // only, safe against any environment. "active" adds the AJAX spider and a
+    // full active scan, which SUBMITS FORMS AND FUZZES PARAMETERS — it will
+    // create, modify and delete data through whatever endpoints answer. It is
+    // opt-in by name for that reason: nobody should reach it by leaving an
+    // env var set from a previous run.
+    [Parameter("ZAP scan profile: anonymous (default, passive) | active (DESTRUCTIVE, disposable targets only)", EnvironmentVariable = "TAMP_FINDINGS_ZAP_PROFILE")]
+    readonly string? ZapProfile;
+
+    // Hierarchy overrides. The dogfood path scans this repo and posts under
+    // BrewingCoder/tamp/tamp-findings, but a dynamic scan can target ANY
+    // deployed app — that's the point of the dashboard being multi-tenant.
+    // Set these to file a scan of an external target under its own hierarchy
+    // instead of silently attributing it to this repo.
+    [Parameter("Ingest client name override", EnvironmentVariable = "TAMP_FINDINGS_INGEST_CLIENT")]
+    readonly string? IngestClientOverride;
+
+    [Parameter("Ingest project name override", EnvironmentVariable = "TAMP_FINDINGS_INGEST_PROJECT")]
+    readonly string? IngestProjectOverride;
+
+    [Parameter("Ingest component name override", EnvironmentVariable = "TAMP_FINDINGS_INGEST_COMPONENT")]
+    readonly string? IngestComponentOverride;
 #pragma warning restore CS0649
 
     // ----- SecurityPipelineBuild overrides --------------------------------
@@ -349,12 +372,18 @@ class Build : SecurityPipelineBuild
             // SPA build, so a finding against one gets a new identity on each
             // deploy and can never be triaged or trended. The first real scan
             // put four of five discovered routes on /assets/index-<hash>.*.
+            var excludes = ZapAutomationPlan.DefaultAssetExcludes;
+            var active = string.Equals(ZapProfile, "active", StringComparison.OrdinalIgnoreCase);
+            if (active)
+            {
+                Console.WriteLine($"[security] ZAP profile=ACTIVE against {DastTargetUrl} — this submits forms and fuzzes parameters; it WILL write through any endpoint that answers.");
+            }
+
             var planFile = ZapAutomationPlan.Write(
-                workDir / "zap-anon.yaml",
-                ZapAutomationPlan.Anonymous(
-                    DastTargetUrl!,
-                    SecuritySarifZapFile.Name,
-                    excludePaths: ZapAutomationPlan.DefaultAssetExcludes));
+                workDir / (active ? "zap-active.yaml" : "zap-anon.yaml"),
+                active
+                    ? ZapAutomationPlan.Active(DastTargetUrl!, SecuritySarifZapFile.Name, excludePaths: excludes)
+                    : ZapAutomationPlan.Anonymous(DastTargetUrl!, SecuritySarifZapFile.Name, excludePaths: excludes));
 
             var plan = ZapCli.Automation(s => s
                 .SetWorkingDirectory(RootDirectory)
@@ -409,6 +438,30 @@ class Build : SecurityPipelineBuild
             {
                 Console.WriteLine("[security] Nuclei skipped — nuclei not on PATH (go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest).");
                 return;
+            }
+
+            // Pre-flight the target from THIS host, because nuclei's failure
+            // mode here is silent: when it can't resolve or reach a target it
+            // logs "Skipped ... found unresponsive permanently", reports
+            // "No results found", writes no SARIF, and exits 0. A scan that
+            // never ran is then indistinguishable from a clean one — the worst
+            // possible outcome for a security gate. Observed with
+            // http://localhost:3000, which nuclei failed to resolve while curl
+            // on the same box was fine.
+            using (var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(15) })
+            {
+                try
+                {
+                    var resp = probe.GetAsync(DastTargetUrl!).GetAwaiter().GetResult();
+                    Console.WriteLine($"[security] Nuclei pre-flight {DastTargetUrl} -> {(int)resp.StatusCode}");
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception(
+                        $"Nuclei target {DastTargetUrl} is not reachable from the build host ({ex.Message}). " +
+                        "Refusing to run: nuclei would report a clean scan for an unreachable target. " +
+                        "If the app is on this machine, prefer 127.0.0.1 over localhost — nuclei does not always resolve it.");
+                }
             }
 
             var plan = NucleiCli.Scan(s => s
@@ -913,6 +966,49 @@ class Build : SecurityPipelineBuild
         .DependsOn(nameof(SecurityScanZap), nameof(SecurityScanNuclei))
         .Description("Run the dynamic scans (ZAP + Nuclei) against TAMP_FINDINGS_DAST_TARGET_URL. Requires a DEPLOYED, running target — unlike ScanAll, which requires the API stopped. Follow with Ingest.");
 
+    // Posts ONLY the dynamic-scan artifacts. The full Ingest target sweeps
+    // every artifact in artifacts/security — correct when scanning this repo,
+    // wrong when the DAST target is somebody else's app, because it would file
+    // this repo's SBOM, coverage and SAST findings under that hierarchy.
+    Target IngestDast => _ => _
+        .Description("POST only the DAST SARIF + scan receipts. Use with the INGEST_CLIENT/PROJECT/COMPONENT overrides when the scan target isn't this repo.")
+        .Executes(async () =>
+        {
+            var ctx = BuildIngestContext() with { Flavor = "deployed" };
+            Console.WriteLine($"[ingest] target: {IngestUrl}  context: {ctx.Client}/{ctx.Project}/{ctx.Component} ({ctx.Flavor})");
+            var client = new IngestClient(IngestUrl, IngestToken);
+
+            await PostSarifAsync(client, ctx, SecuritySarifZapFile, "ZAP");
+            await PostSarifAsync(client, ctx, SecuritySarifNucleiFile, "Nuclei");
+
+            var receipts = new List<ScanRunReceiptDto>();
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifZapFile.Value));
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifNucleiFile.Value));
+            if (receipts.Count > 0)
+            {
+                var dedup = receipts
+                    .GroupBy(r => r.Scanner)
+                    .Select(g => g.OrderByDescending(r => r.CompletedAt).First())
+                    .ToList();
+                var payload = new ScanRunIngestRequestDto(
+                    Client: ctx.Client,
+                    Project: ctx.Project,
+                    Component: ctx.Component,
+                    ComponentKind: ctx.ComponentKind,
+                    // Receipts attach to the canonical (default-flavor) CV so
+                    // the build row aggregates every scanner for the commit.
+                    Flavor: null,
+                    Version: ctx.Version,
+                    CommitSha: ctx.CommitSha,
+                    Branch: ctx.Branch,
+                    BuildId: ctx.BuildId,
+                    PullRequestRef: ctx.PullRequestRef,
+                    Receipts: dedup);
+                var resp = await client.PostScanRunsAsync(payload);
+                Console.WriteLine($"[ingest] ScanRuns   → {resp.GetProperty("receiptsUpserted")} receipt(s) ({string.Join(", ", dedup.Select(r => $"{r.Scanner}={r.FindingsCount}"))})");
+            }
+        });
+
     Target Ci => _ => _
         .DependsOn(nameof(Info), nameof(Compile), nameof(Test), nameof(Coverage))
         .Description("Local CI: build, test, coverage. Run ScanAll for the full ingestion sweep.");
@@ -928,9 +1024,9 @@ class Build : SecurityPipelineBuild
         var sha = Git.Commit;
         var version = $"0.1.0-alpha+{(sha is null ? "local" : sha[..7])}";
         return new IngestBuildContext(
-            Client: "BrewingCoder",
-            Project: "tamp",
-            Component: "tamp-findings",
+            Client: IngestClientOverride ?? "BrewingCoder",
+            Project: IngestProjectOverride ?? "tamp",
+            Component: IngestComponentOverride ?? "tamp-findings",
             ComponentKind: "solution",
             Flavor: "net10",
             Version: version,
