@@ -25,6 +25,7 @@ public static class ApplicationServiceCollectionExtensions
         // the point of ADR 0002: Api, Web and Mcp cannot end up with different
         // authorization rules because there is only one registration.
         services.AddSingleton<Authorization.CapabilityEvaluator>();
+        services.AddSingleton<Authorization.ScopeResolver>();
 
         return services;
     }
