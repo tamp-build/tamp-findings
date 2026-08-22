@@ -1,0 +1,21 @@
+@* The only sanctioned horizontal scroll in the app (ADR 0003).
+
+   WCAG 2.1 SC 1.4.10 exempts "parts of the content which require
+   two-dimensional layout for usage or meaning". Five components claim that
+   exception — source viewer, explorer two-pane grid, wide data tables, the
+   policy category grid, and the DAST request/response panels — and each
+   scrolls INSIDE ITSELF rather than pushing the page.
+
+   The page body must never scroll horizontally at 320px. If you are reaching
+   for this outside those five, the layout needs a breakpoint instead. *@
+
+<div class="scroll-x @Class" role="region" aria-label="@Label" tabindex="0">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    /// <summary>Named so a screen reader can announce the scrollable region.</summary>
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public string? Class { get; set; }
+}

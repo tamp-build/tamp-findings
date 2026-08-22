@@ -1,0 +1,230 @@
+@page "/dev/primitives"
+@rendermode InteractiveServer
+@attribute [AllowAnonymous]
+@*
+   Every primitive in every state, on one page.
+
+   AllowAnonymous because it renders no data — it is a development surface for
+   checking the token system, not a product screen. REAL SCREENS CARRY
+   [Authorize]; the Application layer is the actual gate (ADR 0002).
+
+   Two things to check here rather than per screen:
+     - 320px. Nothing on this page may scroll the body horizontally (ADR 0003).
+       The wide-table example scrolls INSIDE ITSELF, which is the exception.
+     - Pseudo-locale. Chips, badges and column headers must grow or wrap
+       rather than truncate at ~40% text expansion (TFND-67).
+*@
+
+<PageTitle>Primitives — tamp.findings</PageTitle>
+
+<div class="stack">
+    <div>
+        <h1>Primitives</h1>
+        <p class="kicker">industry tokens · TFND-61</p>
+    </div>
+
+    <Card>
+        <h2>Buttons</h2>
+        <div class="row" style="flex-wrap: wrap; margin-top: var(--space-3)">
+            <Button Variant="Button.ButtonVariant.Primary">Save item</Button>
+            <Button>Cancel</Button>
+            <Button Variant="Button.ButtonVariant.Warning">Recycle key</Button>
+            <Button Variant="Button.ButtonVariant.Danger">Delete permanently</Button>
+            <Button Variant="Button.ButtonVariant.Text">edit</Button>
+            <Button Variant="Button.ButtonVariant.Text" Class="btn--danger">delete</Button>
+            <Button Disabled="true" DisabledReason="A policy in use cannot be deleted. Move its projects first.">
+                Confirm
+            </Button>
+        </div>
+        <p class="field__help">
+            The disabled button states why in its title — a gated action should never just go grey.
+        </p>
+    </Card>
+
+    <Card>
+        <h2>Gate verdicts</h2>
+        <p class="field__help">
+            Four states, three redundant signals each. Rendering an Unknown gate as a pass is how a
+            compliance attestation becomes false.
+        </p>
+        <div class="stack" style="margin-top: var(--space-3)">
+            @foreach (var v in Enum.GetValues<GateVerdict>())
+            {
+                <div class="row">
+                    <VerdictMark Verdict="v" />
+                    <span class="muted">@Observed(v)</span>
+                </div>
+            }
+        </div>
+    </Card>
+
+    <Card>
+        <h2>Chips</h2>
+        <div class="row" style="flex-wrap: wrap; margin-top: var(--space-3)">
+            <Chip Label="Blocked" Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" Glyph="✕" />
+            <Chip Label="Not assessed" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+            <Chip Label="Clear to ship" Tone="var(--color-pass)" Glyph="✓" />
+            <Chip Label="No scan" Tone="var(--color-neutral-600)" />
+            <Chip Label="Green" Tone="var(--color-band-green)" />
+            <Chip Label="Yellow" Tone="var(--color-band-yellow)" />
+            <Chip Label="Orange" Tone="var(--color-band-orange)" />
+            <Chip Label="Red" Tone="var(--color-band-red)" />
+            <Chip Label="KEV" Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" />
+        </div>
+    </Card>
+
+    <Card Padded="false">
+        <div class="card-body"><h2>Table</h2></div>
+        <ScrollBox Label="Example wide table">
+            <table class="table table--rows">
+                <thead>
+                    <tr>
+                        <th>Project</th><th>Client</th><th class="align-end">Score</th>
+                        <th>Band</th><th>Ship</th><th>Blocking</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>tamp</td><td>BrewingCoder</td><td class="num align-end">88.4</td>
+                        <td><Chip Label="Green" Tone="var(--color-band-green)" /></td>
+                        <td><Chip Label="Clear" Tone="var(--color-pass)" Glyph="✓" /></td>
+                        <td class="muted">—</td>
+                    </tr>
+                    <tr>
+                        <td>juice-shop</td><td>Security Lab</td><td class="num align-end">31.2</td>
+                        <td><Chip Label="Red" Tone="var(--color-band-red)" /></td>
+                        <td><Chip Label="Blocked" Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" Glyph="✕" /></td>
+                        <td>3 critical CVEs, 1 verified secret</td>
+                    </tr>
+                    <tr>
+                        <td>kiosk</td><td>BrewingCoder</td><td class="num align-end">—</td>
+                        <td class="muted">—</td>
+                        <td><Chip Label="No scan" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" /></td>
+                        <td>no canonical build in 41 days</td>
+                    </tr>
+                </tbody>
+            </table>
+        </ScrollBox>
+        <div class="card-body">
+            <p class="field__help">
+                Wide tables claim SC 1.4.10's two-dimensional exception and scroll inside their own
+                container. The page body never scrolls sideways.
+            </p>
+        </div>
+    </Card>
+
+    <Card Padded="false">
+        <div class="card-body"><h2>Tabs and spines</h2></div>
+        <Tabs Items="TabItems" Active="@_tab" OnSelect="k => _tab = k" />
+        <div class="card-body">
+            <div class="row" style="flex-wrap: wrap">
+                @foreach (var s in Spines)
+                {
+                    <button type="button" class="spine @(s == _spine ? "spine--active" : null)"
+                            @onclick="() => _spine = s">@s</button>
+                }
+            </div>
+        </div>
+    </Card>
+
+    <Card Padded="false">
+        <div class="card-body"><h2>Tree rows</h2></div>
+        <TreeRow Name="Tamp.Findings.Api" Group="true" />
+        @foreach (var f in Files)
+        {
+            <TreeRow Name="@f.Name" Depth="1" Selected="@(_selected == f.Name)"
+                     OnSelect="() => _selected = f.Name">
+                <Badge>
+                    <Chip Label="@f.Sev" Tone="@f.Tone" />
+                </Badge>
+            </TreeRow>
+        }
+    </Card>
+
+    <Card>
+        <h2>Form controls</h2>
+        <div style="max-width: 460px; margin-top: var(--space-3)">
+            <TextField Label="Title" @bind-Value="_title"
+                       Help="A short name for the weakness, as it will appear to the Authorizing Official." />
+            <TextField Label="Mitigation plan" Multiline="true" @bind-Value="_plan"
+                       Help="What will be done, by whom. Survives typing — this is helper text, not a placeholder." />
+            <TextField Label="Ingest key" Mono="true" Value="prj_••••••••••••••••" Disabled="true"
+                       Help="Disabled means genuinely disabled, not merely dimmed." />
+            <div class="row" style="flex-wrap: wrap">
+                <CheckField Label="criticalSast" @bind-Checked="_enabled" />
+                <CheckField Label="Locked by a system policy" Checked="true" Disabled="true" />
+            </div>
+        </div>
+    </Card>
+
+    <Card>
+        <h2>Secret reveal</h2>
+        <SecretPanel Value="prj_9f3c1a77b0e24d5e8a6c4b1f2d3e5a70"
+                     Heading="New key — copy it now, it is not stored">
+            <Actions>
+                <Button Variant="Button.ButtonVariant.Primary">Copy</Button>
+            </Actions>
+        </SecretPanel>
+    </Card>
+
+    <Card>
+        <h2>Dialog</h2>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="() => _dialog = true">Open dialog</Button>
+        <p class="field__help">
+            Scroll sits on an inner wrapper so the registration marks are not clipped. Escape closes.
+        </p>
+    </Card>
+</div>
+
+@* Once a component declares a named fragment, loose markup is no longer
+   implicit ChildContent — the body has to be wrapped explicitly. *@
+<Dialog @bind-Open="_dialog" Title="Delete POA&amp;M item">
+    <ChildContent>
+        <p>
+            Federal practice is to close an item rather than delete it — a deleted item leaves no
+            audit trail for the AO. Delete only entries opened in error.
+        </p>
+        <TextField Label="Reason" @bind-Value="_reason" Help="Recorded in the audit log." />
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Danger">Delete permanently</Button>
+        <Button OnClick="() => _dialog = false">Cancel</Button>
+        <Button Variant="Button.ButtonVariant.Text">Cancel &amp; mark cancelled</Button>
+    </Footer>
+</Dialog>
+
+@code {
+    private static readonly IReadOnlyList<Tabs.TabItem> TabItems =
+    [
+        new("portfolio", "Portfolio"),
+        new("hub", "Project hub"),
+        new("poam", "POA&M"),
+        new("attestation", "Attestation"),
+        new("system", "System", System: true),
+    ];
+
+    private static readonly string[] Spines = ["sast", "dast", "sbom", "coverage", "tests"];
+
+    private static readonly (string Name, string Sev, string Tone)[] Files =
+    [
+        ("IngestEndpoints.cs", "C", "var(--color-critical)"),
+        ("RiskScorer.cs", "H", "var(--color-high)"),
+        ("DastRoute.cs", "M", "var(--color-medium)"),
+        ("GateEvaluator.cs", "L", "var(--color-low)"),
+    ];
+
+    private static string Observed(GateVerdict v) => v switch
+    {
+        GateVerdict.Pass    => "0 critical SAST ≤ 0 allowed",
+        GateVerdict.Fail    => "3 critical CVEs exceeds 0 allowed",
+        GateVerdict.Unknown => "no SAST scan on this build — a count of zero means nobody looked",
+        _                   => "no evaluator is registered for gate 'notAGateKey'",
+    };
+
+    private string _tab = "hub";
+    private string _spine = "sast";
+    private string? _selected = "RiskScorer.cs";
+    private string? _title, _plan, _reason;
+    private bool _enabled = true;
+    private bool _dialog;
+}

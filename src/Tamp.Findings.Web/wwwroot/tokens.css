@@ -1,0 +1,115 @@
+/* Industry — design tokens for tamp.findings.
+
+   Ported from docs/redesign/industry.css with the dark editor palette that
+   the prototype overrides it with. Both tonal ramps are flipped end-for-end
+   from the source sheet so every 100–900 step keeps its role: low steps are
+   surfaces, high steps are ink.
+
+   These values are final. See docs/redesign/README.md "Design tokens". */
+
+:root {
+  /* ── Core ─────────────────────────────────────────────────────────── */
+  --color-bg: #1e1f22;          /* editor ground */
+  --color-surface: #252629;     /* raised surface */
+  --color-text: #d7dae0;        /* primary ink */
+  --color-accent: #4d9dd6;      /* steel accent — the single brand colour */
+  --color-divider: color-mix(in srgb, #d7dae0 15%, transparent);
+
+  /* ── Neutral ramp: surfaces → ink ─────────────────────────────────── */
+  --color-neutral-100: #202124;
+  --color-neutral-200: #2a2c30;
+  --color-neutral-300: #35383d;
+  --color-neutral-400: #4a4e55;
+  /* Dimmest text token, used at 9–10px. Measures ~5:1 on the ground.
+     DO NOT DARKEN — WCAG 2.1 AA is the bar for this product and it ships
+     an accessibility scanner. */
+  --color-neutral-500: #8c9199;
+  --color-neutral-600: #949aa3;
+  --color-neutral-700: #aeb3bb;
+  --color-neutral-800: #c6cbd2;
+  --color-neutral-900: #e2e6eb;
+
+  /* ── Accent ramp ──────────────────────────────────────────────────── */
+  --color-accent-100: #16222e;  /* tinted fill */
+  --color-accent-200: #1d2f40;  /* tinted fill / tree selection */
+  --color-accent-300: #26425c;
+  --color-accent-400: #31577c;
+  --color-accent-500: #3f739f;
+  --color-accent-600: #5b9ed2;
+  --color-accent-700: #7db3de;  /* link + interactive text */
+  --color-accent-800: #a2c9e9;
+  --color-accent-900: #cbe1f5;
+
+  /* ── Semantic ─────────────────────────────────────────────────────────
+     The only colours outside the steel accent. Each is ALWAYS paired with a
+     glyph and a written label, so colour is never the sole signal — the
+     attestation has to survive a black-and-white printer. */
+  --color-critical: #dd5f5f;    /* critical severity · fail · blocked */
+  --color-high:     #e2894a;    /* high severity · warning · SoD flag · error */
+  --color-medium:   #d4bb4a;    /* medium severity · skipped · idle · unknown */
+  --color-low:      #7db3de;
+  --color-info:     #949aa3;
+  --color-pass:     #4fb783;    /* pass · covered · healthy */
+  --color-on-solid: #12181e;    /* text on a solid semantic fill */
+
+  /* ── Risk bands ───────────────────────────────────────────────────── */
+  --color-band-green:  #4fb783;
+  --color-band-yellow: #d4bb4a;
+  --color-band-orange: #d68f42;
+  --color-band-red:    #dd5f5f;
+
+  /* ── Syntax highlighting (source viewer) ──────────────────────────── */
+  --syntax-keyword:     #7db3de;
+  --syntax-type:        #5cc8b0;
+  --syntax-method:      #d6cf8a;
+  --syntax-string:      #d99a7a;
+  --syntax-number:      #a8ce97;
+  --syntax-comment:     #7f9c73;
+  --syntax-plain:       var(--color-neutral-800);
+  --syntax-punctuation: var(--color-neutral-600);
+
+  /* ── Type ─────────────────────────────────────────────────────────── */
+  --font-heading: "Barlow Condensed", system-ui, sans-serif;
+  --font-heading-weight: 600;
+  --font-body: "Barlow", system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+
+  /* Scale in use. Nothing below 9px, and 9–10px is reserved for uppercase
+     labels with wide tracking. */
+  --text-screen-title: 30px;
+  --text-card-title:   19px;
+  --text-emphasis:     15px;
+  --text-body:         13px;
+  --text-secondary:    11px;
+  --text-kicker:       10px;
+  --text-column:        9px;
+
+  /* ── Space ────────────────────────────────────────────────────────── */
+  --space-1: 3.4px;
+  --space-2: 6.8px;
+  --space-3: 10.2px;
+  --space-4: 13.6px;
+  --space-6: 20.4px;
+  --space-8: 27.2px;
+
+  /* ── Shape ─────────────────────────────────────────────────────────
+     Square corners everywhere: cards, buttons, inputs, chips, dialogs.
+     The token exists so the value is stated once rather than assumed. */
+  --radius: 0;
+
+  /* Shadows only on overlays. */
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+
+  /* ── Layout ────────────────────────────────────────────────────────
+     ADR 0003: there is NO global min-width. The page reflows; only the
+     five named two-dimensional components scroll inside themselves.
+     This breakpoint is where the shell collapses to a single column. */
+  --bp-dense: 1180px;
+  --sidebar-width: 238px;
+  --shell-padding: 22px;
+
+  /* Hover tints, stated once so screens do not invent their own. */
+  --hover-row:  color-mix(in srgb, var(--color-text) 5%, transparent);
+  --hover-tree: color-mix(in srgb, var(--color-text) 6%, transparent);
+  --hover-nav:  color-mix(in srgb, var(--color-text) 7%, transparent);
+}

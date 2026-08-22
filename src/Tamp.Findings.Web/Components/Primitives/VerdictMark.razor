@@ -1,0 +1,63 @@
+@* Gate verdict mark — docs/redesign/gate-verdict-marks.md.
+
+   Three redundant signals, always: a glyph, a written tag, and a colour. The
+   glyph and tag survive a monochrome print and a colour-blind reader; the
+   colour makes it scannable.
+
+   Rendering an Unknown gate as a pass is the specific mechanism by which a
+   compliance attestation becomes false, so there is no two-state fallback
+   here on purpose. *@
+
+<span class="row" style="gap: var(--space-2)">
+    <span class="mark @MarkClass" aria-hidden="true"><span>@Glyph</span></span>
+    @if (ShowTag)
+    {
+        <Chip Label="@Tag" Tone="@Tone" Style="@ChipStyle" />
+    }
+</span>
+
+@code {
+    [Parameter, EditorRequired] public GateVerdict Verdict { get; set; }
+    [Parameter] public bool ShowTag { get; set; } = true;
+
+    private string MarkClass => Verdict switch
+    {
+        GateVerdict.Pass    => "mark--pass",
+        GateVerdict.Fail    => "mark--fail",
+        GateVerdict.Unknown => "mark--unknown",
+        _                   => "mark--error",
+    };
+
+    private string Glyph => Verdict switch
+    {
+        GateVerdict.Pass    => "✓",   // check
+        GateVerdict.Fail    => "✕",   // cross
+        // "?" rather than an em dash: an em dash is what a DISABLED gate
+        // shows, and disabled and unanswered are opposite statements.
+        GateVerdict.Unknown => "?",
+        _                   => "!",
+    };
+
+    private string Tag => Verdict switch
+    {
+        GateVerdict.Pass    => "Pass",
+        GateVerdict.Fail    => "Fail",
+        GateVerdict.Unknown => "Unknown",
+        _                   => "Error",
+    };
+
+    private string Tone => Verdict switch
+    {
+        GateVerdict.Pass    => "var(--color-accent)",
+        GateVerdict.Fail    => "var(--color-critical)",
+        GateVerdict.Unknown => "var(--color-medium)",
+        _                   => "var(--color-high)",
+    };
+
+    private Chip.ChipStyle ChipStyle => Verdict switch
+    {
+        GateVerdict.Fail or GateVerdict.Error => Chip.ChipStyle.Solid,
+        GateVerdict.Unknown => Chip.ChipStyle.Dashed,
+        _ => Chip.ChipStyle.Outlined,
+    };
+}
