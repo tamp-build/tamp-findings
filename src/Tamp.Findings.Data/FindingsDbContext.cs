@@ -14,6 +14,11 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<Suppression> Suppressions => Set<Suppression>();
     public DbSet<User> Users => Set<User>();
     public DbSet<ProjectRoleAssignment> ProjectRoleAssignments => Set<ProjectRoleAssignment>();
+
+    // Append-only. Nothing in the app may update or delete these — see
+    // SaveChanges below, which refuses at the context level rather than
+    // trusting every call site to behave.
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<SbomSnapshot> SbomSnapshots => Set<SbomSnapshot>();
     public DbSet<SbomComponent> SbomComponents => Set<SbomComponent>();
     public DbSet<SbomDependency> SbomDependencies => Set<SbomDependency>();
@@ -136,6 +141,19 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // GitHub's numeric id is the durable identity (login can be
             // renamed); sparse-unique so pre-OIDC rows with NULL don't collide.
             e.HasIndex(x => x.GitHubUserId).IsUnique().HasFilter("\"GitHubUserId\" IS NOT NULL");
+        });
+
+        b.Entity<AuditEntry>(e =>
+        {
+            e.Property(x => x.ActorLogin).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Action).HasMaxLength(120).IsRequired();
+            e.Property(x => x.SubjectKind).HasMaxLength(60);
+
+            // The three reads an assessor actually performs: recent activity,
+            // everything in one scope, and everything of one class.
+            e.HasIndex(x => x.At);
+            e.HasIndex(x => new { x.ClientId, x.ProjectId, x.At });
+            e.HasIndex(x => new { x.Class, x.At });
         });
 
         b.Entity<ProjectRoleAssignment>(e =>
@@ -362,5 +380,40 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasOne(x => x.SourceFile).WithMany(f => f.Classes).HasForeignKey(x => x.CoverageSourceFileId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.CoverageModuleId, x.FullName, x.CoverageSourceFileId }).IsUnique();
         });
+    }
+
+    // Append-only enforcement for the audit trail.
+    //
+    // Enforced HERE rather than by convention, because "everyone remembers not
+    // to modify audit rows" is exactly the kind of rule that holds until the
+    // one time it doesn't. An audit trail with an eraser is not an audit
+    // trail, and this is the evidence an assessor reads first.
+    //
+    // Note this does not stop someone with database access editing rows
+    // directly. It stops the APPLICATION from having a code path that does.
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        GuardAuditTrail();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        GuardAuditTrail();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void GuardAuditTrail()
+    {
+        foreach (var entry in ChangeTracker.Entries<AuditEntry>())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                throw new InvalidOperationException(
+                    $"AuditEntry is append-only; attempted to {entry.State.ToString().ToLowerInvariant()} "
+                    + $"entry {entry.Entity.Id} ({entry.Entity.Action}). Write a new entry instead.");
+            }
+        }
     }
 }

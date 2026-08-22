@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.Auditing;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Application.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -34,6 +35,7 @@ public static class SuppressionsEndpoints
         FindingsDbContext db,
         CapabilityEvaluator capabilities,
         PrincipalResolver principals,
+        AuditLog audit,
         ILoggerFactory logs,
         CancellationToken ct)
     {
@@ -83,6 +85,20 @@ public static class SuppressionsEndpoints
             ExpiresAt = req.ExpiresAt,
         };
         db.Suppressions.Add(s);
+
+        // Same transaction as the suppression itself. An audit entry that can
+        // survive a rolled-back action, or an action that can commit without
+        // one, would both make the trail a description of what was attempted
+        // rather than what happened.
+        audit.Record(
+            acting.Principal,
+            AuditActions.SuppressionAuthored,
+            AuditClass.Risk,
+            acting.Target,
+            subjectId: s.Id,
+            subjectKind: nameof(Suppression),
+            detail: $"{req.Scope} suppression: {req.Reason}");
+
         await db.SaveChangesAsync(ct);
 
         return TypedResults.Ok(ToResponse(s, user.Login));
