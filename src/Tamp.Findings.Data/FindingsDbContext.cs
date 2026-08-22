@@ -19,6 +19,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     // SaveChanges below, which refuses at the context level rather than
     // trusting every call site to behave.
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+
+    public DbSet<InstanceSettings> InstanceSettings => Set<InstanceSettings>();
     public DbSet<SbomSnapshot> SbomSnapshots => Set<SbomSnapshot>();
     public DbSet<SbomComponent> SbomComponents => Set<SbomComponent>();
     public DbSet<SbomDependency> SbomDependencies => Set<SbomDependency>();
@@ -141,6 +143,11 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // GitHub's numeric id is the durable identity (login can be
             // renamed); sparse-unique so pre-OIDC rows with NULL don't collide.
             e.HasIndex(x => x.GitHubUserId).IsUnique().HasFilter("\"GitHubUserId\" IS NOT NULL");
+        });
+
+        b.Entity<InstanceSettings>(e =>
+        {
+            e.HasKey(x => x.Id);
         });
 
         b.Entity<AuditEntry>(e =>
