@@ -32,6 +32,12 @@ public static class ApplicationServiceCollectionExtensions
         // admin flag that has since been revoked.
         services.AddScoped<Authorization.PrincipalResolver>();
 
+        // Scoped, and deliberately NOT saving on its own: an audit entry joins
+        // the same transaction as the change it describes, so it can never
+        // survive a rolled-back action and an action can never commit without
+        // its entry.
+        services.AddScoped<Auditing.AuditLog>();
+
         return services;
     }
 }
