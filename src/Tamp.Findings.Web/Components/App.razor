@@ -1,0 +1,20 @@
+@* Root component. Rendered by Tamp.Findings.Api via MapRazorComponents<App>.
+
+   Render mode is chosen PER COMPONENT, not globally (ADR 0002): the dense
+   screens want InteractiveServer, while the attestation (a print target that
+   also feeds the PDF generator) and sign-in stay static SSR. So there is no
+   @rendermode on <Routes /> here — each page declares its own. *@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="@Assets["_content/Tamp.Findings.Web/app.css"]" />
+    <HeadOutlet />
+</head>
+<body>
+    <Routes />
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

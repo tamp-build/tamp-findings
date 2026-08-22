@@ -13,6 +13,8 @@
   <Folder Name="/src/">
     <Project Path="src/Tamp.Findings.Domain/Tamp.Findings.Domain.csproj" />
     <Project Path="src/Tamp.Findings.Data/Tamp.Findings.Data.csproj" />
+    <Project Path="src/Tamp.Findings.Application/Tamp.Findings.Application.csproj" />
+    <Project Path="src/Tamp.Findings.Web/Tamp.Findings.Web.csproj" />
     <Project Path="src/Tamp.Findings.Api/Tamp.Findings.Api.csproj" />
     <Project Path="src/Tamp.Findings.Mcp/Tamp.Findings.Mcp.csproj" />
   </Folder>
