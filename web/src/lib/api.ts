@@ -1049,7 +1049,12 @@ export type SsdfPractice = {
 
 export type SsdfGateLine = {
   key: string
-  passed: boolean
+  // Four-valued verdict (ADR 0001). 'Unknown' means the gate could not be
+  // evaluated at all — typically the scanner never ran — which blocks the
+  // release just as 'Fail' does but needs a different fix.
+  verdict: 'Pass' | 'Fail' | 'Unknown' | 'Error'
+  // True for everything except 'Pass'. The release decision.
+  blocks: boolean
   observed: string
 }
 
@@ -1062,6 +1067,8 @@ export type SsdfAttestation = {
     enabled: number
     passed: number
     failed: number
+    // Gates nobody could answer. A build with unknowns is not a clean build.
+    unknown: number
     results: SsdfGateLine[]
   } | null
   practices: SsdfPractice[]
