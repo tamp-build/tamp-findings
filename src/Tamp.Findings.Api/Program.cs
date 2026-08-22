@@ -109,6 +109,12 @@ builder.Services.AddRazorComponents()
 // AuthorizeRouteView can see them.
 builder.Services.AddCascadingAuthenticationState();
 
+// Current client / project / component / build / spine / selection, read from
+// the route. Scoped, so one instance per circuit — the sidebar scope card, the
+// header URL chip and every screen body all read the same answer rather than
+// each parsing the URL for themselves (TFND-63).
+builder.Services.AddScoped<Tamp.Findings.Web.Routing.RouteScope>();
+
 // Authorization, query/command services and the audit write path all live
 // behind this one call, shared by the API endpoints, the Blazor components and
 // (in process) the MCP tools. Empty until TFND-68.
