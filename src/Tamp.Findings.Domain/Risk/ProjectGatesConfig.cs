@@ -44,6 +44,11 @@ public static class GateKeys
     // Any critical SAST finding (canonical scope).
     public const string CriticalSast = "criticalSast";
     public const string CriticalIac = "criticalIac";
+    // Any critical DAST finding (canonical scope). Distinct from criticalSast
+    // because a runtime-confirmed exploit path is categorically stronger
+    // evidence than a static pattern match against the same weakness — a
+    // project may reasonably gate on one and not the other.
+    public const string CriticalDast = "criticalDast";
     // Any verified secret (TruffleHog verified bucket).
     public const string VerifiedSecrets = "verifiedSecrets";
     // Any denied-license component.

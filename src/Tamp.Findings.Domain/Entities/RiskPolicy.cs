@@ -88,4 +88,9 @@ public static class RiskCategoryNames
     public const string License = "license";
     public const string SastLow = "sastLow";
     public const string MissingScanners = "missingScanners";
+    // DAST — dynamic scan of a deployed target. Split severe/low on the
+    // same lines as SAST so an admin can weight runtime-confirmed
+    // findings independently of static ones.
+    public const string DastSevere = "dastSevere";
+    public const string DastLow = "dastLow";
 }

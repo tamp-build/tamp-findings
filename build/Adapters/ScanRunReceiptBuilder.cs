@@ -126,6 +126,10 @@ public static class ScanRunReceiptBuilder
         if (n.Contains("stryker")) return ScannerKind.Stryker;
         if (n.Contains("eslint")) return ScannerKind.ESLint;
         if (n.Contains("axe")) return ScannerKind.AxeCore;
+        // ZAP sets tool.driver.name to "ZAP" (historically "OWASP ZAP");
+        // match on the substring so both land on the same kind.
+        if (n.Contains("zap")) return ScannerKind.Zap;
+        if (n.Contains("nuclei")) return ScannerKind.Nuclei;
         return ScannerKind.Unknown;
     }
 }

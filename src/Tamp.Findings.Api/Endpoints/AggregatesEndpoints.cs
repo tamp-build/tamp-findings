@@ -434,6 +434,23 @@ public static class AggregatesEndpoints
         var sastMed  = sastAdjusted.Where(x => x.Severity == Severity.Medium).Sum(x => x.Count);
         var sastLow  = sastAdjusted.Where(x => x.Severity == Severity.Low).Sum(x => x.Count);
 
+        // Same shape for dynamic scanners — an admin can ceiling-cap a noisy
+        // DAST ruleset the same way they can ESLint.
+        var dastTuples = new List<(ScannerKind Scanner, Severity Severity, int Count)>();
+        foreach (var d in byScannerDetail)
+        {
+            if (!Enum.TryParse<ScannerKind>(d.Scanner, out var sk) || !RingChartDastSet.Contains(sk)) continue;
+            dastTuples.Add((sk, Severity.Critical, d.Open.Critical));
+            dastTuples.Add((sk, Severity.High,     d.Open.High));
+            dastTuples.Add((sk, Severity.Medium,   d.Open.Medium));
+            dastTuples.Add((sk, Severity.Low,      d.Open.Low));
+        }
+        var dastAdjusted = ScannerOverrideApplier.Apply(dastTuples, overrides);
+        var dastCrit = dastAdjusted.Where(x => x.Severity == Severity.Critical).Sum(x => x.Count);
+        var dastHigh = dastAdjusted.Where(x => x.Severity == Severity.High).Sum(x => x.Count);
+        var dastMed  = dastAdjusted.Where(x => x.Severity == Severity.Medium).Sum(x => x.Count);
+        var dastLow  = dastAdjusted.Where(x => x.Severity == Severity.Low).Sum(x => x.Count);
+
         // IaC severity counts: applied to Trivy specifically. iacCounts
         // is already Trivy-scoped (misconfig sub-category) so we just
         // ceiling-cap the Critical/High buckets.
@@ -448,7 +465,8 @@ public static class AggregatesEndpoints
 
         // Which scanner classes ran? Borrow the existing scan-run roll-up.
         bool RanSucc(ScannerKind k) => scanRuns.Any(r => r.Scanner == k && r.Status == ScanRunStatus.Succeeded);
-        var ranSast = (new[] { ScannerKind.Roslyn, ScannerKind.ReSharper, ScannerKind.OpenGrep, ScannerKind.CodeQL, ScannerKind.ESLint }).Any(RanSucc);
+        var ranSast = RingChartSastSet.Any(RanSucc);
+        var ranDast = RingChartDastSet.Any(RanSucc);
         var ranSecrets = RanSucc(ScannerKind.TruffleHog);
         var ranIac = RanSucc(ScannerKind.Trivy);
         var ranSbom = compsCount > 0 || RanSucc(ScannerKind.Syft) || RanSucc(ScannerKind.OsvScanner);
@@ -470,7 +488,10 @@ public static class AggregatesEndpoints
             TestsMeasured: testsMeasured, TestsTotal: testsTotal, TestsFailed: testsFailed,
             LicenseDenied: denied, LicenseStrongCopyleft: strong, LicenseUnknown: unknown,
             RanSast: ranSast, RanSecrets: ranSecrets, RanIac: ranIac,
-            RanSbom: ranSbom, RanCoverage: ranCoverage);
+            RanSbom: ranSbom, RanCoverage: ranCoverage,
+            OpenPastDuePoams: 0,
+            DastCritical: dastCrit, DastHigh: dastHigh, DastMedium: dastMed, DastLow: dastLow,
+            RanDast: ranDast);
 
         // Render risk = null when the scope has zero ingest evidence — a
         // brand-new client with no scanners ran shouldn't show a number.
@@ -490,6 +511,7 @@ public static class AggregatesEndpoints
                     SchemaVersion: result.SchemaVersion,
                     Breakdown: result.Breakdown.Select(b => new RiskBreakdownDto(
                         b.Key, b.Enabled, b.Max,
+                        Math.Round(b.EffectiveMax, 2),
                         Math.Round(b.SubScore, 4),
                         Math.Round(b.Contribution, 2))).ToList());
             }
@@ -517,6 +539,14 @@ public static class AggregatesEndpoints
     [
         ScannerKind.Roslyn, ScannerKind.ReSharper, ScannerKind.OpenGrep, ScannerKind.CodeQL,
         ScannerKind.ESLint,
+    ];
+
+    // Dynamic scanners. Mirrors RiskInputsBuilder.DastSet — the two must
+    // agree or /aggregates and the per-build evaluator would disagree about
+    // the same build.
+    private static readonly HashSet<ScannerKind> RingChartDastSet =
+    [
+        ScannerKind.Zap, ScannerKind.Nuclei,
     ];
 
     // Canonical = the project's actual state, NOT a PR/branch acceptance

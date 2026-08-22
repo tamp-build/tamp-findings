@@ -94,6 +94,11 @@ class Build : SecurityPipelineBuild
     // and Trivy.
     AbsolutePath SecurityJsonAxeCoreFile => RootDirectory / "artifacts" / "security" / "axe-core.json";
     AbsolutePath SecuritySarifAxeCoreFile => RootDirectory / "artifacts" / "security" / "axe-core.sarif";
+    // TFND-38 / TAM-278 / TAM-280: DAST SARIF against a deployed target.
+    // Both scanners emit SARIF natively, so unlike axe-core there's no
+    // converter leg.
+    AbsolutePath SecuritySarifZapFile => RootDirectory / "artifacts" / "security" / "zap.sarif";
+    AbsolutePath SecuritySarifNucleiFile => RootDirectory / "artifacts" / "security" / "nuclei.sarif";
 
     // The deployed (or locally running) SPA URL axe-core scans. Defaults to
     // the Vite dev server; set TAMP_FINDINGS_AXE_TARGET_URL in CI to point
@@ -526,6 +531,15 @@ class Build : SecurityPipelineBuild
             // TFND-27: axe-core a11y findings also target the SPA → "web" flavor.
             await PostSarifAsync(client, webCtx, SecuritySarifAxeCoreFile, "AxeCore");
 
+            // TFND-38: DAST findings attach to a "deployed" flavor rather than
+            // "web". ESLint and axe-core scan web ASSETS; ZAP and Nuclei scan
+            // the running SERVICE — API and SPA as one deployed unit — so
+            // folding them into "web" would conflate two different things and
+            // leave nowhere to hang which environment was scanned.
+            var deployedCtx = ctx with { Flavor = "deployed" };
+            await PostSarifAsync(client, deployedCtx, SecuritySarifZapFile, "ZAP");
+            await PostSarifAsync(client, deployedCtx, SecuritySarifNucleiFile, "Nuclei");
+
             // TruffleHog jsonl is not SARIF — its own adapter.
             var trufflehog = TrufflehogIngestMapper.Map(TrufflehogJsonFile.Value, ctx);
             if (trufflehog is null)
@@ -595,6 +609,11 @@ class Build : SecurityPipelineBuild
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifEslintFile.Value));
             // TFND-27: axe-core receipt — same SARIF shape as the others.
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifAxeCoreFile.Value));
+            // TFND-38: DAST receipts. These are what flip RanDast, which in
+            // turn is what lets SSDF PW.8.1 answer "Yes" instead of capping at
+            // "Partial — no dynamic analysis".
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifZapFile.Value));
+            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifNucleiFile.Value));
             var thReceipt = ScanRunReceiptBuilder.FromTrufflehogJsonl(TrufflehogJsonFile.Value);
             if (thReceipt is not null) receipts.Add(thReceipt);
             // Dedup by scanner (the merged sast.sarif may have already

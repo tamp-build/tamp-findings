@@ -124,6 +124,27 @@ if (Environment.GetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE") != "true")
         });
         await db.SaveChangesAsync();
     }
+
+    // Seed the federal policy alongside the default, for contract work
+    // that specifies dynamic analysis (SSDF PW.8.1 / 800-53 SA-11(8)).
+    // Deliberately NOT IsDefault: adopting it is a per-project decision
+    // via Project.RiskPolicyId, so its arrival never rescores anyone.
+    // Idempotent on name — an admin who renames or deletes it won't have
+    // it silently reappear under the old name on the next boot.
+    var federalName = Tamp.Findings.Domain.Risk.RiskPolicyDefaults.TampFederalV1Name;
+    if (!await db.RiskPolicies.AnyAsync(p => p.Name == federalName))
+    {
+        db.RiskPolicies.Add(new Tamp.Findings.Domain.Entities.RiskPolicy
+        {
+            Name = federalName,
+            Description = "Adds DAST scoring (dastSevere / dastLow) and expects all six scanner classes. "
+                        + "Schema 2 — weights are relative and normalise to 100. Assign per project; not the system default.",
+            IsDefault = false,
+            IsSeeded = true,
+            Config = Tamp.Findings.Domain.Risk.RiskPolicyDefaults.BuildTampFederalV1(),
+        });
+        await db.SaveChangesAsync();
+    }
 }
 
 // ForwardedHeaders MUST run before anything that reads Request.Scheme
@@ -196,6 +217,7 @@ app.MapTestResults();
 app.MapFindingsQuery();
 app.MapFindingsList();
 app.MapFindingsTree();
+app.MapDast();
 app.MapSbomComponents();
 app.MapSuppressions();
 app.MapRoleAssignments();

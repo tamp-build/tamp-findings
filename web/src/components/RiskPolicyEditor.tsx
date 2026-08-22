@@ -93,10 +93,32 @@ const CATEGORY_SCHEMA: Record<string, CategorySchema> = {
       { key: 'low', label: 'Per-low weight', step: 0.0005 },
     ],
   },
+  dastSevere: {
+    label: 'DAST · critical + high',
+    fields: [
+      { key: 'critical', label: 'Critical', step: 0.05 },
+      { key: 'high', label: 'High', step: 0.05 },
+    ],
+    help: 'Dynamic scan of a deployed target. Separate from SAST so runtime-confirmed findings can be weighted independently.',
+  },
+  dastLow: {
+    label: 'DAST · medium + low',
+    fields: [
+      { key: 'medium', label: 'Per-medium weight', step: 0.001 },
+      { key: 'low', label: 'Per-low weight', step: 0.0005 },
+    ],
+  },
   missingScanners: {
     label: 'Missing scanners',
-    fields: [],
-    help: 'Fraction of expected scanner classes (SAST/Secrets/IaC/SBOM/Coverage) that didn\'t run.',
+    fields: [
+      { key: 'sast', label: 'Expect SAST', step: 1 },
+      { key: 'secrets', label: 'Expect secrets', step: 1 },
+      { key: 'iac', label: 'Expect IaC', step: 1 },
+      { key: 'sbom', label: 'Expect SBOM', step: 1 },
+      { key: 'coverage', label: 'Expect coverage', step: 1 },
+      { key: 'dast', label: 'Expect DAST', step: 1 },
+    ],
+    help: 'Weighted fraction of expected scanner classes that didn\'t run. Set a class to 0 when it doesn\'t apply — a library has no IaC surface, and nothing undeployed can run DAST. All-zero falls back to the legacy five (DAST excluded).',
   },
 }
 
@@ -162,9 +184,18 @@ export function RiskPolicyEditor({
     },
   })
 
-  // Sum of category maxes — surfaced so the admin sees if their config
-  // exceeds 100 (the score auto-clamps but it's clearly miscalibrated).
-  const totalMax = Object.values(config.categories).reduce((s, c) => s + (c.enabled ? c.max : 0), 0)
+  // Sum of enabled category weights. Under schema 1 this is a literal
+  // point budget and anything other than 100 is miscalibrated (the score
+  // auto-clamps). Under schema 2 it's the normalisation basis — any total
+  // is valid, so we show what each weight is actually worth instead of
+  // warning about the sum.
+  const weightBasis = Object.values(config.categories).reduce((s, c) => s + (c.enabled ? c.max : 0), 0)
+  const normalised = config.schemaVersion >= 2
+
+  // Points a category can cost at full saturation. Mirrors
+  // RiskScorer.EffectiveMax so the editor and the score agree.
+  const effectiveMax = (max: number) =>
+    !normalised ? max : weightBasis <= 0 ? 0 : (100 * max) / weightBasis
 
   const updateBand = (k: 'greenMax' | 'yellowMax' | 'orangeMax', v: number) =>
     setConfig({ ...config, bands: { ...config.bands, [k]: v } })
@@ -279,9 +310,15 @@ export function RiskPolicyEditor({
           <section className="space-y-3">
             <div className="flex items-baseline justify-between">
               <h3 className="text-sm font-semibold">Categories</h3>
-              <p className={totalMax === 100 ? 'text-[11px] text-muted-foreground' : 'text-[11px] text-amber-600 dark:text-amber-400'}>
-                Sum of max points: {totalMax} {totalMax !== 100 && '(scores auto-clamp to 100)'}
-              </p>
+              {normalised ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Weight basis: {weightBasis} — weights are relative, normalised to 100
+                </p>
+              ) : (
+                <p className={weightBasis === 100 ? 'text-[11px] text-muted-foreground' : 'text-[11px] text-amber-600 dark:text-amber-400'}>
+                  Sum of max points: {weightBasis} {weightBasis !== 100 && '(scores auto-clamp to 100)'}
+                </p>
+              )}
             </div>
             {Object.entries(CATEGORY_SCHEMA).map(([key, schema]) => {
               const cat = config.categories[key]
@@ -299,14 +336,21 @@ export function RiskPolicyEditor({
                       <h4 className="text-sm font-medium">{schema.label}</h4>
                     </div>
                     <div className="flex items-center gap-1.5 text-xs">
-                      <span className="text-muted-foreground">Max</span>
+                      <span className="text-muted-foreground">{normalised ? 'Weight' : 'Max'}</span>
                       <input
-                        type="number" min={0} max={100} step={1}
+                        type="number" min={0} max={normalised ? undefined : 100} step={1}
                         value={cat.max}
                         onChange={(e) => updateCategory(key, { max: Number(e.target.value) })}
                         disabled={!cat.enabled}
                         className="w-16 rounded-md border bg-background px-2 py-1 text-right text-sm disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-ring/40"
                       />
+                      {/* Under schema 2 the authored weight isn't a point
+                          value, so show what it's actually worth. */}
+                      {normalised && cat.enabled && (
+                        <span className="w-16 text-right tabular-nums text-muted-foreground">
+                          ≤ {effectiveMax(cat.max).toFixed(1)} pts
+                        </span>
+                      )}
                     </div>
                   </div>
                   {schema.help && <p className="mt-1 text-[11px] text-muted-foreground">{schema.help}</p>}

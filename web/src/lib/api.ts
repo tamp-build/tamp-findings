@@ -15,7 +15,7 @@ export type ScannerKind =
   | 'Checkov' | 'Tfsec' | 'Kics' | 'Zap' | 'Spectral' | 'Oasdiff'
   | 'Cosign' | 'NetArchTest' | 'DependencyCruiser' | 'Stryker' | 'Coverlet'
   | 'OsvScanner' | 'Roslyn' | 'Syft' | 'Grype' | 'ReSharper' | 'ESLint'
-  | 'AxeCore'
+  | 'AxeCore' | 'Nuclei'
 
 export type Severity = 'Info' | 'Low' | 'Medium' | 'High' | 'Critical'
 export type FindingStatus = 'Open' | 'Fixed' | 'Suppressed' | 'Accepted'
@@ -302,7 +302,14 @@ export type RiskBand = 'green' | 'yellow' | 'orange' | 'red'
 export type RiskBreakdown = {
   key: string
   enabled: boolean
+  // Weight as authored in the policy. Absolute points under schema 1,
+  // an arbitrary-scale relative weight under schema 2.
   max: number
+  // Points this category can cost at full saturation once normalised
+  // against the enabled weight basis. Equals max for a well-formed
+  // schema-1 policy. Show this, not max — it stays truthful when the
+  // authored weights don't sum to 100.
+  effectiveMax: number
   subScore: number
   contribution: number
 }
@@ -314,6 +321,59 @@ export type RiskScore = {
   policyName: string
   schemaVersion: number
   breakdown: RiskBreakdown[]
+}
+
+// TFND-38: dynamic-scan (DAST) browse tree. Host -> route -> findings.
+// Findings ride inline rather than behind a detail call — DAST volume is
+// tens-to-hundreds per build, not the thousands a SAST tree carries.
+export type DastSeverityCounts = {
+  info: number; low: number; medium: number; high: number; critical: number
+}
+
+export type DastFinding = {
+  id: string
+  scanner: ScannerKind
+  ruleId: string
+  severity: Severity
+  title: string
+  description: string | null
+  // Full URL the scanner requested, attack payload included. The route
+  // strips it; reproducing the finding needs it.
+  url: string | null
+  evidence: string | null
+}
+
+export type DastRouteNode = {
+  route: string
+  counts: DastSeverityCounts
+  maxSeverity: Severity
+  findings: DastFinding[]
+}
+
+export type DastHostNode = {
+  host: string
+  counts: DastSeverityCounts
+  maxSeverity: Severity
+  routes: DastRouteNode[]
+}
+
+export type DastTreeResponse = {
+  totalCount: number
+  counts: DastSeverityCounts
+  hosts: DastHostNode[]
+}
+
+export async function fetchDastTree(params: {
+  clientId?: string; projectId?: string; componentId?: string
+} = {}): Promise<DastTreeResponse> {
+  const q = new URLSearchParams()
+  if (params.clientId) q.set('clientId', params.clientId)
+  if (params.projectId) q.set('projectId', params.projectId)
+  if (params.componentId) q.set('componentId', params.componentId)
+  const qs = q.toString()
+  const r = await fetch(`${API_BASE}/findings/dast-tree${qs ? `?${qs}` : ''}`)
+  if (!r.ok) throw new Error(`GET /findings/dast-tree failed: ${r.status}`)
+  return r.json()
 }
 
 export type CoverageModuleSummary = {

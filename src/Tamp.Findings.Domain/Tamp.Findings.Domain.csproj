@@ -7,4 +7,12 @@
     <Description>POCOs and domain rules for tamp.findings — the aggregator's entity model is intentionally free of EF or framework references so the same types can be consumed from API, MCP, and any future hosts.</Description>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- FindingHasher.NormalizeUrl is an internal helper worth testing
+         directly — URL normalisation is where DAST dedup lives or dies, and
+         asserting it through the hash alone would only tell us that two
+         inputs differ, not how they were parsed. -->
+    <InternalsVisibleTo Include="Tamp.Findings.Domain.Tests" />
+  </ItemGroup>
+
 </Project>

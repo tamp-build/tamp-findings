@@ -41,9 +41,16 @@ public static class SarifIngestMapper
                 // so we infer from RuleId prefix. Non-Trivy scanners get null.
                 // TFND-27: AxeCore findings all get sub-category "accessibility"
                 // so the SSDF attestation + dashboard can split them out.
-                var subCategory = scanner == ScannerKind.AxeCore
-                    ? "accessibility"
-                    : InferTrivySubCategory(scanner, r.RuleId);
+                var subCategory = scanner switch
+                {
+                    ScannerKind.AxeCore => "accessibility",
+                    // TFND-38: dynamic scanners share one bucket so the
+                    // dashboard and SSDF PW.8.1 can split runtime-observed
+                    // findings from static ones regardless of which DAST
+                    // tool produced them.
+                    ScannerKind.Zap or ScannerKind.Nuclei => "dast",
+                    _ => InferTrivySubCategory(scanner, r.RuleId),
+                };
 
                 // ESLint embeds the source-snippet + line context in
                     // message.text — can hit 1k+ chars. The Finding.Title column
@@ -110,6 +117,10 @@ public static class SarifIngestMapper
         // TFND-27: axe-sarif-converter sets tool.driver.name to "axe"
         // (sometimes "axe-core"); covers both with one contains check.
         if (n.Contains("axe")) return ScannerKind.AxeCore;
+        // ZAP sets tool.driver.name to "ZAP" (historically "OWASP ZAP");
+        // match on the substring so both land on the same kind.
+        if (n.Contains("zap")) return ScannerKind.Zap;
+        if (n.Contains("nuclei")) return ScannerKind.Nuclei;
         return ScannerKind.Unknown;
     }
 
