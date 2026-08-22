@@ -39,7 +39,7 @@
     <PackageVersion Include="Tamp.AxeCore" Version="0.1.0" />
     <!-- TAM-278 / TAM-280 / TFND-38: DAST against a deployed target. Both
          emit SARIF natively, so unlike axe-core there's no converter leg. -->
-    <PackageVersion Include="Tamp.Zap" Version="0.1.1" />
+    <PackageVersion Include="Tamp.Zap" Version="0.1.2" />
     <PackageVersion Include="Tamp.Nuclei" Version="0.1.0" />
     <!-- TAM-279: pinned ahead of what Tamp.Security.Pipeline 1.13.0 pulls in
          transitively (1.13.0). 1.14.0 models region.snippet, which is what

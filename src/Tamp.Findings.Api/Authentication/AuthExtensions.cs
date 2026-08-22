@@ -37,7 +37,22 @@ public static class AuthExtensions
             ?? Environment.GetEnvironmentVariable("GITHUB_CLIENT_SECRET")
             ?? "";
 
-        services
+        // Only register the GitHub OAuth handler if creds are actually
+        // present. Without this guard, an empty ClientId triggers
+        // OAuthOptions.Validate() to throw on EVERY request — even
+        // /health, which is AllowAnonymous — because UseAuthentication
+        // initializes all registered schemes per-request. Test hosts and
+        // misconfigured deployments would 500 on every probe.
+        //
+        // Cookie scheme is always registered (login session storage
+        // doesn't depend on which IdP is wired); only the GitHub
+        // challenge endpoint becomes inactive without creds. The
+        // /auth/login/github endpoint will return a clear 500
+        // "scheme not registered" if hit, which is the right signal
+        // for a misconfigured deployment.
+        var hasGithubOAuth = !string.IsNullOrWhiteSpace(clientId) && !string.IsNullOrWhiteSpace(clientSecret);
+
+        var authBuilder = services
             .AddAuthentication(o =>
             {
                 // Both default to the cookie scheme so unauthenticated hits
@@ -68,8 +83,9 @@ public static class AuthExtensions
                     ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
                     return Task.CompletedTask;
                 };
-            })
-            .AddOAuth(GitHubScheme, o =>
+            });
+
+        if (hasGithubOAuth) authBuilder.AddOAuth(GitHubScheme, o =>
             {
                 // Sign-in lands in the cookie scheme — the OAuth handler is
                 // only used for the challenge round-trip, never as a session.
