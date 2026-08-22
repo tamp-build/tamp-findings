@@ -203,4 +203,64 @@ public class FindingHasherDynamicTests
         var b = FindingHasher.ComputeForDynamic(ScannerKind.Nuclei, "tech-detect", "https://app.test/x?q=2", "get", "q");
         Assert.Equal(a, b);
     }
+
+    // ------------------------------------------------------------------
+    // Platform independence (TFND-130)
+    // ------------------------------------------------------------------
+    //
+    // Uri.TryCreate(.., UriKind.Absolute, ..) disagrees across operating
+    // systems: on Unix a rooted path is an implicit file URI and parses,
+    // on Windows it does not. Branching on it alone sent the two platforms
+    // down different code paths, so one DAST finding hashed two ways
+    // depending on where it was ingested from — and the deployed instance
+    // is Linux while developers are on Windows.
+    //
+    // These assert the OUTCOME rather than the platform, so they are
+    // meaningful on both and fail on either if the branch regresses.
+
+    [Theory]
+    // Rooted paths: the case that actually diverged.
+    [InlineData("/orders?id=1", "/orders", "id")]
+    [InlineData("/orders", "/orders", "")]
+    [InlineData("/a/b/c?z=1&y=2", "/a/b/c", "y,z")]
+    // Relative paths with no leading slash.
+    [InlineData("orders?id=1", "orders", "id")]
+    // A Windows-style path must not be mistaken for a drive-letter scheme.
+    [InlineData("C:/orders?id=1", "C:/orders", "id")]
+    // Non-HTTP absolute URIs take the fallback on every OS.
+    [InlineData("file:///orders?id=1", "file:///orders", "id")]
+    [InlineData("ftp://host/orders?id=1", "ftp://host/orders", "id")]
+    public void Normalisation_does_not_depend_on_the_host_operating_system(
+        string url, string expectedPath, string expectedParams)
+    {
+        var (path, names) = DastRoute.Normalize(url);
+        Assert.Equal(expectedPath, path);
+        Assert.Equal(expectedParams, names);
+    }
+
+    [Theory]
+    [InlineData("/orders?id=1")]
+    [InlineData("orders?id=1")]
+    [InlineData("file:///orders?id=1")]
+    [InlineData("not a url at all")]
+    public void Non_http_targets_have_no_host(string url) =>
+        Assert.Equal("(relative)", DastRoute.HostOf(url));
+
+    [Theory]
+    [InlineData("http://app.test/x", "app.test")]
+    [InlineData("https://app.test/x", "app.test")]
+    [InlineData("https://app.test:8443/x", "app.test:8443")]
+    public void Http_targets_keep_their_host(string url, string expected) =>
+        Assert.Equal(expected, DastRoute.HostOf(url));
+
+    [Fact]
+    public void Rooted_path_query_values_are_stripped_on_every_platform()
+    {
+        // The regression itself: on Unix this pair took the parsed branch and
+        // on Windows the fallback, producing two different hashes for what is
+        // the same endpoint with a different attack payload.
+        var a = FindingHasher.ComputeForDynamic(ScannerKind.Zap, Rule, "/orders?id=1");
+        var b = FindingHasher.ComputeForDynamic(ScannerKind.Zap, Rule, "/orders?id=99999");
+        Assert.Equal(a, b);
+    }
 }
