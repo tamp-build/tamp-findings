@@ -8,5 +8,16 @@ window.tampFindings = {
   copyText: async function (text) {
     if (!navigator.clipboard) throw new Error('clipboard unavailable');
     await navigator.clipboard.writeText(text);
+  },
+
+  // View preferences (density, deltas). localStorage throws outright in some
+  // configurations — a private window, blocked site data — rather than merely
+  // returning null, so both accessors swallow. A lost preference is a
+  // convenience not working; a thrown one would break the render.
+  get: function (key) {
+    try { return window.localStorage.getItem(key); } catch { return null; }
+  },
+  set: function (key, value) {
+    try { window.localStorage.setItem(key, value); } catch { /* ignore */ }
   }
 };

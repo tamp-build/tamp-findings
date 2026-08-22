@@ -1,9 +1,14 @@
 @* The primary variant is the one solid object in the design system. *@
 
+@* Extra attributes are splatted so callers can pass title, aria-* and data-*
+   without every one needing its own parameter. DisabledReason wins over a
+   caller's title when the button is disabled: explaining WHY it is unavailable
+   is more useful than whatever the enabled-state tooltip said. *@
 <button type="@(Submit ? "submit" : "button")"
+        @attributes="Extra"
         class="btn @VariantClass @Class"
         disabled="@Disabled"
-        title="@DisabledReason"
+        title="@Tooltip"
         @onclick="OnClick" @onclick:stopPropagation="StopPropagation">
     @ChildContent
 </button>
@@ -24,6 +29,12 @@
     [Parameter] public bool StopPropagation { get; set; }
     [Parameter] public EventCallback OnClick { get; set; }
     [Parameter] public string? Class { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public IDictionary<string, object>? Extra { get; set; }
+
+    private string? Tooltip =>
+        Disabled && !string.IsNullOrWhiteSpace(DisabledReason)
+            ? DisabledReason
+            : Extra is not null && Extra.TryGetValue("title", out var t) ? t?.ToString() : null;
 
     private string? VariantClass => Variant switch
     {

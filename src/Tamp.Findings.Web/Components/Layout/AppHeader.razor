@@ -8,6 +8,7 @@
 @inject RouteScope Scope
 @inject NavigationManager Nav
 @inject IJSRuntime Js
+@inject ViewPreferences Prefs
 @implements IDisposable
 
 <header class="appheader">
@@ -23,6 +24,22 @@
         </div>
 
         <div class="urlrow__right">
+            @* Persona controls. Deltas only mean something with a build to
+               compare, so the toggle is absent rather than inert outside one. *@
+            @if (Scope.Build is not null)
+            {
+                <Button Variant="Button.ButtonVariant.Text" OnClick="ToggleDeltas"
+                        title="@(Prefs.ShowDeltas ? "Hide per-build deltas" : "Show per-build deltas")">
+                    <Icon Name="activity" Size="12" />
+                    <span>@(Prefs.ShowDeltas ? "deltas on" : "deltas off")</span>
+                </Button>
+            }
+            <Button Variant="Button.ButtonVariant.Text" OnClick="ToggleDensity"
+                    title="Row density">
+                <Icon Name="@(Prefs.Density == Density.Compact ? "chevron-down" : "chevron-right")" Size="12" />
+                <span>@(Prefs.Density == Density.Compact ? "compact" : "comfortable")</span>
+            </Button>
+
             @if (Scope.Build is not null)
             {
                 <span class="mono muted">@Scope.Build</span>
@@ -138,9 +155,15 @@
         }
     }
 
+    private Task ToggleDensity() =>
+        Prefs.SetDensityAsync(Prefs.Density == Density.Compact ? Density.Comfortable : Density.Compact);
+
+    private Task ToggleDeltas() => Prefs.SetShowDeltasAsync(!Prefs.ShowDeltas);
+
     protected override void OnInitialized()
     {
         Scope.Changed += Refresh;
+        Prefs.Changed += Refresh;
         Nav.LocationChanged += OnLocationChanged;
     }
 
@@ -156,6 +179,7 @@
     public void Dispose()
     {
         Scope.Changed -= Refresh;
+        Prefs.Changed -= Refresh;
         Nav.LocationChanged -= OnLocationChanged;
     }
 }
