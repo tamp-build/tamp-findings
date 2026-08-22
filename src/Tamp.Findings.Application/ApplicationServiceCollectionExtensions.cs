@@ -27,6 +27,11 @@ public static class ApplicationServiceCollectionExtensions
         services.AddSingleton<Authorization.CapabilityEvaluator>();
         services.AddSingleton<Authorization.ScopeResolver>();
 
+        // Scoped: it reads the DbContext, and the admin flag is read from the
+        // DATABASE rather than from a claim, so a stale cookie cannot carry an
+        // admin flag that has since been revoked.
+        services.AddScoped<Authorization.PrincipalResolver>();
+
         return services;
     }
 }

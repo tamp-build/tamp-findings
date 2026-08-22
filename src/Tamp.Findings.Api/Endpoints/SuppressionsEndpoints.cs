@@ -1,3 +1,4 @@
+using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Application.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,7 @@ public static class SuppressionsEndpoints
     {
         app.MapPost("/suppressions", CreateAsync)
            .WithName("CreateSuppression")
-           .WithSummary("Create a suppression. Requires X-Author-User and X-Author-Role headers (POC auth).");
+           .WithSummary("Create a suppression. Requires an authenticated session and the AuthorSuppression capability at the target scope.");
 
         app.MapGet("/suppressions", ListAsync)
            .WithName("ListSuppressions")
@@ -32,34 +33,23 @@ public static class SuppressionsEndpoints
         HttpContext http,
         FindingsDbContext db,
         CapabilityEvaluator capabilities,
+        PrincipalResolver principals,
         ILoggerFactory logs,
         CancellationToken ct)
     {
-        // POC auth — header-based. Real OIDC plumbing lands in F3.3.
-        var userLogin = http.Request.Headers["X-Author-User"].ToString();
-        var roleStr = http.Request.Headers["X-Author-Role"].ToString();
-
-        if (string.IsNullOrWhiteSpace(userLogin)) return TypedResults.BadRequest("X-Author-User header is required");
-        if (string.IsNullOrWhiteSpace(roleStr)) return TypedResults.BadRequest("X-Author-Role header is required");
-
-        if (!Enum.TryParse<ProjectRole>(roleStr, ignoreCase: true, out var role))
-        {
-            return TypedResults.BadRequest(
-                $"X-Author-Role must be one of: {string.Join(", ", Enum.GetNames<ProjectRole>())} (was '{roleStr}')");
-        }
-
-        // Parsing a role is not the same as that role being ALLOWED to do this.
+        // Who is acting comes from the AUTHENTICATED COOKIE, never from a
+        // header. X-Author-Role used to be parsed and trusted here: anyone who
+        // could reach the endpoint could claim any role by typing it, which
+        // ADR 0001 flagged and TFND-19 tracked. That is what this replaces.
         //
-        // Before TFND-69 the enum happened to contain only roles that could
-        // author suppressions, so parsing doubled as authorization by accident.
-        // Adding Auditor — which reads and exports but authors nothing — broke
-        // that coincidence, and every future role would break it again. Ask the
-        // capability evaluator instead of inferring from the enum's membership.
-        //
-        // The header itself is STILL TRUSTED here; that is TFND-71's job. This
-        // only stops a new role silently widening an existing surface.
-        var claimed = Principal.For(Guid.Empty, userLogin, isAdmin: false, [role]);
-        var decision = capabilities.Evaluate(claimed, Capability.AuthorSuppression);
+        // The legacy header path survives ONLY behind an explicit env var for
+        // the POC ingest tests, and is refused whenever authentication is
+        // actually configured — see SuppressionAuthorization.
+        var acting = await SuppressionAuthorization.ResolveActorAsync(http, principals, db, req, ct);
+        if (acting.Error is not null) return TypedResults.BadRequest(acting.Error);
+        if (acting.Principal is null || acting.User is null) return TypedResults.Forbid();
+
+        var decision = capabilities.Evaluate(acting.Principal, Capability.AuthorSuppression);
         if (!decision.Allowed)
         {
             // ForbidHttpResult carries no body, so the reason goes to the log
@@ -67,8 +57,8 @@ public static class SuppressionsEndpoints
             // ticket. The Blazor UI reads the evaluator directly and shows the
             // reason inline instead (ADR 0002).
             logs.CreateLogger("Tamp.Findings.Suppressions")
-                .LogWarning("Suppression authoring denied for {Login} as {Role}: {Reason}",
-                    userLogin, role, decision.Reason);
+                .LogWarning("Suppression denied for {Login} at {Target}: {Reason}",
+                    acting.User.Login, acting.Target, decision.Reason);
             return TypedResults.Forbid();
         }
 
@@ -77,20 +67,8 @@ public static class SuppressionsEndpoints
         if (validation is not null) return TypedResults.BadRequest(validation);
         if (string.IsNullOrWhiteSpace(req.Reason)) return TypedResults.BadRequest("reason is required");
 
-        // Find-or-create the user. In POC mode the named roles are gated
-        // by header trust; once OIDC lands we'll resolve the user from
-        // the verified subject claim instead.
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Login == userLogin, ct);
-        if (user is null)
-        {
-            user = new User
-            {
-                Login = userLogin,
-                DisplayName = userLogin,
-            };
-            db.Users.Add(user);
-            await db.SaveChangesAsync(ct);
-        }
+        var user = acting.User;
+        var role = acting.RecordedRole;
 
         var s = new Suppression
         {
