@@ -1,0 +1,115 @@
+name: Dogfood scan + ingest
+
+# tamp.findings scans itself and files its own findings through the tamp
+# wrappers. Deliberately NOT part of ci.yml: this needs credentials and network
+# egress to a live instance, so it must never be the thing that blocks a merge.
+#
+# Requires two repository secrets. Without them the job exits cleanly with a
+# notice rather than failing:
+#   TAMP_FINDINGS_URL            e.g. https://tamp-findings.brewingcoder.com
+#   TAMP_FINDINGS_INGEST_TOKEN   a cli_/prj_ token minted in the app
+#
+# DAST (ZAP + Nuclei) is not run here. ScanAll and ScanDast are mutually
+# exclusive by nature — ScanAll rebuilds with NoIncremental and needs the API
+# stopped, DAST needs a deployed running target. DAST stays on its own path.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # 07:00 UTC daily. A missing scan is not a clean scan, so the receipt
+    # should refresh even on days nothing merges.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: dogfood
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan and ingest
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Scanners and the ingest context read git history for the commit
+          # sha, branch and computed version.
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Check credentials
+        id: creds
+        env:
+          URL: ${{ secrets.TAMP_FINDINGS_URL }}
+          TOKEN: ${{ secrets.TAMP_FINDINGS_INGEST_TOKEN }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$TOKEN" ]; then
+            echo "::notice::TAMP_FINDINGS_URL / TAMP_FINDINGS_INGEST_TOKEN not configured — skipping dogfood ingest."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cache NuGet packages
+        if: steps.creds.outputs.configured == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/packages.lock.json') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # The Tamp wrappers resolve these from PATH (Build.cs uses
+      # [FromPath("grype")] / [FromPath("trufflehog")]) and the targets
+      # .Requires() them, so a missing binary fails the leg rather than
+      # skipping it quietly.
+      - name: Install scanners
+        if: steps.creds.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh  | sh -s -- -b /usr/local/bin
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin
+          syft version && grype version && trivy --version && trufflehog --version
+
+      # Grype's first run downloads its vulnerability database (~5 min per the
+      # ScanAll target description). Cached across runs by date.
+      - name: Cache Grype DB
+        if: steps.creds.outputs.configured == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/grype
+          key: grype-db-${{ github.run_id }}
+          restore-keys: grype-db-
+
+      - name: Scan
+        if: steps.creds.outputs.configured == 'true'
+        # Best effort. A scanner that fails to download or errors out must not
+        # read as a code failure — but it must also not read as a clean scan,
+        # which is what the ingest step's receipts are for.
+        continue-on-error: true
+        run: dotnet run --project build -- ScanAll --configuration Release
+
+      - name: Ingest
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          TAMP_FINDINGS_URL: ${{ secrets.TAMP_FINDINGS_URL }}
+          TAMP_FINDINGS_INGEST_TOKEN: ${{ secrets.TAMP_FINDINGS_INGEST_TOKEN }}
+          CI_BUILD_ID: ${{ github.run_id }}
+        run: dotnet run --project build -- Ingest --configuration Release
+
+      - name: Upload scan artifacts
+        if: always() && steps.creds.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-artifacts
+          path: artifacts/security/
+          if-no-files-found: warn
