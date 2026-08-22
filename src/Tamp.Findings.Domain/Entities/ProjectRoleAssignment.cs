@@ -16,4 +16,20 @@ public sealed class ProjectRoleAssignment
     public Guid? ComponentId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    // Who granted this, so the trail does not depend on matching timestamps
+    // against the audit log.
+    public Guid? GrantedByUserId { get; set; }
+
+    // Separation-of-duties conflict introduced BY THIS GRANT, recorded at
+    // grant time (TFND-72).
+    //
+    // Stored rather than recomputed on read, and that is the point: the
+    // hand-off wants "an assessor [to] see it was a deliberate choice rather
+    // than an oversight". Recomputing would show today's conflicts against
+    // today's rules; this shows what the granter was told and accepted at the
+    // moment they accepted it.
+    //
+    // Null means no conflict was introduced. Non-null is the advisory text.
+    public string? SodConflict { get; set; }
 }

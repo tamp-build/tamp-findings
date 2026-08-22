@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Contracts;
@@ -90,6 +91,26 @@ public static class RoleAssignmentsEndpoints
             return TypedResults.Ok(ToResponse(existing, user.Login, clientName, projectName, componentName));
         }
 
+        // Separation of duties. Only conflicts this grant INTRODUCES matter —
+        // repeating one the person already had would be noise on every
+        // subsequent grant.
+        var held = await db.ProjectRoleAssignments.AsNoTracking()
+            .Where(x => x.UserId == user.Id)
+            .Select(x => x.Role)
+            .ToArrayAsync(ct);
+        var introduced = SeparationOfDuties.WouldIntroduce(held, [req.Role]);
+
+        var settings = await db.InstanceSettings.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == InstanceSettings.SingletonId, ct);
+
+        if (introduced.Count > 0 && settings?.EnforceSeparationOfDuties == true)
+        {
+            // Refusal names the specific conflict. "Separation of duties
+            // violation" tells an operator nothing they can act on.
+            return TypedResults.BadRequest(
+                "Separation of duties is enforced on this instance. " + string.Join(" ", introduced));
+        }
+
         var a = new ProjectRoleAssignment
         {
             UserId = user.Id,
@@ -97,6 +118,10 @@ public static class RoleAssignmentsEndpoints
             ClientId = req.ClientId,
             ProjectId = req.ProjectId,
             ComponentId = req.ComponentId,
+            // Recorded at grant time, not recomputed on read: the assessor
+            // needs to see what the granter was told and accepted, not what
+            // today's rules would say.
+            SodConflict = introduced.Count > 0 ? string.Join(" ", introduced) : null,
         };
         db.ProjectRoleAssignments.Add(a);
         await db.SaveChangesAsync(ct);
