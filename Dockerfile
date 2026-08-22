@@ -49,6 +49,8 @@ WORKDIR /work
 COPY Directory.Build.props Directory.Packages.props global.json Tamp.Findings.slnx ./
 COPY src/Tamp.Findings.Domain/Tamp.Findings.Domain.csproj   src/Tamp.Findings.Domain/
 COPY src/Tamp.Findings.Data/Tamp.Findings.Data.csproj       src/Tamp.Findings.Data/
+COPY src/Tamp.Findings.Application/Tamp.Findings.Application.csproj src/Tamp.Findings.Application/
+COPY src/Tamp.Findings.Web/Tamp.Findings.Web.csproj         src/Tamp.Findings.Web/
 COPY src/Tamp.Findings.Api/Tamp.Findings.Api.csproj         src/Tamp.Findings.Api/
 
 # Restore only what the API needs — Domain + Data + Api transitively. Skip

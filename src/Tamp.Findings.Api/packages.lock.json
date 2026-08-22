@@ -194,6 +194,13 @@
           "System.Composition.Runtime": "9.0.0"
         }
       },
+      "tamp.findings.application": {
+        "type": "Project",
+        "dependencies": {
+          "Tamp.Findings.Data": "[0.1.0-alpha, )",
+          "Tamp.Findings.Domain": "[0.1.0-alpha, )"
+        }
+      },
       "tamp.findings.data": {
         "type": "Project",
         "dependencies": {
@@ -205,6 +212,12 @@
       },
       "tamp.findings.domain": {
         "type": "Project"
+      },
+      "tamp.findings.web": {
+        "type": "Project",
+        "dependencies": {
+          "Tamp.Findings.Application": "[0.1.0-alpha, )"
+        }
       },
       "Microsoft.EntityFrameworkCore": {
         "type": "CentralTransitive",

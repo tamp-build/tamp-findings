@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tamp.Findings.Application</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <Description>Application layer for tamp.findings (ADR 0002). Owns the authorization evaluator, the query/command services and the audit write path. Api, Web and Mcp are three transports over this — authorization is decided here, once, so a transport that forgets to check is not a vulnerability.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tamp.Findings.Domain\Tamp.Findings.Domain.csproj" />
+    <ProjectReference Include="..\Tamp.Findings.Data\Tamp.Findings.Data.csproj" />
+  </ItemGroup>
+
+</Project>

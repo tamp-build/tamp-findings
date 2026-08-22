@@ -1,3 +1,5 @@
+using Tamp.Findings.Application;
+using Tamp.Findings.Web.Components;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -94,6 +96,24 @@ builder.Services.AddCors(options =>
 // TFND-4 OIDC sign-in. Cookie session + GitHub OAuth challenge.
 builder.Services.AddTampFindingsAuth(builder.Configuration);
 
+// TFND-40 / ADR 0002. The Blazor UI lives in Tamp.Findings.Web (a Razor Class
+// Library) and is hosted here — one process, one port, one cookie, so the
+// single-image deployment (TFND-4) holds. Interactivity is declared per
+// component rather than globally: the dense screens want InteractiveServer,
+// while the attestation (a print target feeding the PDF generator) and sign-in
+// stay static SSR.
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+
+// Flows the signed-in user into components so [Authorize] and
+// AuthorizeRouteView can see them.
+builder.Services.AddCascadingAuthenticationState();
+
+// Authorization, query/command services and the audit write path all live
+// behind this one call, shared by the API endpoints, the Blazor components and
+// (in process) the MCP tools. Empty until TFND-68.
+builder.Services.AddFindingsApplication();
+
 // Bearer-token auth for /ingest/*. Each request brings a cli_/prj_
 // token; the filter validates + stashes the row, the endpoints
 // scope-check resolved Client/Project against it.
@@ -173,9 +193,22 @@ app.UseCors();
 // middlewares are no-ops when wwwroot/ is missing (dev runs).
 app.UseDefaultFiles();
 app.UseStaticFiles();
+// Serves wwwroot/ from referenced RCLs too, so Tamp.Findings.Web's assets
+// resolve under _content/Tamp.Findings.Web/.
+//
+// AllowAnonymous because the host applies a fallback authorization policy to
+// every endpoint, and stylesheets and the Blazor framework script are not
+// secrets. Without this the sign-in page (TFND-126) could not load its own CSS
+// or boot a circuit — the user has to see the page BEFORE they authenticate.
+app.MapStaticAssets().AllowAnonymous();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Required by Razor Components (TFND-40): interactive endpoints carry
+// anti-forgery metadata and the pipeline throws without this. Must sit after
+// authentication and authorization.
+app.UseAntiforgery();
 app.MapOpenApi().AllowAnonymous();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "tamp.findings.api" }))
@@ -237,6 +270,23 @@ app.MapHierarchyCreate();
 // React Router can pick it up on hydration. MUST come after all
 // API routes; otherwise it would shadow them. AllowAnonymous so a
 // signed-out visitor sees the SignInView rather than a 401.
+// Blazor UI (TFND-40). Registered BEFORE the SPA fallback: an explicit route
+// always beats a fallback, so the two frontends coexist on one origin with no
+// path prefix and nothing to unwind at cutover (TFND-128). Blazor claims only
+// the routes its components declare — today just /ui.
+//
+// Consequence while both are live: no Blazor page may claim "/" until the SPA
+// is retired, or it shadows index.html.
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode()
+    // AllowAnonymous at the ENDPOINT, [Authorize] at the COMPONENT. The host's
+    // FallbackPolicy would otherwise gate _framework/blazor.web.js itself, so
+    // an anonymous visitor could not boot the circuit that renders the sign-in
+    // page — and would get a JSON 401 rather than a challenge. Per-page
+    // authorization is handled by AuthorizeRouteView in Routes.razor, and the
+    // real gate is the Application layer (ADR 0002), not this endpoint.
+    .AllowAnonymous();
+
 app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.Run();

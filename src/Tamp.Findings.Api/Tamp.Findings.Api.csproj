@@ -18,6 +18,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Tamp.Findings.Domain\Tamp.Findings.Domain.csproj" />
     <ProjectReference Include="..\Tamp.Findings.Data\Tamp.Findings.Data.csproj" />
+    <ProjectReference Include="..\Tamp.Findings.Application\Tamp.Findings.Application.csproj" />
+    <ProjectReference Include="..\Tamp.Findings.Web\Tamp.Findings.Web.csproj" />
   </ItemGroup>
 
 </Project>
