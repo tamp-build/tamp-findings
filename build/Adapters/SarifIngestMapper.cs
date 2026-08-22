@@ -31,6 +31,18 @@ public static class SarifIngestMapper
                 byScanner[scanner] = bucket;
             }
 
+            // TAM-279 made rule metadata reachable. Dynamic scanners put a
+            // whole descriptive paragraph in message.text — ZAP's cache-control
+            // finding runs to 300+ characters — which makes an unreadable
+            // title in any list view. rule.name is the short human label
+            // ("Re-examine Cache-control Directives"), so prefer it and let the
+            // paragraph be the description.
+            var ruleNames = run.Tool?.Driver?.Rules?
+                .Where(x => !string.IsNullOrWhiteSpace(x.Id) && !string.IsNullOrWhiteSpace(x.Name))
+                .GroupBy(x => x.Id, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().Name!, StringComparer.Ordinal)
+                ?? [];
+
             foreach (var r in run.Results)
             {
                 var loc = r.Locations?.FirstOrDefault();
@@ -58,7 +70,14 @@ public static class SarifIngestMapper
                     // safely under, while the full text rides in Description
                     // (text column, unlimited).
                     var rawMsg = r.Message?.Text;
-                    var title = ShortTitle(rawMsg) ?? r.RuleId ?? "(no title)";
+                    var title = (ScannerKinds.IsDynamic(scanner)
+                                    && r.RuleId is { } rid
+                                    && ruleNames.TryGetValue(rid, out var ruleName)
+                                        ? ruleName
+                                        : null)
+                                ?? ShortTitle(rawMsg)
+                                ?? r.RuleId
+                                ?? "(no title)";
                 // Nuclei's SARIF export sets artifactLocation.uri to "." and
                 // puts the scanned target in region.snippet instead, so the
                 // route tree would group every finding under ".". Synthesise a
