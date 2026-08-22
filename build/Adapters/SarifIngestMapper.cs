@@ -43,6 +43,32 @@ public static class SarifIngestMapper
                 .ToDictionary(g => g.Key, g => g.First().Name!, StringComparer.Ordinal)
                 ?? [];
 
+            // rule.properties["security-severity"] is a CVSS-style score and
+            // the GitHub code-scanning convention. It matters because SARIF's
+            // own level vocabulary is error | warning | note | none — there is
+            // no "critical", so a scanner reporting through levels alone can
+            // never produce a Critical finding, and any "critical" gate over
+            // it is dead. Where a scanner does publish a score, band from it.
+            // Verified present on Trivy (5.5 -> MEDIUM, 2.0 -> LOW, matching
+            // its own tags) and Nuclei; absent on ZAP, OpenGrep, ESLint,
+            // Roslyn and ReSharper, which keep the level mapping.
+            var ruleScores = new Dictionary<string, double>(StringComparer.Ordinal);
+            foreach (var rule in run.Tool?.Driver?.Rules ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(rule.Id)) continue;
+                if (rule.Properties?.AdditionalProperties is not { } props) continue;
+                if (!props.TryGetValue("security-severity", out var raw)) continue;
+
+                var text = raw.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? raw.GetString()
+                    : raw.ToString();
+                if (double.TryParse(text, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var score))
+                {
+                    ruleScores[rule.Id] = score;
+                }
+            }
+
             foreach (var r in run.Results)
             {
                 var loc = r.Locations?.FirstOrDefault();
@@ -97,7 +123,9 @@ public static class SarifIngestMapper
 
                 bucket.Add(new IngestFindingDto(
                     RuleId: r.RuleId ?? "(unknown)",
-                    Severity: MapSeverity(r.Level),
+                    Severity: r.RuleId is { } sevRule && ruleScores.TryGetValue(sevRule, out var cvss)
+                        ? MapCvssSeverity(cvss)
+                        : MapSeverity(r.Level),
                     Title: title,
                     Description: rawMsg,
                     FilePath: dynamicPath,
@@ -173,6 +201,18 @@ public static class SarifIngestMapper
         var firstLine = (nl >= 0 ? raw[..nl] : raw).TrimEnd('\r', ' ');
         return firstLine.Length <= 500 ? firstLine : firstLine[..497] + "…";
     }
+
+    // CVSS v3 qualitative bands, the same split GitHub code scanning uses for
+    // security-severity. A score is a stronger signal than a SARIF level
+    // because the level vocabulary tops out at "error".
+    private static Severity MapCvssSeverity(double score) => score switch
+    {
+        >= 9.0 => Severity.Critical,
+        >= 7.0 => Severity.High,
+        >= 4.0 => Severity.Medium,
+        > 0.0  => Severity.Low,
+        _      => Severity.Info,
+    };
 
     private static Severity MapSeverity(SarifLevel level) => level switch
     {

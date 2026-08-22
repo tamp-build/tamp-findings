@@ -49,6 +49,20 @@ public static class GateKeys
     // evidence than a static pattern match against the same weakness — a
     // project may reasonably gate on one and not the other.
     public const string CriticalDast = "criticalDast";
+
+    // High-severity SAST / DAST. These exist because SARIF's level vocabulary
+    // is only error | warning | note | none — there is no "critical". A
+    // scanner that reports through SARIF levels alone therefore tops out at
+    // High, and criticalSast / criticalDast can never fire for it. That was
+    // true of every SAST scanner in the pipeline and of ZAP: a confirmed SQL
+    // injection arrived as High and sailed through a "critical" gate.
+    //
+    // Critical is still reachable — findings whose rule carries a
+    // security-severity (CVSS) property are banded from it, and CVEs and
+    // verified secrets have always had real Critical severities. But for the
+    // scanners that don't report one, these are the gates that actually bite.
+    public const string HighSast = "highSast";
+    public const string HighDast = "highDast";
     // Any verified secret (TruffleHog verified bucket).
     public const string VerifiedSecrets = "verifiedSecrets";
     // Any denied-license component.
