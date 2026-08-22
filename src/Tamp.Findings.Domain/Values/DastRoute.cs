@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Tamp.Findings.Domain.Values;
 
 // Route identity for dynamic-scan findings.
@@ -33,7 +35,7 @@ public static class DastRoute
         string path;
         string query;
 
-        if (Uri.TryCreate(raw, UriKind.Absolute, out var uri))
+        if (IsHttpUri(raw, out var uri))
         {
             path = uri.AbsolutePath;
             query = uri.Query;
@@ -71,10 +73,28 @@ public static class DastRoute
     public static string HostOf(string? targetUrl)
     {
         if (string.IsNullOrWhiteSpace(targetUrl)) return "(unknown host)";
-        return Uri.TryCreate(targetUrl.Trim(), UriKind.Absolute, out var uri)
+        return IsHttpUri(targetUrl.Trim(), out var uri)
             ? uri.IsDefaultPort ? uri.Host : $"{uri.Host}:{uri.Port}"
             : "(relative)";
     }
+
+    // Absolute-URI test that means the same thing on every OS.
+    //
+    // Uri.TryCreate(.., UriKind.Absolute, ..) is NOT platform-independent: on
+    // Unix a rooted path like "/orders?id=1" is an *implicit file URI*
+    // (file:///orders?id=1) and parses successfully, while on Windows the same
+    // string is not absolute and fails. Branching on it alone put Linux and
+    // Windows on different code paths, so one DAST finding hashed two ways
+    // depending on where it was ingested from (TFND-130).
+    //
+    // A dynamic scanner reports the HTTP(S) request it made, so requiring an
+    // http/https scheme is both the correct domain constraint and the thing
+    // that makes the branch platform-stable. Everything else — rooted paths,
+    // relative paths, malformed strings — takes the hand-split fallback on
+    // every OS.
+    private static bool IsHttpUri(string raw, [NotNullWhen(true)] out Uri? uri) =>
+        Uri.TryCreate(raw, UriKind.Absolute, out uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
     // Display form of a route: path plus its parameter names, so two rows on
     // the same path are distinguishable at a glance.
