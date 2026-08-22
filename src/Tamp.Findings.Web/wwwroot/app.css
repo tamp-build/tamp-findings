@@ -389,6 +389,100 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
   margin-bottom: var(--space-2);
 }
 
+/* ── Layout ─────────────────────────────────────────────────────────────
+   A flex row above the dense breakpoint, a column below it. The sidebar is a
+   fixed 238px column beside the content, or a full-width band above it — a
+   fixed column at 320px would guarantee the two-dimensional scrolling ADR
+   0003 forbids. */
+
+.layout { display: flex; align-items: stretch; min-height: 100vh; }
+.layout__main { flex: 1 1 auto; min-width: 0; }
+
+.sidebar {
+  flex: none;
+  width: var(--sidebar-width);
+  background: var(--color-neutral-100);
+  border-right: 1px solid var(--color-divider);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .layout { flex-direction: column; }
+  .sidebar { width: auto; border-right: 0; border-bottom: 1px solid var(--color-divider); }
+}
+
+.sidebar__brand { line-height: 1.1; }
+.brand { font-family: var(--font-heading); font-weight: 600; font-size: 20px; }
+.brand__accent { color: var(--color-accent-700); }
+
+.sidebar__scope { padding: var(--space-2); }
+.scope-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+}
+.scope-row__label {
+  grid-column: 1;
+  font-size: var(--text-column);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-neutral-500);
+}
+.scope-row__value {
+  grid-column: 1;
+  font-size: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.scope-row__chevron { grid-column: 2; grid-row: 1 / span 2; color: var(--color-neutral-500); }
+
+.navgroup { display: flex; flex-direction: column; }
+.navgroup__label {
+  font-size: var(--text-column);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--color-neutral-500);
+  margin-bottom: var(--space-1);
+}
+/* Instance-level: outside any client or project scope, and the nav says so. */
+.navgroup--instance {
+  border-top: 1px solid var(--color-divider);
+  padding-top: 14px;
+  margin-top: var(--space-2);
+}
+.navgroup--instance .navgroup__label { color: var(--color-accent-700); }
+
+.navitem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-left: 3px solid transparent;
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: var(--text-secondary);
+}
+.navitem:hover { background: var(--hover-nav); }
+.navitem--active {
+  background: var(--color-accent);
+  color: var(--color-on-solid);
+  border-left-color: var(--color-accent-900);
+}
+.navitem__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.navitem__count { font-size: var(--text-kicker); flex: none; }
+
+.sidebar__foot {
+  margin-top: auto;
+  border-top: 1px solid var(--color-divider);
+  padding-top: var(--space-2);
+  font-size: var(--text-secondary);
+}
+
 /* ── Shell ──────────────────────────────────────────────────────────────
    The padding is load-bearing, not decoration: blueprint registration marks
    are positioned 6px OUTSIDE the card border, so a full-bleed card would push
