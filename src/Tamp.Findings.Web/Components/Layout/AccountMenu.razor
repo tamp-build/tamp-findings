@@ -1,0 +1,74 @@
+@* 24px square accent avatar with the user's initials, the login in monospace,
+   and a caret. Opens a 246px blueprint menu on --color-neutral-100.
+
+   Sign out is in #dd5f5f because it ends the session — the design's rule that
+   destructive actions look destructive applies to leaving, not just deleting. *@
+
+@inject NavigationManager Nav
+
+<AuthorizeView>
+    <Authorized>
+        <div class="account">
+            <button type="button" class="account__trigger" @onclick="Toggle"
+                    aria-haspopup="menu" aria-expanded="@_open.ToString().ToLowerInvariant()">
+                <span class="avatar" aria-hidden="true">@Initials(context.User.Identity?.Name)</span>
+                <span class="mono account__login">@context.User.Identity?.Name</span>
+                <Icon Name="chevron-down" Size="12" />
+            </button>
+
+            @if (_open)
+            {
+                @* Click-away layer. A menu that only closes via its own trigger
+                   is a trap for anyone who opened it by accident. *@
+                <div class="account__scrim" @onclick="Close"></div>
+
+                <Card Surface="true" Padded="false" Class="account__menu" role="menu">
+                    <div class="account__head">
+                        <span class="avatar avatar--lg" aria-hidden="true">@Initials(context.User.Identity?.Name)</span>
+                        <div>
+                            <div class="mono">@context.User.Identity?.Name</div>
+                            <div class="kicker">signed in</div>
+                        </div>
+                    </div>
+
+                    @foreach (var item in Items)
+                    {
+                        <a class="account__item" role="menuitem" href="@item.Href" @onclick="Close">
+                            <span class="@(item.Danger ? "account__item-danger" : null)">@item.Label</span>
+                            <span class="account__item-sub">@item.Sub</span>
+                        </a>
+                    }
+                </Card>
+            }
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <a class="btn" href="/auth/login">Sign in</a>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private sealed record MenuItem(string Label, string Sub, string Href, bool Danger = false);
+
+    private bool _open;
+
+    private static readonly IReadOnlyList<MenuItem> Items =
+    [
+        new("Profile", "Identity, session, default scope", "/c/-/p/-/settings/keys"),
+        new("API keys & ingest tokens", "Reveal once, then never again", "/c/-/p/-/settings/keys"),
+        new("Policy & gates", "Weights, thresholds, bands", "/c/-/p/-/settings/policy"),
+        new("Sign out", "Ends this session", "/auth/logout", Danger: true),
+    ];
+
+    private void Toggle() => _open = !_open;
+    private void Close() => _open = false;
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Split([' ', '-', '.', '_'], StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2
+            ? string.Concat(char.ToUpperInvariant(parts[0][0]), char.ToUpperInvariant(parts[1][0]))
+            : name[..Math.Min(2, name.Length)].ToUpperInvariant();
+    }
+}

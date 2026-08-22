@@ -1,0 +1,161 @@
+@* Two rows: a tab strip, then the URL row.
+
+   The URL chip is the visible proof that deep linking works — problem 1 on the
+   brief's list was that nothing was addressable. Showing the link, and making
+   it copyable, is what turns "the router exists" into something a user can
+   act on. *@
+
+@inject RouteScope Scope
+@inject NavigationManager Nav
+@inject IJSRuntime Js
+@implements IDisposable
+
+<header class="appheader">
+    <Tabs Items="TabItems" Active="@ActiveTab" OnSelect="GoToTab" />
+
+    <div class="urlrow">
+        <div class="urlchip">
+            <code class="mono urlchip__path" title="@CurrentPath">@CurrentPath</code>
+            <Button Variant="Button.ButtonVariant.Text" OnClick="CopyLink" Class="urlchip__copy">
+                <Icon Name="@(_copied ? "check" : "copy")" Size="12" />
+                <span>@(_copied ? "copied" : "copy link")</span>
+            </Button>
+        </div>
+
+        <div class="urlrow__right">
+            @if (Scope.Build is not null)
+            {
+                <span class="mono muted">@Scope.Build</span>
+                @* "canonical" is a real distinction, not decoration: a
+                   non-canonical build does not drive gates or attestation. *@
+                <Chip Label="Canonical" Tone="var(--color-neutral-600)" />
+            }
+            <AccountMenu />
+        </div>
+    </div>
+</header>
+
+@code {
+    private bool _copied;
+
+    private string CurrentPath
+    {
+        get
+        {
+            var rel = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+            return rel == "/" ? "/" : rel.TrimEnd('/');
+        }
+    }
+
+    // The strip mirrors the nav: only what the current scope can reach. The
+    // active explorer spine takes its own tab so the reader can see which of
+    // the five they are in without opening the sidebar.
+    private IReadOnlyList<Tabs.TabItem> TabItems
+    {
+        get
+        {
+            var items = new List<Tabs.TabItem> { new("portfolio", "Portfolio") };
+            var c = Scope.Client;
+            var p = Scope.Project;
+            var b = Scope.Build;
+
+            if (c is not null && p is not null)
+            {
+                if (b is not null)
+                {
+                    items.Add(new("hub", "Project hub"));
+                    if (Scope.Spine is not null) items.Add(new("spine", Scope.Spine));
+                }
+                items.Add(new("poam", "POA&M"));
+                items.Add(new("vex", "VEX"));
+                if (b is not null) items.Add(new("attestation", "Attestation"));
+                items.Add(new("policy", "Policy & gates"));
+                items.Add(new("keys", "Ingest keys"));
+            }
+
+            items.Add(new("system", "System", System: true));
+            return items;
+        }
+    }
+
+    private string ActiveTab
+    {
+        get
+        {
+            var path = CurrentPath;
+            if (path.StartsWith("/system", StringComparison.Ordinal)) return "system";
+            if (path.EndsWith("/attestation", StringComparison.Ordinal)) return "attestation";
+            if (path.Contains("/poam", StringComparison.Ordinal)) return "poam";
+            if (path.EndsWith("/vex", StringComparison.Ordinal)) return "vex";
+            if (path.EndsWith("/settings/policy", StringComparison.Ordinal)) return "policy";
+            if (path.EndsWith("/settings/keys", StringComparison.Ordinal)) return "keys";
+            if (Scope.Spine is not null) return "spine";
+            if (Scope.Build is not null) return "hub";
+            return "portfolio";
+        }
+    }
+
+    private void GoToTab(string key)
+    {
+        var c = Scope.Client;
+        var p = Scope.Project;
+        var b = Scope.Build;
+
+        var url = key switch
+        {
+            "portfolio" => Routes.Portfolio,
+            "system" => Routes.System(),
+            "hub" when c is not null && p is not null && b is not null => Routes.ProjectHub(c, p, b),
+            "spine" when c is not null && p is not null && b is not null && Scope.Spine is not null
+                => Routes.Explorer(c, p, b, Scope.Spine),
+            "poam" when c is not null && p is not null => Routes.Poam(c, p),
+            "vex" when c is not null && p is not null => Routes.Vex(c, p),
+            "attestation" when c is not null && p is not null && b is not null => Routes.Attestation(c, p, b),
+            "policy" when c is not null && p is not null => Routes.Policy(c, p),
+            "keys" when c is not null && p is not null => Routes.Keys(c, p),
+            _ => Routes.Portfolio,
+        };
+        Nav.NavigateTo(url);
+    }
+
+    private async Task CopyLink()
+    {
+        // Copies the ABSOLUTE url — a relative path is not something anyone can
+        // paste into a ticket or a message, which is the whole point of the
+        // affordance.
+        try
+        {
+            await Js.InvokeVoidAsync("tampFindings.copyText", Nav.Uri);
+            _copied = true;
+            StateHasChanged();
+        }
+        catch (JSException)
+        {
+            // Clipboard access can be refused (insecure origin, permissions).
+            // Failing silently would leave the button looking broken, so leave
+            // the label unchanged and let the user select the chip text.
+            _copied = false;
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        Scope.Changed += Refresh;
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    private void OnLocationChanged(object? _, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs __)
+    {
+        // A new location means the previous "copied" confirmation is stale.
+        _copied = false;
+        Refresh();
+    }
+
+    public void Dispose()
+    {
+        Scope.Changed -= Refresh;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}
