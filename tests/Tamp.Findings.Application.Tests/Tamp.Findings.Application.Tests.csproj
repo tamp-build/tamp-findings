@@ -14,6 +14,9 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Bogus" />
+    <!-- The append-only guard runs before base.SaveChanges, so no database
+         is opened — but constructing the context needs a provider. -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="coverlet.collector">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
