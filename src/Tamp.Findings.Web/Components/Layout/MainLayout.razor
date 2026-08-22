@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@inject ViewPreferences Prefs
+@implements IDisposable
 
 @* A flex row: fixed sidebar, main column filling the rest.
 
@@ -6,7 +8,7 @@
    becomes a column — sidebar above content — so the page reflows instead of
    scrolling in two dimensions. *@
 
-<div class="layout">
+<div class="layout @Prefs.DensityClass">
     <Sidebar />
     <main class="layout__main">
         <AppHeader />
@@ -15,3 +17,18 @@
         </div>
     </main>
 </div>
+
+@code {
+    protected override void OnInitialized() => Prefs.Changed += Refresh;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Only after the first INTERACTIVE render: during prerender there is
+        // no browser to read localStorage from and the interop call throws.
+        if (firstRender) await Prefs.LoadAsync();
+    }
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Prefs.Changed -= Refresh;
+}
