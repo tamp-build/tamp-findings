@@ -1,0 +1,42 @@
+@* Route table for the Blazor UI.
+
+   During the port the React SPA still owns "/" and everything it serves via
+   MapFallbackToFile. Blazor claims only the routes its components declare, and
+   an explicit route always beats a fallback — so the two frontends coexist on
+   one origin with no path prefix and nothing to unwind at cutover (TFND-128).
+
+   Consequence: do NOT claim "/" from a Blazor page until the SPA is retired.
+   The real URL scheme (/c/{client}/p/{project}/...) arrives with TFND-63. *@
+@* Authorization is enforced per COMPONENT here, not at the endpoint.
+
+   The host applies a FallbackPolicy of RequireAuthenticatedUser to every
+   endpoint (AuthExtensions), which is the right default for the API but the
+   wrong mechanism for a UI: it also gates _framework/blazor.web.js, so an
+   anonymous visitor cannot even boot the circuit that would show them a
+   sign-in page. It also answers a browser with a JSON 401 instead of a
+   challenge.
+
+   So the Blazor endpoint is AllowAnonymous (see Program.cs) and pages carry
+   [Authorize] themselves. Per ADR 0002 the real gate is the Application layer
+   — a page that forgets [Authorize] renders a shell and still cannot read
+   anything, because authorization is decided beneath it, not here.
+
+   KNOWN GAP for TFND-126: /_framework/blazor.web.js is served by a framework
+   endpoint that is NOT in the static-asset manifest, so AllowAnonymous on the
+   components builder does not reach it and the FallbackPolicy still returns
+   401 for an anonymous request. Authenticated users are unaffected (the cookie
+   goes with the request), so this only bites when there is a sign-in page to
+   render — which is exactly TFND-126. Fix it there, either by narrowing the
+   host FallbackPolicy to exclude /_framework or by mapping the script endpoint
+   explicitly. Do not paper over it by opening the FallbackPolicy globally. *@
+<Router AppAssembly="@typeof(Routes).Assembly">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+            <NotAuthorized>
+                @* TFND-126 replaces this with the real sign-in surface. *@
+                <p>You are not signed in. <a href="/auth/login">Sign in</a>.</p>
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+</Router>

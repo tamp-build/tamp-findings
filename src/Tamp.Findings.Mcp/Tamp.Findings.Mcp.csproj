@@ -9,6 +9,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Tamp.Findings.Domain\Tamp.Findings.Domain.csproj" />
+    <!-- ADR 0002: Mcp consumes Application, never Data and never Api, so an
+         agent's read is subject to the same authorization as a human's. -->
+    <ProjectReference Include="..\Tamp.Findings.Application\Tamp.Findings.Application.csproj" />
   </ItemGroup>
 
 </Project>

@@ -93,13 +93,6 @@
           "Microsoft.Extensions.Logging.Abstractions": "10.0.0"
         }
       },
-      "tamp.findings.application": {
-        "type": "Project",
-        "dependencies": {
-          "Tamp.Findings.Data": "[0.1.0-alpha, )",
-          "Tamp.Findings.Domain": "[0.1.0-alpha, )"
-        }
-      },
       "tamp.findings.data": {
         "type": "Project",
         "dependencies": {
