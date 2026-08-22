@@ -9,6 +9,7 @@
 @inject NavigationManager Nav
 @inject IJSRuntime Js
 @inject ViewPreferences Prefs
+@inject IStringLocalizer<UiStrings> L
 @implements IDisposable
 
 <header class="appheader">
@@ -19,7 +20,7 @@
             <code class="mono urlchip__path" title="@CurrentPath">@CurrentPath</code>
             <Button Variant="Button.ButtonVariant.Text" OnClick="CopyLink" Class="urlchip__copy">
                 <Icon Name="@(_copied ? "check" : "copy")" Size="12" />
-                <span>@(_copied ? "copied" : "copy link")</span>
+                <span>@(_copied ? L["Header.Copied"] : L["Header.CopyLink"])</span>
             </Button>
         </div>
 
@@ -29,15 +30,15 @@
             @if (Scope.Build is not null)
             {
                 <Button Variant="Button.ButtonVariant.Text" OnClick="ToggleDeltas"
-                        title="@(Prefs.ShowDeltas ? "Hide per-build deltas" : "Show per-build deltas")">
+                        title="@(Prefs.ShowDeltas ? L["Header.HideDeltas"] : L["Header.ShowDeltas"])">
                     <Icon Name="activity" Size="12" />
-                    <span>@(Prefs.ShowDeltas ? "deltas on" : "deltas off")</span>
+                    <span>@(Prefs.ShowDeltas ? L["Header.DeltasOn"] : L["Header.DeltasOff"])</span>
                 </Button>
             }
             <Button Variant="Button.ButtonVariant.Text" OnClick="ToggleDensity"
-                    title="Row density">
+                    title="@L["Header.RowDensity"]">
                 <Icon Name="@(Prefs.Density == Density.Compact ? "chevron-down" : "chevron-right")" Size="12" />
-                <span>@(Prefs.Density == Density.Compact ? "compact" : "comfortable")</span>
+                <span>@(Prefs.Density == Density.Compact ? L["Header.Compact"] : L["Header.Comfortable"])</span>
             </Button>
 
             @if (Scope.Build is not null)
@@ -45,7 +46,7 @@
                 <span class="mono muted">@Scope.Build</span>
                 @* "canonical" is a real distinction, not decoration: a
                    non-canonical build does not drive gates or attestation. *@
-                <Chip Label="Canonical" Tone="var(--color-neutral-600)" />
+                <Chip Label="@L["Header.Canonical"]" Tone="var(--color-neutral-600)" />
             }
             <AccountMenu />
         </div>
@@ -71,7 +72,7 @@
     {
         get
         {
-            var items = new List<Tabs.TabItem> { new("portfolio", "Portfolio") };
+            var items = new List<Tabs.TabItem> { new("portfolio", L["Nav.Portfolio"]) };
             var c = Scope.Client;
             var p = Scope.Project;
             var b = Scope.Build;
@@ -80,17 +81,20 @@
             {
                 if (b is not null)
                 {
-                    items.Add(new("hub", "Project hub"));
-                    if (Scope.Spine is not null) items.Add(new("spine", Scope.Spine));
+                    items.Add(new("hub", L["Nav.ProjectHub"]));
+                    if (Scope.Spine is not null) // The spine name is DATA, not copy: "sast" is an identifier
+                        // used in URLs, config and ingest payloads, and translating
+                        // it would break the mapping to what the API accepts.
+                        items.Add(new("spine", UiText.Data(Scope.Spine)));
                 }
-                items.Add(new("poam", "POA&M"));
-                items.Add(new("vex", "VEX"));
-                if (b is not null) items.Add(new("attestation", "Attestation"));
-                items.Add(new("policy", "Policy & gates"));
-                items.Add(new("keys", "Ingest keys"));
+                items.Add(new("poam", L["Nav.Poam"]));
+                items.Add(new("vex", L["Tab.Vex"]));
+                if (b is not null) items.Add(new("attestation", L["Nav.Attestation"]));
+                items.Add(new("policy", L["Nav.PolicyAndGates"]));
+                items.Add(new("keys", L["Nav.IngestKeys"]));
             }
 
-            items.Add(new("system", "System", System: true));
+            items.Add(new("system", L["Tab.System"], System: true));
             return items;
         }
     }

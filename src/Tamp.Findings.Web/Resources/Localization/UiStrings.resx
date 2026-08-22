@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!--
+    UI strings for tamp.findings.
+
+    Strings belong here, never hard-coded in markup. Embedded markup inside a
+    localized string goes through a composed fragment with NUMBERED
+    PLACEHOLDERS so translators receive {0}/{1} rather than tags — the Blazor
+    equivalent of the React <Trans> rule. Do not concatenate localized
+    fragments: word order differs between languages and concatenation makes a
+    sentence untranslatable.
+
+    Design for ~40% expansion and verify against the pseudo-locale
+    (?culture=qps-ploc). Several layouts are CSS grids with fixed columns, and
+    those columns are minimums chosen for English.
+  -->
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="Brand.Kicker" xml:space="preserve">
+    <value>attestation evidence</value>
+  </data>
+  <data name="Scope.Client" xml:space="preserve">
+    <value>Client</value>
+  </data>
+  <data name="Scope.Project" xml:space="preserve">
+    <value>Project</value>
+  </data>
+  <data name="Scope.Component" xml:space="preserve">
+    <value>Component</value>
+  </data>
+  <data name="Scope.Build" xml:space="preserve">
+    <value>Build</value>
+  </data>
+  <data name="Nav.Group.Scope" xml:space="preserve">
+    <value>Scope</value>
+  </data>
+  <data name="Nav.Group.Explore" xml:space="preserve">
+    <value>Explore</value>
+  </data>
+  <data name="Nav.Group.Evidence" xml:space="preserve">
+    <value>Evidence</value>
+  </data>
+  <data name="Nav.Group.ProjectAdmin" xml:space="preserve">
+    <value>Project admin</value>
+  </data>
+  <data name="Nav.Group.System" xml:space="preserve">
+    <value>System · instance</value>
+  </data>
+  <data name="Nav.Portfolio" xml:space="preserve">
+    <value>Portfolio</value>
+  </data>
+  <data name="Nav.ProjectHub" xml:space="preserve">
+    <value>Project hub</value>
+  </data>
+  <data name="Nav.Findings" xml:space="preserve">
+    <value>Findings</value>
+  </data>
+  <data name="Nav.DynamicScan" xml:space="preserve">
+    <value>Dynamic scan</value>
+  </data>
+  <data name="Nav.Sbom" xml:space="preserve">
+    <value>SBOM</value>
+  </data>
+  <data name="Nav.Coverage" xml:space="preserve">
+    <value>Coverage</value>
+  </data>
+  <data name="Nav.Tests" xml:space="preserve">
+    <value>Tests</value>
+  </data>
+  <data name="Nav.Poam" xml:space="preserve">
+    <value>POA&amp;M</value>
+  </data>
+  <data name="Nav.Vex" xml:space="preserve">
+    <value>VEX statements</value>
+  </data>
+  <data name="Nav.Attestation" xml:space="preserve">
+    <value>Attestation</value>
+  </data>
+  <data name="Nav.PolicyAndGates" xml:space="preserve">
+    <value>Policy &amp; gates</value>
+  </data>
+  <data name="Nav.IngestKeys" xml:space="preserve">
+    <value>Ingest keys</value>
+  </data>
+  <data name="Nav.Users" xml:space="preserve">
+    <value>Users &amp; RBAC</value>
+  </data>
+  <data name="Nav.Authentication" xml:space="preserve">
+    <value>Authentication</value>
+  </data>
+  <data name="Nav.Scanners" xml:space="preserve">
+    <value>Scanners &amp; ingest</value>
+  </data>
+  <data name="Nav.InstanceSettings" xml:space="preserve">
+    <value>Instance settings</value>
+  </data>
+  <data name="Nav.AuditLog" xml:space="preserve">
+    <value>Audit log</value>
+  </data>
+  <data name="Account.SignedIn" xml:space="preserve">
+    <value>signed in</value>
+  </data>
+  <data name="Account.NotSignedIn" xml:space="preserve">
+    <value>not signed in</value>
+  </data>
+  <data name="Account.SignIn" xml:space="preserve">
+    <value>Sign in</value>
+  </data>
+  <data name="Account.Profile" xml:space="preserve">
+    <value>Profile</value>
+  </data>
+  <data name="Account.ProfileSub" xml:space="preserve">
+    <value>Identity, session, default scope</value>
+  </data>
+  <data name="Account.ApiKeys" xml:space="preserve">
+    <value>API keys &amp; ingest tokens</value>
+  </data>
+  <data name="Account.ApiKeysSub" xml:space="preserve">
+    <value>Reveal once, then never again</value>
+  </data>
+  <data name="Account.PolicySub" xml:space="preserve">
+    <value>Weights, thresholds, bands</value>
+  </data>
+  <data name="Account.SignOut" xml:space="preserve">
+    <value>Sign out</value>
+  </data>
+  <data name="Account.SignOutSub" xml:space="preserve">
+    <value>Ends this session</value>
+  </data>
+  <data name="Header.CopyLink" xml:space="preserve">
+    <value>copy link</value>
+  </data>
+  <data name="Header.Copied" xml:space="preserve">
+    <value>copied</value>
+  </data>
+  <data name="Header.Canonical" xml:space="preserve">
+    <value>Canonical</value>
+  </data>
+  <data name="Header.DeltasOn" xml:space="preserve">
+    <value>deltas on</value>
+  </data>
+  <data name="Header.DeltasOff" xml:space="preserve">
+    <value>deltas off</value>
+  </data>
+  <data name="Header.ShowDeltas" xml:space="preserve">
+    <value>Show per-build deltas</value>
+  </data>
+  <data name="Header.HideDeltas" xml:space="preserve">
+    <value>Hide per-build deltas</value>
+  </data>
+  <data name="Header.RowDensity" xml:space="preserve">
+    <value>Row density</value>
+  </data>
+  <data name="Header.Comfortable" xml:space="preserve">
+    <value>comfortable</value>
+  </data>
+  <data name="Header.Compact" xml:space="preserve">
+    <value>compact</value>
+  </data>
+  <data name="Tab.System" xml:space="preserve">
+    <value>System</value>
+  </data>
+  <data name="Tab.Vex" xml:space="preserve">
+    <value>VEX</value>
+  </data>
+</root>

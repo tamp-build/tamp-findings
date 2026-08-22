@@ -120,6 +120,16 @@ builder.Services.AddScoped<Tamp.Findings.Web.Routing.RouteScope>();
 // same data, which the brief called the central design problem (TFND-66).
 builder.Services.AddScoped<Tamp.Findings.Web.Routing.ViewPreferences>();
 
+// Localization (TFND-67). Strings live in resources, never in markup.
+//
+// The pseudo-locale decorator sits ON TOP of the real localizer, so a string
+// only gets accented if it went through the catalogue — anything still plain
+// ASCII under ?culture=qps-ploc is a hardcoded literal. That is the test, and
+// it only works at this seam.
+builder.Services.AddLocalization(o => o.ResourcesPath = "Resources");
+builder.Services.AddScoped(typeof(Microsoft.Extensions.Localization.IStringLocalizer<>),
+    typeof(Tamp.Findings.Web.Localization.PseudoStringLocalizer<>));
+
 // Authorization, query/command services and the audit write path all live
 // behind this one call, shared by the API endpoints, the Blazor components and
 // (in process) the MCP tools. Empty until TFND-68.
@@ -222,6 +232,15 @@ app.UseStaticFiles();
 //
 // UseStaticFiles above already serves the RCL's wwwroot through the static
 // web assets file provider, so _content/Tamp.Findings.Web/ resolves here.
+
+// Culture negotiation. Accept-Language by default; ?culture=qps-ploc switches
+// the running app into the pseudo-locale, which is how the ~40% expansion is
+// verified per screen without a translator (TFND-67).
+var supportedCultures = new[] { "en", Tamp.Findings.Web.Localization.PseudoLocale.CultureName };
+app.UseRequestLocalization(new Microsoft.AspNetCore.Builder.RequestLocalizationOptions()
+    .SetDefaultCulture("en")
+    .AddSupportedCultures(supportedCultures)
+    .AddSupportedUICultures(supportedCultures));
 
 app.UseAuthentication();
 app.UseAuthorization();
