@@ -59,12 +59,29 @@ public static class SarifIngestMapper
                     // (text column, unlimited).
                     var rawMsg = r.Message?.Text;
                     var title = ShortTitle(rawMsg) ?? r.RuleId ?? "(no title)";
+                // Nuclei's SARIF export sets artifactLocation.uri to "." and
+                // puts the scanned target in region.snippet instead, so the
+                // route tree would group every finding under ".". Synthesise a
+                // URL from the snippet so the finding lands on the host it was
+                // actually observed against. https:// is an assumption, but
+                // only the host and path participate in route identity — the
+                // scheme is discarded by DastRoute.
+                var dynamicPath = artifact;
+                if (scanner is ScannerKind.Nuclei
+                    && (string.IsNullOrWhiteSpace(artifact) || artifact == ".")
+                    && r.Locations?.FirstOrDefault()?.PhysicalLocation?.Region?.Snippet?.Text is { Length: > 0 } target)
+                {
+                    dynamicPath = target.Contains("://", StringComparison.Ordinal)
+                        ? target
+                        : $"https://{target}";
+                }
+
                 bucket.Add(new IngestFindingDto(
                     RuleId: r.RuleId ?? "(unknown)",
                     Severity: MapSeverity(r.Level),
                     Title: title,
                     Description: rawMsg,
-                    FilePath: artifact,
+                    FilePath: dynamicPath,
                     Line: region?.StartLine,
                     // TAM-279: Tamp.Sarif 1.14.0 models region.snippet, so
                     // dedup no longer falls back to (scanner, rule, path) plus
