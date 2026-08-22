@@ -134,9 +134,9 @@
       },
       "Tamp.Zap": {
         "type": "Direct",
-        "requested": "[0.1.1, )",
-        "resolved": "0.1.1",
-        "contentHash": "U/Me8wEPz1VXeiRhOGXkLvygiQOspiSo8r3hAN+rABUoDpajE92vBGiyUAX3qCBO0fzFokRJSsC5MHPUnGMiUQ==",
+        "requested": "[0.1.2, )",
+        "resolved": "0.1.2",
+        "contentHash": "9459/AazF8kUQ4GaYi5q1L8G2vaCpr1Pjyg8lhqf7o8rYXnNc/ixDj4MFJtwg8Uc1dZaZnNHDBVQgoh6xjwflQ==",
         "dependencies": {
           "Tamp.Core": "1.11.1"
         }

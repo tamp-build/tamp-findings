@@ -345,9 +345,16 @@ class Build : SecurityPipelineBuild
                 : AbsolutePath.Create(ZapWorkDirOverride!);
             workDir.CreateDirectory();
 
+            // Fingerprinted bundles are excluded: their filenames change every
+            // SPA build, so a finding against one gets a new identity on each
+            // deploy and can never be triaged or trended. The first real scan
+            // put four of five discovered routes on /assets/index-<hash>.*.
             var planFile = ZapAutomationPlan.Write(
                 workDir / "zap-anon.yaml",
-                ZapAutomationPlan.Anonymous(DastTargetUrl!, SecuritySarifZapFile.Name));
+                ZapAutomationPlan.Anonymous(
+                    DastTargetUrl!,
+                    SecuritySarifZapFile.Name,
+                    excludePaths: ZapAutomationPlan.DefaultAssetExcludes));
 
             var plan = ZapCli.Automation(s => s
                 .SetWorkingDirectory(RootDirectory)
@@ -896,6 +903,15 @@ class Build : SecurityPipelineBuild
     Target ScanAll => _ => _
         .DependsOn(nameof(Sbom), nameof(SecurityScanGrype), nameof(SecurityScan), nameof(SecurityScanCveSbom), nameof(SecurityScanTrivy), nameof(SecurityScanSecrets))
         .Description("Run every scan in artifacts/security/. The API process MUST be stopped first — the Roslyn scan rebuilds with /p:NoIncremental=true and will fight a running API for the DLL locks. Follow up with the Ingest target after the API is back up.");
+
+    // Deliberately NOT part of ScanAll. ScanAll's own description says the API
+    // process must be stopped first (the Roslyn leg rebuilds and fights the
+    // running API for DLL locks) — and DAST needs the exact opposite: a
+    // deployed, running target. They're mutually exclusive by nature, so the
+    // dynamic scans get their own aggregate.
+    Target ScanDast => _ => _
+        .DependsOn(nameof(SecurityScanZap), nameof(SecurityScanNuclei))
+        .Description("Run the dynamic scans (ZAP + Nuclei) against TAMP_FINDINGS_DAST_TARGET_URL. Requires a DEPLOYED, running target — unlike ScanAll, which requires the API stopped. Follow with Ingest.");
 
     Target Ci => _ => _
         .DependsOn(nameof(Info), nameof(Compile), nameof(Test), nameof(Coverage))
