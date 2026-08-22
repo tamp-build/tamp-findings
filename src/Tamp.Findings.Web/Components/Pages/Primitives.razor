@@ -168,6 +168,27 @@
     </Card>
 
     <Card>
+        <h2>Icons</h2>
+        <p class="field__help">
+            lucide at stroke-width 1.5, vendored as inline SVG on currentColor. A missing glyph
+            renders a crossed box rather than nothing, so it shows up in review.
+        </p>
+        <div class="row" style="flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-3)">
+            @foreach (var n in IconNames)
+            {
+                <span class="row" style="gap: var(--space-1)">
+                    <Icon Name="@n" />
+                    <span class="muted" style="font-size: var(--text-column)">@n</span>
+                </span>
+            }
+            <span class="row" style="gap: var(--space-1)">
+                <Icon Name="no-such-icon" />
+                <span class="muted" style="font-size: var(--text-column)">missing</span>
+            </span>
+        </div>
+    </Card>
+
+    <Card>
         <h2>Dialog</h2>
         <Button Variant="Button.ButtonVariant.Primary" OnClick="() => _dialog = true">Open dialog</Button>
         <p class="field__help">
@@ -204,6 +225,15 @@
     ];
 
     private static readonly string[] Spines = ["sast", "dast", "sbom", "coverage", "tests"];
+
+    private static readonly string[] IconNames =
+    [
+        "chevron-right", "chevron-down", "copy", "check", "x", "circle-alert",
+        "triangle-alert", "search", "plus", "trash-2", "pencil", "external-link",
+        "link", "download", "printer", "refresh-cw", "lock", "shield",
+        "file-text", "git-commit-horizontal", "folder", "package", "activity",
+        "eye", "log-out", "user", "settings", "clock",
+    ];
 
     private static readonly (string Name, string Sev, string Tone)[] Files =
     [
