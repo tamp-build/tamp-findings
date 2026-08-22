@@ -1,0 +1,22 @@
+@* Literal "attestation" beats the explorer's {Spine} parameter at the same
+   segment count, so this route wins without needing a constraint. *@
+@page "/c/{Client}/p/{Project}/build/{Sha}/attestation"
+@attribute [Authorize]
+@inject RouteScope Scope
+
+<PageTitle>Attestation — @Project</PageTitle>
+
+<Placeholder Title="Attestation" Ticket="TFND-100 … TFND-103"
+             Description="The deliverable: the CISA SSDF form auto-populated from real evidence, printed and attached to contract packages."
+             Scope="Params" />
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+    [Parameter] public string Sha { get; set; } = "";
+
+    private List<KeyValuePair<string, string?>> Params =>
+        [new("client", Client), new("project", Project), new("build", Sha)];
+
+    protected override void OnParametersSet() => Scope.SetProject(Client, Project, Sha);
+}
