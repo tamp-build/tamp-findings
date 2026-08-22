@@ -483,6 +483,81 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
   font-size: var(--text-secondary);
 }
 
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+.appheader { border-bottom: 1px solid var(--color-divider); }
+
+.urlrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--shell-padding);
+  flex-wrap: wrap;
+}
+.urlrow__right { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+
+.urlchip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-divider);
+  padding: var(--space-1) var(--space-2);
+  min-width: 0;
+  flex: 1 1 260px;
+}
+/* Truncates rather than pushing the row wide: a deep explorer selection can be
+   a long path, and the page must still reflow at 320px (ADR 0003). */
+.urlchip__path {
+  font-size: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.urlchip__copy { flex: none; text-decoration: none; gap: var(--space-1); }
+
+/* ── Account control ────────────────────────────────────────────────── */
+
+.account { position: relative; }
+.account__trigger {
+  display: flex; align-items: center; gap: var(--space-2);
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: inherit; font: inherit;
+}
+.account__login { font-size: var(--text-secondary); }
+
+.avatar {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; flex: none;
+  background: var(--color-accent);
+  color: var(--color-on-solid);
+  font-size: var(--text-kicker); font-weight: 500;
+}
+.avatar--lg { width: 32px; height: 32px; font-size: var(--text-secondary); }
+
+/* Sits under the menu so a click anywhere else closes it. */
+.account__scrim { position: fixed; inset: 0; z-index: 40; }
+
+.account__menu {
+  position: absolute; right: 0; top: calc(100% + var(--space-2));
+  width: 246px; z-index: 41;
+  box-shadow: var(--shadow-lg);
+}
+.account__head {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+}
+.account__item {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+  color: inherit; text-decoration: none;
+  font-size: var(--text-secondary);
+}
+.account__item:last-child { border-bottom: 0; }
+.account__item:hover { background: var(--hover-nav); }
+.account__item-sub { display: block; font-size: var(--text-kicker); color: var(--color-neutral-500); }
+.account__item-danger { color: var(--color-critical); }
+
 /* ── Shell ──────────────────────────────────────────────────────────────
    The padding is load-bearing, not decoration: blueprint registration marks
    are positioned 6px OUTSIDE the card border, so a full-bleed card would push
