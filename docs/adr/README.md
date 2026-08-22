@@ -11,3 +11,4 @@ Numbering starts at 0001 for tamp.findings-local decisions.
 | # | Title | Status |
 |---|---|---|
 | [0001](0001-rule-evaluation-predicates-and-workflows.md) | Rule evaluation — four-valued verdicts, predicates by default, Elsa for complexity | Accepted |
+| [0002](0002-blazor-hosting-and-the-authorization-boundary.md) | Blazor hosting, the application layer, and one authorization boundary | Accepted |
