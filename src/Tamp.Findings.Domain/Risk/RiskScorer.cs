@@ -58,7 +58,24 @@ public sealed record RiskCategoryBreakdown(
     // author weights that don't sum to anything in particular.
     double EffectiveMax,
     double SubScore,
-    double Contribution);
+    double Contribution,
+    // True when the raw sub-score reached or passed its ceiling and was
+    // clamped — more findings of this class cannot raise the score.
+    //
+    // Today this is exactly equivalent to SubScore == 1.0, so it is
+    // strictly redundant. It exists anyway for two reasons:
+    //
+    //  - Re-deriving it means a caller writing `SubScore >= 1`, which is a
+    //    floating-point equality test in disguise, performed far away from
+    //    the arithmetic that produced the value. Here it is decided next to
+    //    the clamp that creates it.
+    //  - The redesign's project hub renders this fact twice on the same row
+    //    — the SAT chip and the red bar fill — and the hand-off is explicit
+    //    that RiskScorer should expose the breakdown per category rather
+    //    than have the UI recompute it. Two independent derivations of one
+    //    fact are exactly how the "9 gates enabled" contradiction happened
+    //    (TFND-78).
+    bool Saturated);
 
 public sealed record RiskResult(
     double Score,           // 0..100
@@ -115,15 +132,20 @@ public static class RiskScorer
             {
                 // Disabled rows still render so the policy editor can show
                 // the full category set with its zeroed contribution.
-                rows.Add(new RiskCategoryBreakdown(key, false, cat.Max, 0, 0, 0));
+                rows.Add(new RiskCategoryBreakdown(key, false, cat.Max, 0, 0, 0, false));
                 continue;
             }
 
             var effectiveMax = denominator <= 0 ? 0 : 100.0 * cat.Max / denominator;
-            var sub = Math.Clamp(ComputeSubScore(key, cat.Weights, i), 0, 1);
+            var raw = ComputeSubScore(key, cat.Weights, i);
+            // At exactly 1.0 the category is already at its ceiling, so more
+            // findings of that class cannot cost anything further. That is
+            // saturation, not "one more away from it".
+            var saturated = raw >= 1.0;
+            var sub = Math.Clamp(raw, 0, 1);
             var contribution = sub * effectiveMax;
 
-            rows.Add(new RiskCategoryBreakdown(key, true, cat.Max, effectiveMax, sub, contribution));
+            rows.Add(new RiskCategoryBreakdown(key, true, cat.Max, effectiveMax, sub, contribution, saturated));
             total += contribution;
         }
 

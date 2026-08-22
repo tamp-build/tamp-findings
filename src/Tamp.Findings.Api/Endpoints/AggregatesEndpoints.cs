@@ -513,7 +513,8 @@ public static class AggregatesEndpoints
                         b.Key, b.Enabled, b.Max,
                         Math.Round(b.EffectiveMax, 2),
                         Math.Round(b.SubScore, 4),
-                        Math.Round(b.Contribution, 2))).ToList());
+                        Math.Round(b.Contribution, 2),
+                        b.Saturated)).ToList());
             }
         }
 

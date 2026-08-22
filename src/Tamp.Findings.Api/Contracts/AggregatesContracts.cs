@@ -41,7 +41,11 @@ public sealed record RiskBreakdownDto(
     // against the enabled weight basis. Equals Max for a well-formed
     // schema-1 policy. This is the figure the policy editor should show.
     double EffectiveMax,
-    double SubScore, double Contribution);
+    double SubScore, double Contribution,
+    // Category is at its ceiling: more findings of this class cannot raise
+    // the score. Surfaced verbatim from RiskScorer so the SAT chip and the
+    // bar fill cannot disagree with the number they sit beside.
+    bool Saturated);
 
 // Secrets ring (innermost concentric) — verified credentials are the
 // closest thing we can render to "actively exploitable right now".

@@ -378,4 +378,85 @@ public class RiskScorerTests
         // Boundary: exactly at the green/yellow band edge inputs.
         CleanProject() with { CveHigh = 1, SastHigh = 1 },
     ];
+
+    // ------------------------------------------------------------------
+    // Saturation (TFND-76)
+    // ------------------------------------------------------------------
+    //
+    // The project hub renders saturation twice on one row — a SAT chip and
+    // a red bar fill — and routes off it. These pin the meaning so the two
+    // cannot drift from each other or from the score.
+
+    [Fact]
+    public void A_clean_project_saturates_nothing()
+    {
+        var policy = RiskPolicyDefaults.BuildTampStandardV1();
+
+        var result = RiskScorer.Compute(policy, CleanProject());
+
+        Assert.All(result.Breakdown, r => Assert.False(r.Saturated));
+    }
+
+    [Fact]
+    public void A_category_at_its_ceiling_is_saturated()
+    {
+        var policy = RiskPolicyDefaults.BuildTampStandardV1();
+        // 50 critical CVEs is far past any sane ceiling for that category.
+        var result = RiskScorer.Compute(policy, CleanProject() with { CveCritical = 50 });
+
+        var cve = result.Breakdown.Single(r => r.Key == RiskCategoryNames.Cve);
+        Assert.True(cve.Saturated);
+        Assert.Equal(1.0, cve.SubScore, precision: 10);
+        // Saturated means the ceiling was reached, so the category costs
+        // exactly its effective max and no more.
+        Assert.Equal(cve.EffectiveMax, cve.Contribution, precision: 10);
+    }
+
+    [Fact]
+    public void Saturation_means_more_findings_cannot_cost_more()
+    {
+        var policy = RiskPolicyDefaults.BuildTampStandardV1();
+
+        var some = RiskScorer.Compute(policy, CleanProject() with { CveCritical = 50 });
+        var many = RiskScorer.Compute(policy, CleanProject() with { CveCritical = 500 });
+
+        var a = some.Breakdown.Single(r => r.Key == RiskCategoryNames.Cve);
+        var b = many.Breakdown.Single(r => r.Key == RiskCategoryNames.Cve);
+
+        Assert.True(a.Saturated);
+        Assert.True(b.Saturated);
+        // This is the sentence the hub prints under the table: the score is
+        // posture, not volume.
+        Assert.Equal(a.Contribution, b.Contribution, precision: 10);
+    }
+
+    [Fact]
+    public void A_disabled_category_is_never_saturated()
+    {
+        var policy = RiskPolicyDefaults.BuildTampStandardV1();
+        policy.Categories[RiskCategoryNames.Cve].Enabled = false;
+
+        var result = RiskScorer.Compute(policy, CleanProject() with { CveCritical = 500 });
+
+        var cve = result.Breakdown.Single(r => r.Key == RiskCategoryNames.Cve);
+        Assert.False(cve.Enabled);
+        Assert.False(cve.Saturated);
+    }
+
+    [Theory]
+    [MemberData(nameof(InputMatrix))]
+    public void Saturation_agrees_with_the_clamped_sub_score(RiskInputs inputs)
+    {
+        var policy = RiskPolicyDefaults.BuildTampStandardV1();
+
+        var result = RiskScorer.Compute(policy, inputs);
+
+        // The invariant a UI would otherwise re-derive with a floating-point
+        // comparison of its own. If this ever fails, every consumer that
+        // trusted SubScore >= 1 was already wrong.
+        foreach (var row in result.Breakdown.Where(r => r.Enabled))
+        {
+            Assert.Equal(row.SubScore >= 1.0, row.Saturated);
+        }
+    }
 }
