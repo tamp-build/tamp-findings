@@ -1,0 +1,22 @@
+@* Checkbox or radio. Disabled means GENUINELY disabled — on a read-only
+   system policy the toggles must not respond, not merely look dimmed. *@
+
+<label class="check @Class">
+    <input type="@(Radio ? "radio" : "checkbox")" name="@Name"
+           checked="@Checked" disabled="@Disabled" @onchange="Changed" />
+    <span>@Label</span>
+</label>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter] public bool Checked { get; set; }
+    [Parameter] public EventCallback<bool> CheckedChanged { get; set; }
+    [Parameter] public bool Radio { get; set; }
+    /// <summary>Required for radios so the group behaves as one.</summary>
+    [Parameter] public string? Name { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    private Task Changed(ChangeEventArgs e) =>
+        Disabled ? Task.CompletedTask : CheckedChanged.InvokeAsync(e.Value is true);
+}

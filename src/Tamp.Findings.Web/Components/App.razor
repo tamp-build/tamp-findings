@@ -10,7 +10,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
-    <link rel="stylesheet" href="@Assets["_content/Tamp.Findings.Web/app.css"]" />
+    @* app.css @imports fonts.css and tokens.css. Fonts are vendored and served
+       from this origin — no external CDN, because a self-hosted compliance
+       tool must not report page views to a third party and must work
+       air-gapped. *@
+    <link rel="stylesheet" href="_content/Tamp.Findings.Web/app.css" />
     <HeadOutlet />
 </head>
 <body>

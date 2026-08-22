@@ -1,0 +1,26 @@
+@* Tab strip. The active tab takes the page background, an accent top border
+   and -1px bottom margin so it merges with the content below.
+
+   System is marked separately because it is instance-level, outside any
+   client or project scope, and the design says so visually. *@
+
+<div class="tabs @Class" role="tablist">
+    @foreach (var item in Items)
+    {
+        <button type="button" role="tab"
+                class="tab @(item.Key == Active ? "tab--active" : null) @(item.System ? "tab--system" : null)"
+                aria-selected="@((item.Key == Active).ToString().ToLowerInvariant())"
+                @onclick="() => OnSelect.InvokeAsync(item.Key)">
+            @item.Label
+        </button>
+    }
+</div>
+
+@code {
+    public sealed record TabItem(string Key, string Label, bool System = false);
+
+    [Parameter, EditorRequired] public IReadOnlyList<TabItem> Items { get; set; } = [];
+    [Parameter] public string? Active { get; set; }
+    [Parameter] public EventCallback<string> OnSelect { get; set; }
+    [Parameter] public string? Class { get; set; }
+}

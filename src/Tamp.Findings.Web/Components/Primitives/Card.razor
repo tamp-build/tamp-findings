@@ -1,0 +1,27 @@
+@* Blueprint card: a transparent line drawing with four registration marks.
+
+   The marks sit OUTSIDE the border on purpose, so never put overflow on this
+   element — a scroll container counts them as overflow and clips them. Put
+   scrolling on an inner wrapper, or use <ScrollBox>. *@
+
+<div class="blueprint @(Surface ? "blueprint--surface" : null) @Class" @attributes="Extra">
+    <i class="corner tl"></i><i class="corner tr"></i>
+    <i class="corner bl"></i><i class="corner br"></i>
+    @if (Padded)
+    {
+        <div class="card-body">@ChildContent</div>
+    }
+    else
+    {
+        @ChildContent
+    }
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    /// <summary>Fill with --color-neutral-100 instead of staying transparent.</summary>
+    [Parameter] public bool Surface { get; set; }
+    [Parameter] public bool Padded { get; set; } = true;
+    [Parameter] public string? Class { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public IDictionary<string, object>? Extra { get; set; }
+}

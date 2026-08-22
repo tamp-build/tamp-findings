@@ -1,0 +1,30 @@
+@* Uppercase monospace chip. Colour comes from the caller via Tone, and the
+   LABEL IS ALWAYS WRITTEN OUT — a band or a status is never colour alone. *@
+
+<span class="chip @StyleClass @Class" style="color: @Tone">
+    @if (Glyph is not null)
+    {
+        <span aria-hidden="true">@Glyph</span>
+    }
+    <span>@Label</span>
+</span>
+
+@code {
+    public enum ChipStyle { Outlined, Solid, Dashed }
+
+    /// <summary>Written out in full. Never rely on the colour to carry it.</summary>
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    /// <summary>A CSS colour, normally a var(--color-*) token.</summary>
+    [Parameter, EditorRequired] public string Tone { get; set; } = "var(--color-accent)";
+    [Parameter] public ChipStyle Style { get; set; } = ChipStyle.Outlined;
+    /// <summary>Redundant with the label, for monochrome and colour-blind readers.</summary>
+    [Parameter] public string? Glyph { get; set; }
+    [Parameter] public string? Class { get; set; }
+
+    private string StyleClass => Style switch
+    {
+        ChipStyle.Solid  => "chip--solid",
+        ChipStyle.Dashed => "chip--dashed",
+        _ => "chip--outlined",
+    };
+}

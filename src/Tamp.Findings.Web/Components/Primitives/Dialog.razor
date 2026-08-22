@@ -1,0 +1,43 @@
+@* Modal dialog on a blueprint frame.
+
+   Scroll goes on the INNER wrapper (.dialog__scroll), never on the framed
+   element: the registration marks sit outside the box and a scroll container
+   counts them as overflow. This is the note the hand-off calls out on the
+   POA&M dialog, applied once here so no screen has to remember it.
+
+   Escape closes; the x closes. *@
+
+@if (Open)
+{
+    <div class="overlay" @onclick="Close" @onkeydown="Key" tabindex="-1">
+        @* Plain element, because @onclick:stopPropagation is a directive on
+           DOM elements — on a component it would be captured as an inert
+           attribute and every click inside the dialog would close it. *@
+        <div style="@($"width: 100%; max-width: {Width}px")" @onclick:stopPropagation="true">
+        <Card Surface="true" Padded="false" Class="dialog"
+              role="dialog" aria-modal="true" aria-label="@Title">
+            <div class="dialog__head">
+                <h2>@Title</h2>
+                <Button Variant="Button.ButtonVariant.Text" OnClick="Close">✕</Button>
+            </div>
+            <div class="dialog__scroll">@ChildContent</div>
+            @if (Footer is not null)
+            {
+                <div class="dialog__foot">@Footer</div>
+            }
+        </Card>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Open { get; set; }
+    [Parameter] public EventCallback<bool> OpenChanged { get; set; }
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+    [Parameter] public int Width { get; set; } = 780;
+
+    private Task Close() => OpenChanged.InvokeAsync(false);
+    private Task Key(KeyboardEventArgs e) => e.Key == "Escape" ? Close() : Task.CompletedTask;
+}
