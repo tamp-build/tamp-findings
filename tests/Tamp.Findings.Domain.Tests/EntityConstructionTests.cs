@@ -31,12 +31,31 @@ public class EntityConstructionTests
     }
 
     [Fact]
-    public void ProjectRole_only_contains_the_three_authoring_roles()
+    public void ProjectRole_values_are_stable_because_they_are_persisted()
     {
-        var names = Enum.GetNames<ProjectRole>();
-        Assert.Equal(3, names.Length);
-        Assert.Contains("InfoSecOfficer", names);
-        Assert.Contains("LeadDev", names);
-        Assert.Contains("Architect", names);
+        // The enum is stored as an int on ProjectRoleAssignment, so these
+        // numbers are data. Renumbering one would silently re-grant every
+        // existing assignment to a different role.
+        //
+        // This test used to assert the enum held exactly three roles. That
+        // invariant was retired by TFND-69 when Auditor was added — and the
+        // fact that it was ever true is what let SuppressionsEndpoints treat
+        // "it parsed as a ProjectRole" as authorization. What matters is the
+        // NUMBERING, not the count.
+        Assert.Equal(1, (int)ProjectRole.InfoSecOfficer);
+        Assert.Equal(2, (int)ProjectRole.LeadDev);
+        Assert.Equal(3, (int)ProjectRole.Architect);
+        Assert.Equal(4, (int)ProjectRole.Auditor);
+    }
+
+    [Fact]
+    public void Every_project_role_has_a_distinct_persisted_value()
+    {
+        var values = Enum.GetValues<ProjectRole>().Select(r => (int)r).ToArray();
+
+        Assert.Equal(values.Length, values.Distinct().Count());
+        // Zero is the default for an int column; a role sitting on it would be
+        // indistinguishable from an unset value.
+        Assert.DoesNotContain(0, values);
     }
 }

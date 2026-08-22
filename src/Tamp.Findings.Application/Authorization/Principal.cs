@@ -45,10 +45,10 @@ public sealed class Principal
                 ProjectRole.InfoSecOfficer => Actor.InfoSecOfficer,
                 ProjectRole.LeadDev => Actor.LeadDev,
                 ProjectRole.Architect => Actor.Architect,
-                // Auditor joins ProjectRole in TFND-69. Until the enum value
-                // exists this branch is unreachable; throwing rather than
-                // silently mapping to Viewer means a new role added later
-                // cannot quietly become read-only.
+                ProjectRole.Auditor => Actor.Auditor,
+                // Throwing rather than silently mapping to Viewer means a role
+                // added later cannot quietly become read-only — a new role
+                // that nobody mapped should fail loudly, not grant nothing.
                 _ => throw new ArgumentOutOfRangeException(nameof(roles), role, "Unmapped ProjectRole"),
             });
         }
