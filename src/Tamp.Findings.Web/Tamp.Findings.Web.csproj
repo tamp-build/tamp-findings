@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tamp.Findings.Web</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
+    <Description>Blazor UI for tamp.findings (TFND-40), as a Razor Class Library hosted by Tamp.Findings.Api. Per ADR 0002 this project MUST NOT reference Tamp.Findings.Api — if a component needs something that lives there, that thing belongs in Tamp.Findings.Application.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tamp.Findings.Application\Tamp.Findings.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+    <!-- Blazor comes from the shared framework, not a package. An RCL on the
+         Razor SDK has to ask for it explicitly; Sdk.Web would imply it. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

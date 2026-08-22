@@ -422,6 +422,15 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.AspNetCore.OpenApi": "[10.0.11, )",
+          "Tamp.Findings.Application": "[0.1.0-alpha, )",
+          "Tamp.Findings.Data": "[0.1.0-alpha, )",
+          "Tamp.Findings.Domain": "[0.1.0-alpha, )",
+          "Tamp.Findings.Web": "[0.1.0-alpha, )"
+        }
+      },
+      "tamp.findings.application": {
+        "type": "Project",
+        "dependencies": {
           "Tamp.Findings.Data": "[0.1.0-alpha, )",
           "Tamp.Findings.Domain": "[0.1.0-alpha, )"
         }
@@ -437,6 +446,12 @@
       },
       "tamp.findings.domain": {
         "type": "Project"
+      },
+      "tamp.findings.web": {
+        "type": "Project",
+        "dependencies": {
+          "Tamp.Findings.Application": "[0.1.0-alpha, )"
+        }
       },
       "Microsoft.AspNetCore.OpenApi": {
         "type": "CentralTransitive",
