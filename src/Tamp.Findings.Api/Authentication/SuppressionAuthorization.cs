@@ -100,7 +100,14 @@ public static class SuppressionAuthorization
         return !hasOAuth;
     }
 
-    private static Guid? UserIdFrom(ClaimsPrincipal principal)
+    /// <summary>
+    /// The tamp user id on the authenticated cookie, or null.
+    ///
+    /// Public so the withdraw path can use the same one rather than parsing the
+    /// claim a second way — two readings of "who is this" is how they end up
+    /// disagreeing.
+    /// </summary>
+    public static Guid? UserIdFrom(ClaimsPrincipal principal)
     {
         if (principal.Identity?.IsAuthenticated != true) return null;
         var raw = principal.FindFirstValue(AuthExtensions.TampUserIdClaim);
