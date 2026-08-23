@@ -20,6 +20,27 @@ jobs:
     name: .NET build + test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    # A real database for the integration suite. Those tests SKIP when
+    # TAMP_FINDINGS_TEST_DB is unset, so a contributor without Docker still
+    # gets a green `dotnet test` — but CI has one, and the query layer is
+    # exactly what unit tests cannot see: a broken join or a wrong slug
+    # comparison passes every contract-level assertion.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: tamp_findings_test
+          POSTGRES_USER: tamp
+          POSTGRES_PASSWORD: tamp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tamp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +66,10 @@ jobs:
         run: dotnet build Tamp.Findings.slnx -c Release --no-restore
 
       - name: Test
+        env:
+          # Turns the integration suite ON. Without it those tests skip, which
+          # is the correct behaviour locally and the wrong one here.
+          TAMP_FINDINGS_TEST_DB: "Host=localhost;Port=5432;Database=tamp_findings_test;Username=tamp;Password=tamp"
         run: >
           dotnet test Tamp.Findings.slnx -c Release --no-build
           --logger "trx;LogFileName=test-results.trx"
