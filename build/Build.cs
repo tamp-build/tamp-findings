@@ -634,6 +634,11 @@ class Build : SecurityPipelineBuild
         .Description("TFND-134: inspect the built image and its base, then POST both to /ingest/container-image. Requires trivy on PATH and the API up. Run DockerBuildImage first.")
         .Executes(async () =>
         {
+            // FIRST, before the token check and before trivy runs. Being told
+            // where this is aimed is only useful before the work, not after a
+            // scan has already happened.
+            WarnIfRemote();
+
             var ctx = BuildIngestContext();
 
             if (string.IsNullOrWhiteSpace(IngestToken))
@@ -760,11 +765,43 @@ class Build : SecurityPipelineBuild
           + "on purpose, so a stale local copy cannot answer with the wrong publish date.");
     }
 
+    /// <summary>
+    /// Say loudly when an ingest is aimed somewhere that is not this machine.
+    ///
+    /// The repo-root .env used to set TAMP_FINDINGS_URL to the cluster, which
+    /// made PROD the default for every local run — an ingest target run by
+    /// accident wrote to a shared instance. The default is local now, but a
+    /// forgotten uncomment puts it back, and the failure is silent: the run
+    /// succeeds, against the wrong instance.
+    ///
+    /// A banner rather than a prompt, deliberately. A prompt would hang CI,
+    /// and posting to a remote instance is a legitimate thing to do on purpose
+    /// — it just should not be a thing that happens without being noticed.
+    /// </summary>
+    void WarnIfRemote()
+    {
+        if (Uri.TryCreate(IngestUrl, UriKind.Absolute, out var uri)
+            && (uri.IsLoopback || string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("  ┌──────────────────────────────────────────────────────────────┐");
+        Console.WriteLine("  │  INGESTING TO A REMOTE INSTANCE                              │");
+        Console.WriteLine("  └──────────────────────────────────────────────────────────────┘");
+        Console.WriteLine($"  {IngestUrl}");
+        Console.WriteLine("  Not localhost. If that was not deliberate, stop now and comment");
+        Console.WriteLine("  TAMP_FINDINGS_URL back out of .env (see .env.example).");
+        Console.WriteLine();
+    }
+
     Target Ingest => _ => _
         .Description("POST every artifact under artifacts/security/ to the running tamp.findings API. Run ScanAll first to produce the artifacts; the API process must be up.")
         .Executes(async () =>
         {
             var ctx = BuildIngestContext();
+            WarnIfRemote();
             Console.WriteLine($"[ingest] target: {IngestUrl}  context: {ctx.Client}/{ctx.Project}/{ctx.Component} {ctx.Version} @{ctx.CommitSha?[..7]}");
 
             if (string.IsNullOrWhiteSpace(IngestToken))
@@ -1095,6 +1132,7 @@ class Build : SecurityPipelineBuild
         .Executes(async () =>
         {
             var ctx = BuildIngestContext() with { Flavor = "deployed" };
+            WarnIfRemote();
             Console.WriteLine($"[ingest] target: {IngestUrl}  context: {ctx.Client}/{ctx.Project}/{ctx.Component} ({ctx.Flavor})");
             var client = new IngestClient(IngestUrl, IngestToken);
 
