@@ -1,6 +1,7 @@
-@* Two routes, one component: policy and keys share a settings shell and
-   differ only in which tab is active. *@
-@page "/c/{Client}/p/{Project}/settings/policy"
+@* Ingest tokens, disclosure policy and account (TFND-107 - TFND-109).
+
+   Policy and gates moved to their own screen at /settings/policy - they are
+   instance-scoped rather than a project tab. *@
 @page "/c/{Client}/p/{Project}/settings/keys"
 @attribute [Authorize]
 @inject RouteScope Scope

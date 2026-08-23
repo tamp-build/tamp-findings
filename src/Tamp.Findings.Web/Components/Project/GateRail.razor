@@ -92,23 +92,8 @@
         _ => Chip.ChipStyle.Outlined,
     };
 
-    private static string GateLabel(string key) => key switch
-    {
-        "riskScoreRegression" => "Risk score regression",
-        "kevExposure" => "KEV exposure",
-        "anyCves" => "Any CVEs",
-        "criticalCves" => "Critical CVEs",
-        "highCves" => "High CVEs",
-        "criticalSast" => "Critical SAST",
-        "highSast" => "High SAST",
-        "criticalDast" => "Critical DAST",
-        "highDast" => "High DAST",
-        "criticalIac" => "Critical IaC",
-        "verifiedSecrets" => "Verified secrets",
-        "deniedLicenses" => "Denied licences",
-        "testFailures" => "Test failures",
-        "coverageRegression" => "Coverage regression",
-        "poamPastDue" => "POA&M past due",
-        _ => key,
-    };
+    // Delegates to the domain: the gate rail, the gates editor and the
+    // attestation all name the same gates, and three switch statements would
+    // eventually disagree about what one of them is called.
+    private static string GateLabel(string key) => GateEvaluator.Label(key);
 }

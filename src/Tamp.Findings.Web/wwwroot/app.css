@@ -996,3 +996,42 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 
   a[href]::after { content: ""; }
 }
+
+/* ---------------------------------------------------------------------------
+   Policy & gates (TFND-104 … TFND-106)
+   --------------------------------------------------------------------------- */
+
+.policy-library {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+.policy-card--on {
+  border-color: var(--color-accent);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+/* Categories left, bands and gates right. Both halves are dense tables of
+   numbers, so this claims the 1.4.10 two-dimensional exception per ADR 0003
+   rather than reflowing into a single column that would separate a weight from
+   the effective maximum it produces. */
+.policy-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 1180px) { .policy-editor { grid-template-columns: 1fr; } }
+
+/* Numeric inputs are right-aligned and narrow: a weight is two digits, and a
+   full-width box invites someone to type prose into it. */
+.input--num {
+  width: 72px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.band-grid { display: grid; gap: var(--space-2); }
+.band { display: grid; grid-template-columns: 14px 1fr auto; gap: var(--space-2); align-items: center; }
+.band__swatch { width: 14px; height: 14px; display: inline-block; }
