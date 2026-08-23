@@ -90,6 +90,16 @@ public static class ApplicationServiceCollectionExtensions
         });
         services.AddScoped<Projects.ProjectKeyService>();
 
+        // TFND-12: the agent surface.
+        //
+        // AgentContext is SCOPED and holds the resolved token for the request
+        // being served. Registering it here rather than in the API host is what
+        // stops a second host from inventing its own way to decide who an agent
+        // is — the tools can only read it from this one place.
+        services.AddScoped<Mcp.McpTokenService>();
+        services.AddScoped<Mcp.AgentReadService>();
+        services.AddScoped<Mcp.AgentContext>();
+
         return services;
     }
 }

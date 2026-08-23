@@ -101,6 +101,18 @@ public sealed class InstanceSettings
     // without destroying the configuration.
     public bool GitHubChecksEnabled { get; set; }
 
+    // Serve the MCP endpoint at all (TFND-12 / F11).
+    //
+    // Off by default, and a kill switch rather than a convenience: an agent
+    // surface is a way to read every finding in a scope, and an operator who
+    // discovers a token has leaked needs one action that closes the door — not
+    // a hunt through a token list while the agent is still reading.
+    //
+    // Independent of whether tokens exist. Turning it off leaves them minted so
+    // the instance comes back the way it was, rather than forcing a re-issue to
+    // every agent as the price of a five-minute pause.
+    public bool McpEnabled { get; set; }
+
     // Telemetry is OFF and there is no switch. Self-hosted means self-hosted;
     // a compliance tool that phoned home would be reporting its customers'
     // security posture to a third party. The System panel states this as a

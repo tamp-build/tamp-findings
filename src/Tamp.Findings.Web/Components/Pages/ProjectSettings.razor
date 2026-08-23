@@ -14,6 +14,8 @@
 @inject NavigationManager Nav
 @inject ProjectHubQuery Hub
 @inject ProjectSettingsService Settings
+@inject McpTokenService AgentTokens
+@inject ComponentService Components
 @inject CurrentUser Me
 @inject AuthenticationStateProvider Auth
 
@@ -172,7 +174,7 @@ else
                 }
             </Card>
         }
-        else if (Current == TabKeys)
+        @if (Current == TabKeys)
         {
             <Card>
                 <h2>GitHub repository</h2>
@@ -200,6 +202,139 @@ else
                             Disabled="@(!_canManageKeys.Allowed)" DisabledReason="@_canManageKeys.Reason"
                             OnClick="SaveRepository">Save repository</Button>
                 </div>
+            </Card>
+        }
+
+
+        @if (Current == TabAgents)
+        {
+            <Card Padded="false">
+                <div class="card-body row row--between">
+                    <div>
+                        <h2>Agent access</h2>
+                        <p class="field__help">
+                            Tokens that let an MCP client — Claude Code, an agent in CI — READ this
+                            project's findings. They cannot write: an agent that could file a
+                            suppression could retire the finding it was asked to fix.
+                        </p>
+                    </div>
+                    <Button Variant="Button.ButtonVariant.Primary"
+                            Disabled="@(!_canMintAgent.Allowed)" DisabledReason="@_canMintAgent.Reason"
+                            OnClick="OpenAgentDialog">
+                        Mint agent token
+                    </Button>
+                </div>
+
+                @if (!_mcpEnabled)
+                {
+                    @* Stated here rather than only in System settings. Minting a
+                       token that cannot be used, and finding out when the agent
+                       fails, is a worse discovery path than one sentence. *@
+                    <div class="card-body">
+                        <Chip Label="ENDPOINT OFF" Tone="var(--color-high)" Style="Chip.ChipStyle.Outlined" />
+                        <p class="field__help">
+                            The MCP endpoint is disabled on this instance, so these tokens are inert.
+                            An administrator turns it on under System &gt; Instance settings. Tokens
+                            survive the switch — turning it off is a pause, not a revoke.
+                        </p>
+                    </div>
+                }
+
+                @if (_mintedAgent is { } minted)
+                {
+                    <div class="card-body">
+                        <SecretPanel Heading="COPY IT NOW — THIS VALUE IS NOT STORED AND WILL NOT BE SHOWN AGAIN"
+                                     Value="@minted" />
+                        <details class="curl">
+                            <summary>Point an MCP client at it</summary>
+                            <pre class="dast-pane">claude mcp add --transport http tamp-findings @(_instanceUrl)/mcp --header "Authorization: Bearer @minted"</pre>
+                        </details>
+                    </div>
+                }
+
+                @if (_agentTokens.Count == 0)
+                {
+                    <div class="card-body">
+                        <p class="muted">No agent tokens on this project.</p>
+                        <p class="field__help">
+                            Nothing can read this project through MCP. That is the default, and it is
+                            the safe one — a read token is a standing grant to whatever holds it.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <ScrollBox Label="Agent tokens">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th><th>Sees</th><th>Acts as</th><th>Minted by</th>
+                                    <th>Last used</th><th>Expires</th><th>State</th><th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var token in _agentTokens)
+                                {
+                                    <tr class="@(token.Live ? null : "is-retired")">
+                                        <td>@token.Name</td>
+                                        <td>@token.Tier</td>
+                                        @* Viewer is the ABSENCE of a role rather than a
+                                           stored one, so it is named here instead of
+                                           left blank. *@
+                                        <td>@(token.Role?.ToString() ?? "Viewer")</td>
+                                        <td>@token.CreatedBy</td>
+                                        <td class="mono">
+                                            @if (token.LastUsedAt is { } used)
+                                            {
+                                                @used.ToString("yyyy-MM-dd")
+                                            }
+                                            else
+                                            {
+                                                <span class="muted">never</span>
+                                            }
+                                        </td>
+                                        <td class="mono">
+                                            @(token.ExpiresAt?.ToString("yyyy-MM-dd") ?? "never")
+                                        </td>
+                                        <td>
+                                            @if (token.RevokedAt is not null)
+                                            {
+                                                <Chip Label="REVOKED" Tone="var(--color-neutral-500)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                            else if (!token.Live)
+                                            {
+                                                <Chip Label="EXPIRED" Tone="var(--color-neutral-500)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                            else if (token.NeverUsed)
+                                            {
+                                                @* A minted-and-forgotten credential or a
+                                                   broken integration. Both worth seeing. *@
+                                                <Chip Label="NEVER USED" Tone="var(--color-high)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                            else
+                                            {
+                                                <Chip Label="ACTIVE" Tone="var(--color-pass)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (token.RevokedAt is null)
+                                            {
+                                                <Button Variant="Button.ButtonVariant.Text" Class="btn--danger"
+                                                        Disabled="@(!_canMintAgent.Allowed)"
+                                                        DisabledReason="@_canMintAgent.Reason"
+                                                        OnClick="() => _revokingAgent = token">revoke</Button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </ScrollBox>
+                }
             </Card>
         }
 
@@ -257,7 +392,8 @@ else
                 </div>
             </Card>
         }
-        else
+
+        @if (Current == TabAccount)
         {
             <Card>
                 <h2>Account</h2>
@@ -318,18 +454,103 @@ else
     </Footer>
 </Dialog>
 
+
+<Dialog Open="_mintingAgent" OpenChanged="v => _mintingAgent = v" Title="Mint agent token" Width="620">
+    <ChildContent>
+        <TextField Label="Label" @bind-Value="_agentName"
+                   Help="Which agent this is for — &quot;claude · remediation&quot;, &quot;codex · triage&quot;. It is what makes a revoke decision possible six months from now." />
+
+        <label class="field">
+            <span class="field__label">Sees</span>
+            <select class="field__input" @bind="_agentComponent">
+                <option value="">This project — every component under it</option>
+                @foreach (var component in _components)
+                {
+                    <option value="@component.Id">@component.Name — that component alone</option>
+                }
+            </select>
+            <span class="field__help">
+                Scoped DOWN, never up. A component token cannot see its siblings, however close they
+                sit in the tree. Pick the narrowest scope the agent actually needs.
+            </span>
+        </label>
+
+        <label class="field">
+            <span class="field__label">Acts as</span>
+            <select class="field__input" @bind="_agentRole">
+                <option value="">Viewer — read the evidence, nothing else</option>
+                @foreach (var role in MintableRoles)
+                {
+                    <option value="@role">@role</option>
+                }
+            </select>
+            <span class="field__help">
+                The agent is subject to the same capability matrix a person is. You cannot mint a
+                token that holds more than you do — an agent is not a way to grant yourself access.
+            </span>
+        </label>
+
+        <label class="field">
+            <span class="field__label">Expires in</span>
+            <select class="field__input" @bind="_agentDays">
+                <option value="7">7 days</option>
+                <option value="30">30 days</option>
+                <option value="90">90 days</option>
+                <option value="365">365 days</option>
+            </select>
+            <span class="field__help">
+                Agents are given credentials and then forgotten about. A read token that outlives the
+                agent it was minted for is a standing grant to whatever now holds it.
+            </span>
+        </label>
+
+        <p class="field__help">
+            The value is shown once when the dialog closes and is never recoverable — only its
+            SHA-256 is stored.
+        </p>
+        @if (_agentError is not null)
+        {
+            <p style="color: var(--color-critical)">@_agentError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="MintAgent">Mint</Button>
+        <Button OnClick="() => _mintingAgent = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_revokingAgent is not null" OpenChanged="v => { if (!v) _revokingAgent = null; }"
+        Title="Revoke agent token" Width="620">
+    <ChildContent>
+        @if (_revokingAgent is { } target)
+        {
+            <p>Revoke <strong>@target.Name</strong>?</p>
+            <p class="field__help">
+                The agent stops reading immediately, mid-session if it is running. The row stays in
+                the list so "what could this token see in March?" still has an answer.
+            </p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Danger" OnClick="RevokeAgent">Revoke</Button>
+        <Button OnClick="() => _revokingAgent = null">Cancel</Button>
+    </Footer>
+</Dialog>
+
 @code {
     [Parameter] public string Client { get; set; } = "";
     [Parameter] public string Project { get; set; } = "";
     [Parameter] public string? Tab { get; set; }
 
     private const string TabKeys = "keys";
+    private const string TabAgents = "agents";
     private const string TabDisclosure = "disclosure";
     private const string TabAccount = "account";
 
     private static readonly KeyValuePair<string, string>[] Tabs =
     [
         new(TabKeys, "Ingest tokens"),
+        new(TabAgents, "Agent access"),
         new(TabDisclosure, "Disclosure policy"),
         new(TabAccount, "Account"),
     ];
@@ -349,6 +570,27 @@ else
     private bool _minting;
     private string? _newName, _mintError, _minted;
     private TokenRow? _revoking;
+
+    // TFND-12 (F11.4). Deliberately a separate set of fields from the ingest
+    // token ones: sharing them would let a half-finished mint on one tab leak
+    // its label into the other, and these two credentials must never be
+    // confused for each other.
+    private IReadOnlyList<McpTokenRow> _agentTokens = [];
+    private bool _mcpEnabled;
+    private bool _mintingAgent;
+    private string? _agentName, _agentError, _mintedAgent;
+    private string _agentRole = "";
+    private string _agentComponent = "";
+    private IReadOnlyList<ComponentRow> _components = [];
+    private int _agentDays = 90;
+    private McpTokenRow? _revokingAgent;
+    private AuthorizationDecision _canMintAgent = AuthorizationDecision.Deny("Checking…");
+
+    // Every role except InfoSecOfficer, which carries AcceptRisk. Accepting a
+    // risk is an Authorizing Official's signature, and it must not be
+    // reachable by minting a credential and pointing a model at it.
+    private static readonly ProjectRole[] MintableRoles =
+        [ProjectRole.Auditor, ProjectRole.Architect, ProjectRole.LeadDev];
     private string _instanceUrl = "";
 
     private string? _vdpPolicy, _vdpContact, _vdpForm, _vdpError;
@@ -381,6 +623,11 @@ else
             _canManageKeys = await Me.CanAsync(Capability.ManageIngestKey, Here);
             _canEditVdp = await Me.CanAsync(Capability.EditDisclosurePolicy, Here);
             _repository = await Settings.RepositoryAsync(_project.ProjectId);
+
+            _components = await Components.ListAsync(_project.ProjectId);
+            _agentTokens = await AgentTokens.ListAsync(Here, DateTimeOffset.UtcNow);
+            _canMintAgent = await Me.CanAsync(Capability.AssignRoles, Here);
+            _mcpEnabled = await Settings.McpEnabledAsync();
 
             if (await Settings.DisclosureAsync(_project.ProjectId) is { } vdp)
             {
@@ -431,6 +678,57 @@ else
         await Settings.RevokeTokenAsync(actor, Here, _project.ProjectId, target.Id);
         _revoking = null;
         _tokens = await Settings.TokensAsync(_project.ProjectId, DateTimeOffset.UtcNow);
+    }
+
+    private void OpenAgentDialog()
+    {
+        _mintingAgent = true;
+        _agentName = null;
+        _agentRole = "";
+        _agentComponent = "";
+        _agentDays = 90;
+        _agentError = null;
+    }
+
+    private async Task MintAgent()
+    {
+        if (_project is null) return;
+        _agentError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _agentError = "You are not signed in."; return; }
+
+        var role = Enum.TryParse<ProjectRole>(_agentRole, out var parsed) ? parsed : (ProjectRole?)null;
+
+        // The token's scope, which is NOT the scope the capability check runs
+        // at. Authority to mint comes from this project; what the token sees can
+        // only be this project or narrower.
+        var granted = Guid.TryParse(_agentComponent, out var componentId)
+            ? ScopeTarget.Component(_project.ClientId, _project.ProjectId, componentId)
+            : Here;
+
+        var result = await AgentTokens.MintAsync(
+            actor, granted, _agentName ?? "", role, _agentDays);
+
+        if (!result.Success) { _agentError = result.Error; return; }
+
+        // Held in a field only until the next navigation. There is nowhere else
+        // it could be recovered from, which is the point.
+        _mintedAgent = result.Value!.Plaintext;
+        _mintingAgent = false;
+        _agentTokens = await AgentTokens.ListAsync(Here, DateTimeOffset.UtcNow);
+    }
+
+    private async Task RevokeAgent()
+    {
+        if (_project is null || _revokingAgent is not { } target) return;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) return;
+
+        await AgentTokens.RevokeAsync(actor, Here, target.Id);
+        _revokingAgent = null;
+        _agentTokens = await AgentTokens.ListAsync(Here, DateTimeOffset.UtcNow);
     }
 
     private async Task SaveRepository()

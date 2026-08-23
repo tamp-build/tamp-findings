@@ -4,8 +4,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Tamp.Findings.Mcp</RootNamespace>
     <IsPackable>false</IsPackable>
-    <Description>In-process MCP server stub for tamp.findings. Will host read-only retrieval tools so agents can pull aggregated findings and code context for remediation (TFND-12 / F11).</Description>
+    <Description>In-process MCP server for tamp.findings. Read-only retrieval tools so an agent can pull aggregated findings and code context for remediation (TFND-12 / F11). Consumes Application, so an agent's read is subject to the same authorization as a human's.</Description>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Tamp.Findings.Domain\Tamp.Findings.Domain.csproj" />

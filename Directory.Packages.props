@@ -56,6 +56,15 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.11" />
   </ItemGroup>
 
+  <ItemGroup Label="MCP server (TFND-12)">
+    <!-- The official C# SDK. In-process rather than a separate host: ADR 0002
+         has Mcp consuming Application, so an agent's read goes through the same
+         CapabilityEvaluator a human's does — a second host would need its own
+         copy of that decision, and two copies drift. -->
+    <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Logging / config">
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
     <!-- IHttpClientFactory, for the GitHub App client (TFND-23). -->
