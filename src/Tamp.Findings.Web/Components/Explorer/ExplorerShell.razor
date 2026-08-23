@@ -1,0 +1,96 @@
+@* One shell, five spines.
+
+   Replaces FindingsView, DastView, ComponentsView, CoverageView and TestsView —
+   four near-identical two-pane screens with no shared shell, plus the SBOM
+   table. Same navigation, same detail grammar, different evidence.
+
+   Below the dense breakpoint the two panes become MASTER-DETAIL NAVIGATION:
+   the tree, then the detail as its own view with a way back. ADR 0003 called
+   this out as the one thing the prototype does not show, because the two-pane
+   grid claims SC 1.4.10's two-dimensional exception only while it IS two
+   dimensions — at 320px it stops being a matrix and has to reflow. *@
+
+@inject NavigationManager Nav
+
+<div class="stack">
+    <div>
+        <h1>@Title</h1>
+        <p class="muted">@SubTitle</p>
+    </div>
+
+    <div class="row" style="flex-wrap: wrap">
+        @foreach (var spine in Spines.All)
+        {
+            <button type="button" class="spine @(spine == ActiveSpine ? "spine--active" : null)"
+                    @onclick="() => Go(spine)">
+                @spine
+            </button>
+        }
+    </div>
+
+    @if (Legend is not null)
+    {
+        <div class="row" style="flex-wrap: wrap; gap: var(--space-4)">@Legend</div>
+    }
+
+    <div class="explorer @(HasSelection ? "explorer--detail" : null)">
+        <Card Padded="false" Class="explorer__tree">
+            @* Virtualize is mandatory here, not an optimisation: coverage runs
+               to thousands of files and findings to ~5,000 rows, and rendering
+               a full tree over a SignalR circuit would stall the page. *@
+            <div class="explorer__scroll">@Tree</div>
+        </Card>
+
+        <Card Padded="false" Class="explorer__detail">
+            @if (HasSelection)
+            {
+                @* Only shown below the breakpoint, where the detail replaces
+                   the tree rather than sitting beside it. *@
+                <div class="explorer__back">
+                    <Button Variant="Button.ButtonVariant.Text" OnClick="Back">
+                        <Icon Name="chevron-left" Size="12" />
+                        <span>All results</span>
+                    </Button>
+                </div>
+                @Detail
+            }
+            else
+            {
+                <div class="card-body">
+                    <p class="muted">Select something on the left.</p>
+                </div>
+            }
+        </Card>
+    </div>
+
+    <p class="field__help">
+        One shell, five spines — same navigation, same detail grammar, different evidence.
+    </p>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Client { get; set; } = "";
+    [Parameter, EditorRequired] public string Project { get; set; } = "";
+    [Parameter, EditorRequired] public string Sha { get; set; } = "";
+    [Parameter, EditorRequired] public string ActiveSpine { get; set; } = "";
+
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? SubTitle { get; set; }
+
+    /// <summary>Severity legend. SAST and DAST only — the others have no severities.</summary>
+    [Parameter] public RenderFragment? Legend { get; set; }
+
+    [Parameter] public RenderFragment? Tree { get; set; }
+    [Parameter] public RenderFragment? Detail { get; set; }
+    [Parameter] public bool HasSelection { get; set; }
+
+    private void Go(string spine)
+    {
+        // Changing spine drops the selection: a file path means nothing to the
+        // SBOM spine, and carrying it across would deep-link to something that
+        // does not exist.
+        Nav.NavigateTo(Routes.Explorer(Client, Project, Sha, spine));
+    }
+
+    private void Back() => Nav.NavigateTo(Routes.Explorer(Client, Project, Sha, ActiveSpine));
+}

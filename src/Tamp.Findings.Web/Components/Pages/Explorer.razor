@@ -6,8 +6,11 @@
 @page "/c/{Client}/p/{Project}/build/{Sha}/{Spine}"
 @page "/c/{Client}/p/{Project}/build/{Sha}/{Spine}/{*Selection}"
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject RouteScope Scope
 @inject NavigationManager Nav
+@inject ProjectHubQuery Hub
+@inject FindingsExplorerQuery Findings
 
 <PageTitle>@Spine — @Project</PageTitle>
 
@@ -18,20 +21,114 @@
     <div class="stack">
         <h1>Unknown spine</h1>
         <Card>
-            <p>
-                <code class="mono">@Spine</code> is not one of @KnownSpines.
-            </p>
-            <Button Variant="Button.ButtonVariant.Primary" OnClick="GoToSast">
-                Go to the SAST spine
-            </Button>
+            <p><code class="mono">@Spine</code> is not one of @KnownSpines.</p>
+            <Button Variant="Button.ButtonVariant.Primary" OnClick="GoToSast">Go to the SAST spine</Button>
         </Card>
+    </div>
+}
+else if (_error is not null)
+{
+    <div class="stack">
+        <h1>@Spine</h1>
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not load this evidence.</span>
+            </div>
+            <p class="field__help">Absent evidence is not clean evidence. @_error</p>
+        </Card>
+    </div>
+}
+else if (_project is null)
+{
+    <div class="stack">
+        <h1>Project not found</h1>
+        <Card><p>No project matches <code class="mono">@Client / @Project</code>.</p></Card>
     </div>
 }
 else
 {
-    <Placeholder Title="@Heading" Ticket="TFND-86 … TFND-94"
-                 Description="Replaces the four near-identical two-pane screens plus the SBOM table. Same navigation, same detail grammar, different evidence."
-                 Scope="Params" />
+    <ExplorerShell Client="@Client" Project="@Project" Sha="@Sha" ActiveSpine="@Spine"
+                   Title="@SpineTitle" SubTitle="@SpineSubTitle" HasSelection="@(Selection is not null)">
+        <Legend>
+            @if (Spine is Spines.Sast or Spines.Dast)
+            {
+                @foreach (var s in new[] { Severity.Critical, Severity.High, Severity.Medium, Severity.Low, Severity.Info })
+                {
+                    <SeverityBadge Severity="s" ShowName="true" />
+                }
+            }
+        </Legend>
+
+        <Tree>
+            @if (_groups.Count == 0)
+            {
+                <div class="card-body">
+                    @* Distinguishing these two is the whole point of the
+                       receipts card, and it applies here too: no findings and
+                       no scan are not the same state. *@
+                    <p class="muted">No open findings on this build.</p>
+                    <p class="field__help">
+                        If no @Spine scanner ran, that is not the same as a clean result — check the
+                        scan receipts on the project hub.
+                    </p>
+                </div>
+            }
+            else
+            {
+                @foreach (var group in _groups)
+                {
+                    <TreeRow Name="@group.Name" Group="true" />
+                    @* Virtualize: a large ingest runs to thousands of leaves,
+                       and rendering them all over a SignalR circuit stalls the
+                       page (TFND-86). *@
+                    <Virtualize TItem="FindingLeaf" Items="group.Files" Context="leaf" ItemSize="26">
+                        <TreeRow Name="@leaf.Path" Depth="1"
+                                 Selected="@(leaf.Path == Selection)"
+                                 OnSelect="() => Select(leaf.Path)">
+                            <Badge>
+                                <span class="row" style="gap: var(--space-1)">
+                                    <SeverityBadge Severity="leaf.WorstSeverity" />
+                                    <span class="num">@leaf.Count</span>
+                                </span>
+                            </Badge>
+                        </TreeRow>
+                    </Virtualize>
+                }
+            }
+        </Tree>
+
+        <Detail>
+            <div class="card-body">
+                <h2 class="mono">@Selection</h2>
+                <p class="muted">@_detail.Count finding@(_detail.Count == 1 ? "" : "s") on this build</p>
+            </div>
+            <ScrollBox Label="Findings">
+                <table class="table">
+                    <thead>
+                        <tr><th>Severity</th><th>Rule</th><th>Finding</th><th class="align-end">Line</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var finding in _detail)
+                        {
+                            <tr>
+                                <td><SeverityBadge Severity="finding.Severity" /></td>
+                                <td class="mono">@finding.RuleId</td>
+                                <td>
+                                    <div>@finding.Title</div>
+                                    @if (finding.Description is { Length: > 0 } description)
+                                    {
+                                        <div class="muted" style="font-size: var(--text-secondary)">@description</div>
+                                    }
+                                </td>
+                                <td class="num align-end">@(finding.Line?.ToString() ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </ScrollBox>
+        </Detail>
+    </ExplorerShell>
 }
 
 @code {
@@ -43,17 +140,68 @@ else
 
     private static readonly string KnownSpines = string.Join(", ", Spines.All);
 
-    private string Heading => $"Explorer · {Spine}";
+    private ProjectRef? _project;
+    private IReadOnlyList<FindingGroup> _groups = [];
+    private IReadOnlyList<FindingDetail> _detail = [];
+    private string? _error;
 
-    private List<KeyValuePair<string, string?>> Params =>
-        [new("client", Client), new("project", Project), new("build", Sha),
-         new("spine", Spine), new("selection", Selection)];
+    private string SpineTitle => Spine switch
+    {
+        Spines.Sast => "Findings",
+        Spines.Dast => "Dynamic scan",
+        Spines.Sbom => "SBOM",
+        Spines.Coverage => "Coverage",
+        Spines.Tests => "Tests",
+        _ => Spine,
+    };
+
+    private string SpineSubTitle => Spine switch
+    {
+        Spines.Sast => "Static analysis findings, grouped by path.",
+        Spines.Dast => "What a scanner found against a running deployment.",
+        Spines.Sbom => "Dependencies and their known vulnerabilities.",
+        Spines.Coverage => "What the tests actually executed.",
+        Spines.Tests => "Cases, outcomes and skip reasons.",
+        _ => "",
+    };
 
     private void GoToSast() => Nav.NavigateTo(Routes.Explorer(Client, Project, Sha, Spines.Sast));
 
-    protected override void OnParametersSet()
+    private void Select(string path) =>
+        Nav.NavigateTo(Routes.Explorer(Client, Project, Sha, Spine, path));
+
+    protected override async Task OnParametersSetAsync()
     {
         Scope.SetProject(Client, Project, Sha);
         Scope.SetExplorer(Spine, Selection);
+
+        if (!Spines.IsValid(Spine)) return;
+
+        _error = null;
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project);
+            if (_project is null) return;
+
+            // Only the SAST spine is wired so far; the rest arrive with
+            // TFND-90 … TFND-94 and render an empty tree until then.
+            if (Spine == Spines.Sast)
+            {
+                var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
+                _groups = await Findings.TreeAsync(_project.ProjectId, sha, ScannerKinds.Sast);
+                _detail = Selection is null
+                    ? []
+                    : await Findings.DetailAsync(_project.ProjectId, sha, ScannerKinds.Sast, Selection);
+            }
+            else
+            {
+                _groups = [];
+                _detail = [];
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetType().Name;
+        }
     }
 }
