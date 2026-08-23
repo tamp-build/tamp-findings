@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @inject RouteScope Scope
 @inject ProjectHubQuery Hub
+@inject CurrentUser Me
 
 <PageTitle>@Project — tamp.findings</PageTitle>
 
@@ -122,7 +123,7 @@ else
         _error = null;
         try
         {
-            _project = await Hub.ResolveAsync(Client, Project);
+            _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
             // "latest" is a sentinel, not a commit prefix. Passing it through
             // would filter for builds whose sha starts with "latest", match
             // nothing, and render a scanned project as never-scanned.

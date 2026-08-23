@@ -16,6 +16,7 @@
 @rendermode InteractiveServer
 @inject RouteScope Scope
 @inject ProjectHubQuery Hub
+@inject CurrentUser Me
 @inject CostsAndLicensesQuery Query
 
 <PageTitle>Costs &amp; licences — @Project</PageTitle>
@@ -307,7 +308,7 @@ else
 
         try
         {
-            var project = await Hub.ResolveAsync(Client, Project);
+            var project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
             if (project is null) { _error = "No such project."; return; }
 
             _data = await Query.LoadAsync(project.ProjectId, DateTimeOffset.UtcNow);

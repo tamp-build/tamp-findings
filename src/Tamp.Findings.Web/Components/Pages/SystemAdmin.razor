@@ -15,6 +15,7 @@
 @inject NavigationManager Nav
 @inject SystemAdminService Admin
 @inject PaidComponentRegistry Paid
+@inject VisibilityScope Visibility
 @inject IdentityProviderService Providers
 @inject ProviderSecretProtector Protector
 @inject CurrentUser Me
@@ -80,6 +81,33 @@ else
         @switch (Current)
         {
             case SystemPanels.Users:
+                @if (_unsegmented)
+                {
+                    @* TFND-133. An instance with NO role assignments has not
+                       expressed a visibility policy, so everyone approved sees
+                       everything. Said here, in the place where somebody would
+                       fix it, rather than left as an undocumented behaviour of
+                       the resolver. *@
+                    <Card>
+                        <div class="row">
+                            <Chip Label="EVERYONE SEES EVERYTHING" Tone="var(--color-high)"
+                                  Style="Chip.ChipStyle.Solid" Glyph="!" />
+                        </div>
+                        <p class="field__help">
+                            Nobody has been assigned a role anywhere on this instance, so every
+                            approved user can read every client's findings. That is deliberate for a
+                            new or single-tenant instance — but if this instance holds more than one
+                            customer's evidence, it is a confidentiality problem right now.
+                        </p>
+                        <p class="field__help">
+                            <strong>Assigning a single role anywhere turns filtering on for
+                            everyone.</strong> From that moment a user sees only what their
+                            assignments reach, and a user with no assignments sees nothing.
+                            Administrators always see everything.
+                        </p>
+                    </Card>
+                }
+
                 <Card Padded="false">
                     <div class="card-body">
                         <h2>Users &amp; RBAC</h2>
@@ -967,6 +995,7 @@ else
     private string? _newVendor, _newProduct, _newPrefix, _newEcosystem;
 
     private bool _githubEnabled;
+    private bool _unsegmented;
     private bool _mcpEnabled;
     private bool _enforceSod, _settingsSaved;
 
@@ -1011,6 +1040,7 @@ else
             switch (Current)
             {
                 case SystemPanels.Users:
+                    _unsegmented = await Visibility.UnsegmentedAsync();
                     _users = await Admin.UsersAsync();
                     if (_selectedUser is { } id) _assignments = await Admin.AssignmentsAsync(id);
                     break;
