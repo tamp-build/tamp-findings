@@ -13,6 +13,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<ComponentFlavor> ComponentFlavors => Set<ComponentFlavor>();
     public DbSet<ComponentVersion> ComponentVersions => Set<ComponentVersion>();
     public DbSet<Finding> Findings => Set<Finding>();
+    public DbSet<PaidComponent> PaidComponents => Set<PaidComponent>();
     public DbSet<Suppression> Suppressions => Set<Suppression>();
     public DbSet<User> Users => Set<User>();
     public DbSet<ProjectRoleAssignment> ProjectRoleAssignments => Set<ProjectRoleAssignment>();
@@ -138,6 +139,24 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.Severity);
             e.HasIndex(x => x.Scanner);
+        });
+
+        // TFND-8 (F7.2): the paid-component registry. Instance-scoped — "Telerik
+        // is a paid product" is a fact about the world, not about a tenant.
+        b.Entity<PaidComponent>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Vendor).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Product).HasMaxLength(200).IsRequired();
+            e.Property(x => x.PackagePrefix).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Ecosystem).HasMaxLength(64);
+            e.Property(x => x.Currency).HasMaxLength(8).IsRequired();
+            e.Property(x => x.LicenseModel).HasMaxLength(200);
+            e.Property(x => x.PricingUrl).HasMaxLength(1024);
+            e.Property(x => x.Notes).HasMaxLength(2048);
+            // Two rows matching the same packages would double-count a vendor
+            // on the costs screen, which is the one number people act on.
+            e.HasIndex(x => new { x.Ecosystem, x.PackagePrefix }).IsUnique();
         });
 
         b.Entity<Suppression>(e =>

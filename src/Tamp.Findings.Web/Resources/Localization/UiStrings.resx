@@ -75,6 +75,9 @@
   <data name="Nav.Vex" xml:space="preserve">
     <value>VEX statements</value>
   </data>
+  <data name="Nav.Costs" xml:space="preserve">
+    <value>Costs &amp; licences</value>
+  </data>
   <data name="Nav.Attestation" xml:space="preserve">
     <value>Attestation</value>
   </data>
@@ -92,6 +95,9 @@
   </data>
   <data name="Nav.Scanners" xml:space="preserve">
     <value>Scanners &amp; ingest</value>
+  </data>
+  <data name="Nav.PaidComponents" xml:space="preserve">
+    <value>Paid components</value>
   </data>
   <data name="Nav.InstanceSettings" xml:space="preserve">
     <value>Instance settings</value>

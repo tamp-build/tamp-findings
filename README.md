@@ -125,6 +125,23 @@ Three properties worth stating, because they are the design:
 
 Tokens expire (90 days by default), the plaintext is shown once, and minting and revoking are both recorded as access-class audit entries.
 
+## Costs & licences
+
+Per project, under **Costs & licences**: what the dependencies oblige you to, and what they cost.
+
+**Licence obligations** classify every package in the newest SBOM of each component into permissive / weak copyleft / strong copyleft / denied, deduplicated by package — the same dependency in three components is one obligation, not three. Only the ones that place a condition on shipping are listed; permissive is the majority and is not the question. A blank licence field is **Unknown**, which is treated as an obligation rather than a pass: nobody looked is not the same as nothing to see.
+
+**Paid components** match SBOM packages to a registry of commercial vendors by package prefix — `Telerik.`, `Syncfusion.`, `DevExpress.` and a dozen more ship built in, and administrators add their own under **System > Paid components**. A prefix rather than a package list, because these vendors ship dozens of packages under one subscription and the set changes every release. Matches also show as a `$` on the SBOM spine, so the "should we keep this dependency" decision includes "this one renews".
+
+**Costs ship blank, deliberately.** A list price seeded here would be this product asserting something about your budget while having no idea what you negotiated — and list prices are famously not what anyone pays. An administrator enters the contract figure, and the screen says why it is empty until they do. What is seeded is only what is stable and checkable: vendor, product, package prefix, licensing model, and a link to the vendor's own pricing page.
+
+Everything the totals do is bounded by what the product actually knows:
+
+- Per developer seat, never multiplied by a team size it would have to guess.
+- Unpriced products are **counted and excluded**, so the total reads as a floor rather than as complete.
+- Currencies are reported separately, never converted at a rate this product invented.
+- A figure older than a year is flagged stale, and re-saving it unchanged does not refresh the date.
+
 ## Federal-readiness coverage
 
 | NIST SSDF (SP 800-218) practice | Evidence |

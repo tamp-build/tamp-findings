@@ -14,6 +14,7 @@
 @inject RouteScope Scope
 @inject NavigationManager Nav
 @inject SystemAdminService Admin
+@inject PaidComponentRegistry Paid
 @inject IdentityProviderService Providers
 @inject ProviderSecretProtector Protector
 @inject CurrentUser Me
@@ -461,6 +462,128 @@ else
                 </Card>
                 break;
 
+            case SystemPanels.PaidComponents:
+                <Card Padded="false">
+                    <div class="card-body row row--between">
+                        <div>
+                            <h2>Paid components</h2>
+                            <p class="field__help">
+                                Which dependencies cost money, so an SBOM line item can be read as a
+                                renewal rather than as a version string. Matched by package prefix,
+                                because these vendors ship dozens of packages under one subscription.
+                            </p>
+                        </div>
+                        <Button Variant="Button.ButtonVariant.Primary"
+                                Disabled="@(!_canEditCosts.Allowed)" DisabledReason="@_canEditCosts.Reason"
+                                OnClick="() => { _addingPaid = true; _paidError = null; }">
+                            Add a vendor
+                        </Button>
+                    </div>
+
+                    <div class="card-body">
+                        @* The single most important sentence on this screen.
+                           A price shipped by us would be quoted in a budget
+                           meeting as though we knew it. *@
+                        <p class="field__help">
+                            <strong>Costs ship blank on purpose.</strong> A list price seeded here
+                            would be this product asserting something about your budget while having
+                            no idea what you negotiated — and list prices are famously not what
+                            anyone pays. Enter what your contract says. That figure is the only one
+                            that is true, and it is what the project
+                            <strong>Costs &amp; licences</strong> view adds up.
+                        </p>
+                    </div>
+
+                    <ScrollBox Label="Paid components">
+                        <table class="table table--rows">
+                            <thead>
+                                <tr>
+                                    <th>Vendor</th><th>Product</th><th>Matches</th>
+                                    <th class="align-end">Per seat / year</th>
+                                    <th>Recorded</th><th>Support ends</th><th>State</th><th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in _paid)
+                                {
+                                    <tr class="@(entry.Enabled ? null : "is-retired")">
+                                        <td>@entry.Vendor</td>
+                                        <td>
+                                            @entry.Product
+                                            @if (entry.PricingUrl is { Length: > 0 } url)
+                                            {
+                                                <a href="@url" target="_blank" rel="noopener noreferrer"
+                                                   class="field__help">pricing</a>
+                                            }
+                                        </td>
+                                        <td class="mono">
+                                            @entry.PackagePrefix*
+                                            <span class="muted">@(entry.Ecosystem ?? "any")</span>
+                                        </td>
+                                        <td class="num align-end">
+                                            @if (entry.AnnualCostPerSeat is { } cost)
+                                            {
+                                                @($"{entry.Currency} {cost:N0}")
+                                            }
+                                            else
+                                            {
+                                                <span class="muted">—</span>
+                                            }
+                                        </td>
+                                        <td class="mono">
+                                            @if (entry.CostAsOf is { } at)
+                                            {
+                                                <span>@at.ToString("yyyy-MM")</span>
+                                                @if (entry.Stale)
+                                                {
+                                                    <Chip Label="STALE" Tone="var(--color-high)"
+                                                          Style="Chip.ChipStyle.Outlined" />
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="muted">never</span>
+                                            }
+                                        </td>
+                                        <td class="mono">
+                                            @(entry.SupportEndsAt?.ToString("yyyy-MM-dd") ?? "—")
+                                        </td>
+                                        <td>
+                                            @if (!entry.Enabled)
+                                            {
+                                                <Chip Label="DISABLED" Tone="var(--color-neutral-500)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                            else if (entry.IsBuiltIn)
+                                            {
+                                                <Chip Label="BUILT IN" Tone="var(--color-accent)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                            else
+                                            {
+                                                <Chip Label="ADDED HERE" Tone="var(--color-pass)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                        </td>
+                                        <td>
+                                            <Button Variant="Button.ButtonVariant.Text"
+                                                    Disabled="@(!_canEditCosts.Allowed)"
+                                                    DisabledReason="@_canEditCosts.Reason"
+                                                    OnClick="() => StartEditCost(entry)">edit</Button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </ScrollBox>
+
+                    @if (_paidError is not null)
+                    {
+                        <div class="card-body"><p style="color: var(--color-critical)">@_paidError</p></div>
+                    }
+                </Card>
+                break;
+
             case SystemPanels.Settings:
                 <Card>
                     <h2>Instance settings</h2>
@@ -743,6 +866,67 @@ else
     </Footer>
 </Dialog>
 
+
+<Dialog Open="_editingPaid is not null" OpenChanged="v => { if (!v) _editingPaid = null; }"
+        Title="Record what this costs" Width="620">
+    <ChildContent>
+        @if (_editingPaid is { } entry)
+        {
+            <p><strong>@entry.Vendor @entry.Product</strong> — @(entry.LicenseModel ?? "licensing not recorded")</p>
+
+            <TextField Label="Annual cost per developer seat" Type="number" Mono="true"
+                       Value="@_paidCost" ValueChanged="v => _paidCost = v"
+                       Help="What your contract says, not the list price. Leave blank if you would rather it were counted as unpriced than guessed at — the costs view reports unpriced products separately rather than as zero." />
+
+            <TextField Label="Currency" Mono="true" Value="@_paidCurrency"
+                       ValueChanged="v => _paidCurrency = v"
+                       Help="USD, EUR, GBP. Totals are reported per currency rather than converted — a rate this product invented would be another wrong number." />
+
+            <TextField Label="Support ends" Type="date" Mono="true" Value="@_paidSupportEnds"
+                       ValueChanged="v => _paidSupportEnds = v"
+                       Help="Optional, and blank is the honest default: most of these vendors publish a support window per major version rather than a date." />
+
+            <CheckField Label="Match this vendor" @bind-Checked="_paidEnabled" />
+            <p class="field__help">
+                Turn it off if a site licence covers this outright — a match would then report seats
+                nobody is billed for. The entry stays, so turning it back on restores the cost.
+            </p>
+
+            @if (entry.Notes is { Length: > 0 } note)
+            {
+                <p class="field__help">@note</p>
+            }
+            @if (_paidError is not null)
+            {
+                <p style="color: var(--color-critical)">@_paidError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="SaveCost">Save</Button>
+        <Button OnClick="() => _editingPaid = null">Cancel</Button>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_addingPaid" OpenChanged="v => _addingPaid = v" Title="Add a paid vendor" Width="620">
+    <ChildContent>
+        <TextField Label="Vendor" @bind-Value="_newVendor" />
+        <TextField Label="Product" @bind-Value="_newProduct" />
+        <TextField Label="Package prefix" Mono="true" @bind-Value="_newPrefix"
+                   Help="What their packages start with — &quot;Telerik.&quot;, &quot;Syncfusion.&quot;. A prefix rather than a full name, because these vendors ship dozens of packages under one subscription and the set changes every release." />
+        <TextField Label="Ecosystem" Mono="true" @bind-Value="_newEcosystem"
+                   Help="nuget, npm, pypi… Blank matches any, which is rarely what you want: prefixes collide across ecosystems." />
+        @if (_paidError is not null)
+        {
+            <p style="color: var(--color-critical)">@_paidError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="AddPaid">Add</Button>
+        <Button OnClick="() => _addingPaid = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
 @code {
     [Parameter] public string? Panel { get; set; }
 
@@ -772,6 +956,16 @@ else
     private InstanceSettings _settings = new();
     private string? _instanceUrl, _sessionHours, _findingRetention, _buildRetention, _smtpHost;
     private string? _githubAppId, _githubAppKey, _githubCheckName;
+    // TFND-8 (F7.2): the paid-component registry.
+    private IReadOnlyList<PaidComponentRow> _paid = [];
+    private AuthorizationDecision _canEditCosts = AuthorizationDecision.Deny("Checking…");
+    private PaidComponentRow? _editingPaid;
+    private string? _paidCost, _paidSupportEnds, _paidError;
+    private string _paidCurrency = "USD";
+    private bool _paidEnabled = true;
+    private bool _addingPaid;
+    private string? _newVendor, _newProduct, _newPrefix, _newEcosystem;
+
     private bool _githubEnabled;
     private bool _mcpEnabled;
     private bool _enforceSod, _settingsSaved;
@@ -821,6 +1015,13 @@ else
                     if (_selectedUser is { } id) _assignments = await Admin.AssignmentsAsync(id);
                     break;
 
+                case SystemPanels.PaidComponents:
+                    _paid = await Paid.ListAsync(DateTimeOffset.UtcNow);
+                    // The same capability that edits policy weights. Both set a
+                    // number this product then reports as though it knew it.
+                    _canEditCosts = await Me.CanAsync(Capability.EditPolicyWeights, ScopeTarget.Instance);
+                    break;
+
                 case SystemPanels.Scanners:
                     _scanners = await Admin.ScannersAsync(DateTimeOffset.UtcNow);
                     if (!_scannersDirty)
@@ -867,11 +1068,81 @@ else
 
     private void GoToUsers() => Nav.NavigateTo(Routes.System());
 
+    private void StartEditCost(PaidComponentRow entry)
+    {
+        _editingPaid = entry;
+        _paidCost = entry.AnnualCostPerSeat?.ToString("0.##");
+        _paidCurrency = entry.Currency;
+        _paidSupportEnds = entry.SupportEndsAt?.ToString("yyyy-MM-dd");
+        _paidEnabled = entry.Enabled;
+        _paidError = null;
+    }
+
+    private async Task SaveCost()
+    {
+        if (_editingPaid is not { } entry) return;
+        _paidError = null;
+
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _paidError = "You are not signed in."; return; }
+
+        // A blank field is "unpriced", NOT zero. Zero would be a claim that
+        // this vendor is free, which would quietly subtract a real cost from
+        // the total on the costs screen.
+        decimal? cost = null;
+        if (!string.IsNullOrWhiteSpace(_paidCost))
+        {
+            if (!decimal.TryParse(_paidCost, out var parsed))
+            {
+                _paidError = "That is not a number. Leave it blank to record the product as unpriced.";
+                return;
+            }
+            cost = parsed;
+        }
+
+        DateTimeOffset? supportEnds = null;
+        if (!string.IsNullOrWhiteSpace(_paidSupportEnds))
+        {
+            if (!DateTimeOffset.TryParse(_paidSupportEnds, out var parsedDate))
+            {
+                _paidError = "That is not a date.";
+                return;
+            }
+            supportEnds = parsedDate;
+        }
+
+        var result = await Paid.UpdateCostAsync(
+            actor, entry.Id, cost, _paidCurrency, supportEnds, _paidEnabled, DateTimeOffset.UtcNow);
+
+        if (!result.Success) { _paidError = result.Error; return; }
+
+        _editingPaid = null;
+        _paid = await Paid.ListAsync(DateTimeOffset.UtcNow);
+    }
+
+    private async Task AddPaid()
+    {
+        _paidError = null;
+
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _paidError = "You are not signed in."; return; }
+
+        var result = await Paid.AddAsync(
+            actor, _newVendor ?? "", _newProduct ?? "", _newPrefix ?? "", _newEcosystem);
+
+        if (!result.Success) { _paidError = result.Error; return; }
+
+        _addingPaid = false;
+        _newVendor = _newProduct = _newPrefix = _newEcosystem = null;
+        _paid = await Paid.ListAsync(DateTimeOffset.UtcNow);
+    }
+
     private static string PanelLabel(string panel) => panel switch
     {
         SystemPanels.Users => "Users & RBAC",
         SystemPanels.Authentication => "Authentication",
         SystemPanels.Scanners => "Scanners & ingest",
+        SystemPanels.PaidComponents => "Paid components",
         SystemPanels.Settings => "Instance settings",
         _ => "Audit log",
     };
