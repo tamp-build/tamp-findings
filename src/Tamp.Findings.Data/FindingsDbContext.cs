@@ -231,6 +231,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.Description).HasColumnType("text");
             e.Property(x => x.FixedInVersion).HasMaxLength(128);
             e.Property(x => x.ReferenceUrl).HasMaxLength(1024);
+            e.Property(x => x.CvssVector).HasMaxLength(256);
             e.HasOne(x => x.SbomComponent).WithMany(c => c.Vulnerabilities).HasForeignKey(x => x.SbomComponentId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.SbomComponentId, x.AdvisoryId }).IsUnique();
             e.HasIndex(x => x.Severity);

@@ -1,0 +1,88 @@
+@* Tests detail: the Cases table.
+
+   A SKIPPED TEST IS NOT A PASSING TEST. That is the whole reason this table
+   shows the outcome as its own column with its own colour rather than folding
+   skips into a pass count — it is the same defect class as an attestation
+   answering "Yes" off a run that never happened.
+
+   The Note column carries the failure message for a failure and the skip
+   reason for a skip. A skip with no stated reason renders as exactly that,
+   because "nobody wrote down why" is a finding of its own. *@
+
+<ScrollBox Label="Cases">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Case</th>
+                <th>Outcome</th>
+                <th class="align-end">Duration</th>
+                <th>Note</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var test in Cases)
+            {
+                <tr>
+                    <td class="mono">@test.Name</td>
+                    <td>
+                        <Chip Label="@Label(test.Outcome)" Tone="@Tone(test.Outcome)"
+                              Style="Chip.ChipStyle.Outlined" />
+                    </td>
+                    <td class="num align-end">@Duration(test.DurationMs)</td>
+                    <td>
+                        @if (test.Note is { Length: > 0 } note)
+                        {
+                            <span class="mono" style="font-size: var(--text-secondary)">@note</span>
+                        }
+                        else if (test.Outcome is TestOutcome.Skipped)
+                        {
+                            <span style="color: var(--color-high)">no reason recorded</span>
+                        }
+                        else
+                        {
+                            <span class="muted">—</span>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</ScrollBox>
+
+@if (Cases.Count == 0)
+{
+    <div class="card-body">
+        <p class="muted">No cases recorded for this suite.</p>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<TestCase> Cases { get; set; } = [];
+
+    private static string Label(TestOutcome outcome) => outcome switch
+    {
+        TestOutcome.Passed => "PASSED",
+        TestOutcome.Failed => "FAILED",
+        TestOutcome.Skipped => "SKIPPED",
+        _ => "INCONCLUSIVE",
+    };
+
+    // Skipped and inconclusive both read amber: neither is a pass, and neither
+    // is a failure someone will chase. Amber is the colour for "unanswered"
+    // throughout the product.
+    private static string Tone(TestOutcome outcome) => outcome switch
+    {
+        TestOutcome.Passed => "var(--color-pass)",
+        TestOutcome.Failed => "var(--color-critical)",
+        _ => "var(--color-high)",
+    };
+
+    // Sub-millisecond durations are the common case in a unit suite and "0ms"
+    // for all of them tells the reader nothing. Below 1ms, show microseconds.
+    private static string Duration(double ms) => ms switch
+    {
+        < 1 => $"{ms * 1000:0}µs",
+        < 1000 => $"{ms:0}ms",
+        _ => $"{ms / 1000:0.0}s",
+    };
+}

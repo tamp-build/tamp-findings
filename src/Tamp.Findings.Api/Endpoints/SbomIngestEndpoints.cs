@@ -91,6 +91,8 @@ public static class SbomIngestEndpoints
                     FixedInVersion = v.FixedInVersion,
                     ReferenceUrl = v.ReferenceUrl,
                     Source = v.Source,
+                    CvssScore = v.CvssScore,
+                    CvssVector = v.CvssVector,
                 });
                 totalVulns++;
             }
