@@ -1,0 +1,340 @@
+@* Costs & licences (TFND-8 / F7.3).
+
+   Two questions on one screen because the same person asks them in the same
+   meeting: what are we obliged to by what we depend on, and what are we paying
+   for.
+
+   The design constraint here is different from every other screen in this
+   product. Elsewhere the risk is under-reporting — a clean score from a scan
+   that never ran. Here the risk is a CONFIDENT WRONG NUMBER: a figure on a
+   budget screen gets quoted in a planning meeting as though this tool knew.
+   So the estimate carries its caveat in the same breath as the number,
+   unpriced products are counted rather than treated as zero, and a stale
+   figure says how old it is. *@
+@page "/c/{Client}/p/{Project}/costs"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject RouteScope Scope
+@inject ProjectHubQuery Hub
+@inject CostsAndLicensesQuery Query
+
+<PageTitle>Costs &amp; licences — @Project</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>Costs &amp; licences</h1>
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not load this project's dependencies.</span>
+            </div>
+            <p class="field__help">
+                An empty page would read as "nothing here costs money", which is a claim this
+                screen cannot currently make. @_error
+            </p>
+        </Card>
+    </div>
+}
+else if (_data is null)
+{
+    <div class="stack">
+        <h1>Costs &amp; licences</h1>
+        <Card><p class="muted">Loading…</p></Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <div>
+            <div class="kicker">@Client / @Project</div>
+            <h1>Costs &amp; licences</h1>
+        </div>
+
+        @if (_data.DistinctPackages == 0)
+        {
+            <Card>
+                <div class="row">
+                    <Chip Label="NO SBOM" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="?" />
+                    <span>No SBOM has been ingested for any component of this project.</span>
+                </div>
+                <p class="field__help">
+                    This is not "no paid components and no licence obligations" — it is that nobody
+                    has looked. A count of zero here would be the same defect as a clean score from
+                    a scan that never ran.
+                </p>
+            </Card>
+        }
+        else
+        {
+            <Card Padded="false">
+                <div class="card-body poam-stats">
+                    <Stat Label="Packages" Value="@_data.DistinctPackages" />
+                    <Stat Label="Paid products" Value="@_data.Paid.Count" />
+                    <Stat Label="Needing review" Value="@NeedingReview"
+                          Tone="@(NeedingReview > 0 ? "var(--color-high)" : null)" />
+                    @* Unknown is toned like a problem, because it is one. A
+                       licence nobody could classify is the one obligation
+                       nobody can rule out. *@
+                    <Stat Label="Unknown licence" Value="@UnknownLicences"
+                          Tone="@(UnknownLicences > 0 ? "var(--color-high)" : null)" />
+                </div>
+                <div class="card-body">
+                    <p class="field__help">
+                        Counted across the newest SBOM of each component, deduplicated by package —
+                        the same dependency in three components is one licence obligation, not three.
+                    </p>
+                </div>
+            </Card>
+
+            @* ---- Paid components ---------------------------------------- *@
+            <Card Padded="false">
+                <div class="card-body">
+                    <h2>Paid components</h2>
+                    @if (_data.AnnualPerSeatByCurrency.Count > 0)
+                    {
+                        <div class="row" style="gap: var(--space-3); align-items: baseline">
+                            @foreach (var total in _data.AnnualPerSeatByCurrency)
+                            {
+                                <span class="num" style="font-size: var(--text-2xl)">
+                                    @total.Key @total.Value.ToString("N0")
+                                </span>
+                            }
+                            <span class="field__help">per developer, per year</span>
+                        </div>
+                        <p class="field__help">
+                            @* The caveat travels WITH the number, not in a
+                               footnote. A total that appears without it will be
+                               quoted without it. *@
+                            <strong>An estimate.</strong> It is the sum of the per-seat figures an
+                            administrator recorded, for the products matched below — not a bill.
+                            This product does not know your team size, so it does not multiply;
+                            it does not know your contract, so it does not discount.
+                            @if (_data.UnpricedProducts > 0)
+                            {
+                                <text>
+                                    @_data.UnpricedProducts of @_data.Paid.Count matched products have
+                                    no cost recorded and are <strong>missing</strong> from this figure —
+                                    it is a floor, not a total.
+                                </text>
+                            }
+                            @if (_data.AnnualPerSeatByCurrency.Count > 1)
+                            {
+                                <text>
+                                    Currencies are shown separately rather than converted, because
+                                    a rate this product invented would be another wrong number.
+                                </text>
+                            }
+                        </p>
+                    }
+                    else if (_data.Paid.Count > 0)
+                    {
+                        <p class="field__help">
+                            @_data.Paid.Count paid @(_data.Paid.Count == 1 ? "product is" : "products are")
+                            in use and none has a cost recorded. Costs ship blank on purpose: a list
+                            price would be this product asserting something about your budget while
+                            having no idea what you negotiated. An administrator enters the contract
+                            figure under System &gt; Paid components.
+                        </p>
+                    }
+                </div>
+
+                @if (_data.Paid.Count == 0)
+                {
+                    <div class="card-body">
+                        <p class="muted">No paid components matched.</p>
+                        <p class="field__help">
+                            Nothing in this project's SBOM matches a vendor in the registry. That is
+                            a statement about the registry as much as about the project — if you pay
+                            for something that is not listed, add it under System &gt; Paid components.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <ScrollBox Label="Paid components">
+                        <table class="table table--rows">
+                            <thead>
+                                <tr>
+                                    <th>Vendor</th><th>Product</th><th>Licensing</th>
+                                    <th class="align-end">Per seat / year</th>
+                                    <th>Packages</th><th>Used by</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var product in _data.Paid)
+                                {
+                                    <tr>
+                                        <td>@product.Vendor</td>
+                                        <td>
+                                            @product.Product
+                                            @if (product.SupportEnded)
+                                            {
+                                                <Chip Label="SUPPORT ENDED" Tone="var(--color-critical)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                        </td>
+                                        <td>
+                                            @(product.LicenseModel ?? "—")
+                                            @if (product.PricingUrl is { Length: > 0 } url)
+                                            {
+                                                <a href="@url" target="_blank" rel="noopener noreferrer"
+                                                   class="field__help">pricing</a>
+                                            }
+                                        </td>
+                                        <td class="num align-end">
+                                            @if (product.AnnualCostPerSeat is { } cost)
+                                            {
+                                                <span>@product.Currency @cost.ToString("N0")</span>
+                                                @if (product.Stale)
+                                                {
+                                                    @* A renewal estimate built on a
+                                                       three-year-old figure is worse
+                                                       than no estimate. *@
+                                                    <div class="field__help">
+                                                        as of @product.CostAsOf?.ToString("yyyy-MM") — recheck
+                                                    </div>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="muted">not recorded</span>
+                                            }
+                                        </td>
+                                        <td class="num align-end">@product.Packages.Count</td>
+                                        <td>@string.Join(", ", product.Components)</td>
+                                    </tr>
+                                    @if (product.Notes is { Length: > 0 } note)
+                                    {
+                                        <tr>
+                                            <td colspan="6" class="field__help">@note</td>
+                                        </tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </ScrollBox>
+                }
+            </Card>
+
+            @* ---- Licence obligations ------------------------------------- *@
+            <Card Padded="false">
+                <div class="card-body">
+                    <h2>Licence obligations</h2>
+                    <p class="field__help">
+                        Everything whose licence places a condition on shipping, plus everything
+                        this instance could not classify. Permissive licences are not listed —
+                        they are the majority and they are not the question.
+                    </p>
+                    <div class="row" style="gap: var(--space-3); margin-top: var(--space-2)">
+                        @foreach (var tier in TierOrder)
+                        {
+                            <Chip Label="@($"{TierLabel(tier)} {_data.LicenceTiers.GetValueOrDefault(tier)}")"
+                                  Tone="@TierTone(tier)" Style="Chip.ChipStyle.Outlined" />
+                        }
+                    </div>
+                </div>
+
+                @if (_data.Obligations.Count == 0)
+                {
+                    <div class="card-body">
+                        <p class="muted">Every licence in this project classified as permissive.</p>
+                    </div>
+                }
+                else
+                {
+                    <ScrollBox Label="Licence obligations">
+                        <table class="table table--rows">
+                            <thead>
+                                <tr>
+                                    <th>Package</th><th>Version</th><th>Licence</th>
+                                    <th>Tier</th><th>Component</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _data.Obligations)
+                                {
+                                    <tr>
+                                        <td class="mono">@row.Name</td>
+                                        <td class="mono">@row.Version</td>
+                                        <td class="mono">
+                                            @(string.IsNullOrWhiteSpace(row.License)
+                                                ? "(none declared)" : row.License)
+                                        </td>
+                                        <td>
+                                            <Chip Label="@TierLabel(row.Tier)" Tone="@TierTone(row.Tier)"
+                                                  Style="Chip.ChipStyle.Outlined" />
+                                        </td>
+                                        <td>@row.Component</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </ScrollBox>
+                }
+            </Card>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+
+    private CostsAndLicenses? _data;
+    private string? _error;
+
+    private int NeedingReview =>
+        _data?.Obligations.Count(o => o.Tier != LicensePolicy.Tier.Unknown) ?? 0;
+
+    private int UnknownLicences =>
+        _data?.LicenceTiers.GetValueOrDefault(LicensePolicy.Tier.Unknown) ?? 0;
+
+    private static readonly LicensePolicy.Tier[] TierOrder =
+    [
+        LicensePolicy.Tier.Denied,
+        LicensePolicy.Tier.StrongCopyleft,
+        LicensePolicy.Tier.WeakCopyleft,
+        LicensePolicy.Tier.Permissive,
+        LicensePolicy.Tier.Unknown,
+    ];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project);
+        _error = null;
+        _data = null;
+
+        try
+        {
+            var project = await Hub.ResolveAsync(Client, Project);
+            if (project is null) { _error = "No such project."; return; }
+
+            _data = await Query.LoadAsync(project.ProjectId, DateTimeOffset.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetType().Name;
+        }
+    }
+
+    private static string TierLabel(LicensePolicy.Tier tier) => tier switch
+    {
+        LicensePolicy.Tier.Denied => "Denied",
+        LicensePolicy.Tier.StrongCopyleft => "Strong copyleft",
+        LicensePolicy.Tier.WeakCopyleft => "Weak copyleft",
+        LicensePolicy.Tier.Permissive => "Permissive",
+        _ => "Unknown",
+    };
+
+    private static string TierTone(LicensePolicy.Tier tier) => tier switch
+    {
+        LicensePolicy.Tier.Denied => "var(--color-critical)",
+        LicensePolicy.Tier.StrongCopyleft => "var(--color-high)",
+        LicensePolicy.Tier.WeakCopyleft => "var(--color-medium)",
+        LicensePolicy.Tier.Permissive => "var(--color-pass)",
+        // Unknown is not benign. It is the one nobody can rule out, and
+        // colouring it neutral would read as "fine".
+        _ => "var(--color-high)",
+    };
+}

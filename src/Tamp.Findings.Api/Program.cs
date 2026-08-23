@@ -233,6 +233,13 @@ if (Environment.GetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE") != "true")
     var db = scope.ServiceProvider.GetRequiredService<FindingsDbContext>();
     db.Database.Migrate();
 
+    // TFND-8 (F7.2): keep the built-in paid-component registry current.
+    //
+    // Idempotent, and it never writes the cost, currency, support date or
+    // enabled flag — those belong to the operator. An upgrade can add a vendor
+    // without overwriting what somebody recorded about their own contract.
+    await Tamp.Findings.Application.SystemAdmin.PaidComponentRegistry.SeedAsync(db);
+
     // Arm the administrator claim token if nobody has signed in yet
     // (TFND-126). Printed to the container log because whoever can read the
     // log is the operator — that possession is what the token proves.

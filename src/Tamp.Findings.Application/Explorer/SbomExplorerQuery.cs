@@ -49,6 +49,16 @@ public sealed class SbomExplorerQuery
 
         var byComponent = vulnCounts.ToDictionary(v => v.ComponentId);
 
+        // TFND-8 (F7.3): which of these cost money.
+        //
+        // Loaded once and matched in memory. The registry is a handful of rows
+        // and the match is a prefix test, so a join would be more machinery for
+        // the same answer. Enabled entries only — a shop with a site licence
+        // has said it does not want these flagged.
+        var registry = await _db.PaidComponents.AsNoTracking()
+            .Where(p => p.Enabled)
+            .ToArrayAsync(ct);
+
         return components
             .GroupBy(c => EcosystemOf(c.Purl))
             .OrderBy(g => g.Key, StringComparer.Ordinal)
@@ -67,7 +77,13 @@ public sealed class SbomExplorerQuery
                      // five years ago and never updated since is CURRENT; one
                      // released last month with a newer release last week is
                      // two weeks behind.
-                     StaleDays(c.CurrentReleasedAt, c.LatestReleasedAt)))
+                     StaleDays(c.CurrentReleasedAt, c.LatestReleasedAt),
+                     // The vendor, when this line item is a paid seat. Shown on
+                     // the row rather than only on the costs view because this
+                     // is the screen somebody is on when they decide whether to
+                     // keep a dependency, and "this one renews" is part of that
+                     // decision.
+                     VendorOf(registry, c.Purl, c.Name)))
                  // Vulnerable first, then alphabetical. A reader opening this
                  // spine is looking for what is wrong, not taking inventory.
                  .OrderByDescending(l => l.VulnerabilityCount > 0)
@@ -158,6 +174,28 @@ public sealed class SbomExplorerQuery
     /// that as "0 days behind" would claim currency this product cannot verify,
     /// which is the same defect as a clean score from a scan that never ran.
     /// </summary>
+    /// <summary>
+    /// The vendor whose subscription covers this package, or null.
+    ///
+    /// First match wins. The unique index on (ecosystem, prefix) stops two
+    /// entries covering the same packages, so "first" and "only" are the same
+    /// thing — and if that ever stopped being true, reporting one vendor is
+    /// still better than reporting a package twice on a screen that adds up
+    /// costs.
+    /// </summary>
+    private static string? VendorOf(
+        IReadOnlyList<PaidComponent> registry, string purl, string name)
+    {
+        var ecosystem = EcosystemOf(purl);
+
+        foreach (var entry in registry)
+        {
+            if (entry.Matches(purl, name, ecosystem)) return entry.Vendor;
+        }
+
+        return null;
+    }
+
     private static int? StaleDays(DateTimeOffset? current, DateTimeOffset? latest)
     {
         if (current is not { } shipped || latest is not { } newest) return null;
@@ -188,7 +226,12 @@ public sealed record SbomLeaf(
     /// null when the registry does not publish dates (every NuGet row) or when
     /// this IS the newest.
     /// </summary>
-    int? StaleDays)
+    int? StaleDays,
+    /// <summary>
+    /// The vendor whose paid subscription covers this package, or null
+    /// (TFND-8 / F7.3).
+    /// </summary>
+    string? PaidVendor = null)
 {
     /// <summary>
     /// Behind by more than six months — the threshold the scorer's sbomStaleness
