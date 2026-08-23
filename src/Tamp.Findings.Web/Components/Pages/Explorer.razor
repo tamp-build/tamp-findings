@@ -14,6 +14,7 @@
 @inject DastExplorerQuery Dast
 @inject SbomExplorerQuery Sbom
 @inject CoverageAndTestsQuery CoverageAndTests
+@inject RuleBreakdownQuery Rules
 
 <PageTitle>@Spine — @Project</PageTitle>
 
@@ -29,20 +30,7 @@
         </Card>
     </div>
 }
-else if (_error is not null)
-{
-    <div class="stack">
-        <h1>@Spine</h1>
-        <Card>
-            <div class="row">
-                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
-                <span>Could not load this evidence.</span>
-            </div>
-            <p class="field__help">Absent evidence is not clean evidence. @_error</p>
-        </Card>
-    </div>
-}
-else if (_project is null)
+else if (_project is null && _error is null)
 {
     <div class="stack">
         <h1>Project not found</h1>
@@ -61,6 +49,28 @@ else
                                           OnMerged="Reload" />
                 </div>
             }
+            @if (Spine is Spines.Sast or Spines.Dast)
+            {
+                @* TFND-18. Grouping by path answers "which files are bad";
+                   grouping by rule answers "what is wrong with this codebase".
+                   With ~470 SonarAnalyzer rules plus ~500 Roslynator ones, a
+                   severity count cannot tell eleven S2094s from four S6966s —
+                   and those are two completely different pieces of work.
+
+                   In the URL, because everything in this product is
+                   addressable: a link to a rule breakdown is a link somebody
+                   can send. *@
+                <span class="row" style="gap: var(--space-2)">
+                    <span class="kicker">Group by</span>
+                    <a class="chip @(ByRule ? "chip--outlined" : "chip--solid")"
+                       style="color: var(--color-accent)"
+                       href="@Routes.Explorer(Client, Project, Sha, Spine)">path</a>
+                    <a class="chip @(ByRule ? "chip--solid" : "chip--outlined")"
+                       style="color: var(--color-accent)"
+                       href="@($"{Routes.Explorer(Client, Project, Sha, Spine)}?group=rule")">rule</a>
+                </span>
+            }
+
             @if (Spine is Spines.Sast or Spines.Dast or Spines.Sbom)
             {
                 @foreach (var s in new[] { Severity.Critical, Severity.High, Severity.Medium, Severity.Low, Severity.Info })
@@ -88,7 +98,20 @@ else
         </Legend>
 
         <Tree>
-            @if (Spine == Spines.Dast)
+            @if (_error is not null)
+            {
+                @* Inside the shell rather than instead of it. The reader keeps
+                   the spine strip and the grouping toggle — they are navigation,
+                   and losing them turns a database blip into a dead end. *@
+                <div class="card-body">
+                    <div class="row">
+                        <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                        <span>Could not load this evidence.</span>
+                    </div>
+                    <p class="field__help">Absent evidence is not clean evidence. @_error</p>
+                </div>
+            }
+            else if (Spine == Spines.Dast)
             {
                 @if (_dast is null || _dast.Hosts.Count == 0)
                 {
@@ -222,6 +245,41 @@ else
                     }
                 }
             }
+            else if (ByRule)
+            {
+                @if (_rules.Count == 0)
+                {
+                    <div class="card-body">
+                        <p class="muted">No open findings on this build.</p>
+                        <p class="field__help">
+                            If no @Spine scanner ran, that is not the same as a clean result — check the
+                            scan receipts on the project hub.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <Virtualize TItem="RuleRow" Items="_rules" Context="rule" ItemSize="26">
+                        <TreeRow Name="@rule.RuleId" Depth="0"
+                                 Selected="@(rule.RuleId == Selection)"
+                                 OnSelect="() => SelectRule(rule.RuleId)">
+                            <Badge>
+                                <span class="row" style="gap: var(--space-1)">
+                                    <SeverityBadge Severity="rule.WorstSeverity" />
+                                    <span class="num">@rule.Count</span>
+                                    @if (rule.Concentrated && rule.Count > 1)
+                                    {
+                                        @* One bad pattern rather than a habit —
+                                           a different fix, so it is worth
+                                           seeing before opening the rule. *@
+                                        <span class="muted" title="@($"{rule.TopFileCount} of {rule.Count} in one file")">◉</span>
+                                    }
+                                </span>
+                            </Badge>
+                        </TreeRow>
+                    </Virtualize>
+                }
+            }
             else if (_groups.Count == 0)
             {
                 <div class="card-body">
@@ -260,7 +318,71 @@ else
         </Tree>
 
         <Detail>
-            @if (Spine == Spines.Dast)
+            @if (_error is not null)
+            {
+                <div class="card-body">
+                    <p class="field__help">
+                        Nothing is shown here rather than an empty result. A screen whose job is to
+                        report posture must never imply a clean one it could not measure.
+                    </p>
+                </div>
+            }
+            else if (ByRule)
+            {
+                <div class="card-body">
+                    <h2 class="mono">@Selection</h2>
+                    @if (_rules.FirstOrDefault(r => r.RuleId == Selection) is { } rule)
+                    {
+                        <p>@rule.Title</p>
+                        <p class="muted">
+                            @rule.Count occurrence@(rule.Count == 1 ? "" : "s")
+                            across @rule.FileCount file@(rule.FileCount == 1 ? "" : "s") · @rule.Scanner
+                        </p>
+                        @if (rule.Concentrated && rule.Count > 1 && rule.TopFilePath is { } top)
+                        {
+                            <p class="field__help">
+                                @rule.TopFileCount of @rule.Count are in <code class="mono">@top</code>.
+                                A rule concentrated in one file is usually one bad pattern to correct
+                                once; the same count spread across the codebase is a habit, and that is
+                                a different conversation.
+                            </p>
+                        }
+                    }
+                </div>
+
+                <ScrollBox Label="Occurrences">
+                    <table class="table">
+                        <thead>
+                            <tr><th>Severity</th><th>Where</th><th class="align-end">Line</th><th>Finding</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var finding in _ruleDetail)
+                            {
+                                <tr>
+                                    <td><SeverityBadge Severity="finding.Severity" /></td>
+                                    <td class="mono">
+                                        @if (finding.FilePath is { Length: > 0 } path)
+                                        {
+                                            @* Straight to the file, at the line —
+                                               the drill-through this ticket asked
+                                               for, in the direction people
+                                               actually travel. *@
+                                            <a href="@Routes.Explorer(Client, Project, Sha, Spine, path, finding.Line)">@path</a>
+                                        }
+                                        else
+                                        {
+                                            <span class="muted">no file</span>
+                                        }
+                                    </td>
+                                    <td class="num align-end">@(finding.Line?.ToString() ?? "—")</td>
+                                    <td>@finding.Title</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </ScrollBox>
+            }
+            else if (Spine == Spines.Dast)
             {
                 <div class="card-body">
                     <h2 class="mono">@Selection</h2>
@@ -373,6 +495,15 @@ else
     [Parameter] public string Spine { get; set; } = "";
     [Parameter] public string? Selection { get; set; }
 
+    /// <summary>
+    /// "rule" groups the tree by rule id instead of by path (TFND-18).
+    ///
+    /// A query parameter rather than a stored preference: it belongs to the
+    /// question being asked, not to the reader, and it has to survive being
+    /// pasted into a chat window.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "group")] public string? Group { get; set; }
+
     private static readonly string KnownSpines = string.Join(", ", Spines.All);
 
     private ProjectRef? _project;
@@ -385,6 +516,8 @@ else
     private IReadOnlyList<CoverageGroup> _coverage = [];
     private CoverageLineMap? _coverageDetail;
     private List<SourceLine>? _coverageSource;
+    private List<RuleRow> _rules = [];
+    private IReadOnlyList<RuleFinding> _ruleDetail = [];
     private IReadOnlyList<TestGroup> _tests = [];
     private IReadOnlyList<TestCase> _testsDetail = [];
     private List<SourceLine>? _source;
@@ -431,6 +564,14 @@ else
         _ => "color: var(--color-critical)",
     };
 
+    /// <summary>Only the finding spines have rules to group by.</summary>
+    private bool ByRule =>
+        string.Equals(Group, "rule", StringComparison.OrdinalIgnoreCase)
+        && Spine is Spines.Sast or Spines.Dast;
+
+    private void SelectRule(string ruleId) =>
+        Nav.NavigateTo($"{Routes.Explorer(Client, Project, Sha, Spine, ruleId)}?group=rule");
+
     private void GoToSast() => Nav.NavigateTo(Routes.Explorer(Client, Project, Sha, Spines.Sast));
 
     private void Select(string path) =>
@@ -451,7 +592,16 @@ else
             _project = await Hub.ResolveAsync(Client, Project);
             if (_project is null) return;
 
-            if (Spine == Spines.Sast)
+            if (ByRule)
+            {
+                var scanners = Spine == Spines.Dast ? ScannerKinds.Dast : ScannerKinds.Sast;
+
+                _rules = (await Rules.ByRuleAsync(_project.ProjectId, BuildSha, scanners)).ToList();
+                _ruleDetail = Selection is null
+                    ? []
+                    : await Findings.ByRuleDetailAsync(_project.ProjectId, BuildSha, scanners, Selection);
+            }
+            else if (Spine == Spines.Sast)
             {
                 _groups = await Findings.TreeAsync(_project.ProjectId, BuildSha, ScannerKinds.Sast);
                 _detail = Selection is null

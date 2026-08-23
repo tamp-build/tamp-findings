@@ -83,6 +83,40 @@ public sealed class FindingsExplorerQuery
     }
 
     /// <summary>
+    /// Every finding of ONE RULE, wherever it fires (TFND-18).
+    ///
+    /// The path-grouped detail answers "what is wrong with this file"; this
+    /// answers "where does this rule bite", which is the question somebody asks
+    /// once they have decided a rule is worth fixing.
+    ///
+    /// Ordered by file rather than by severity: within one rule the severity is
+    /// usually constant, so severity ordering would be arbitrary while file
+    /// ordering lets a reader work through it.
+    /// </summary>
+    public async Task<IReadOnlyList<RuleFinding>> ByRuleDetailAsync(
+        Guid projectId, string? commitSha, IReadOnlySet<ScannerKind> scanners, string ruleId,
+        CancellationToken ct = default)
+    {
+        var rows = await (
+            from f in _db.Findings.AsNoTracking()
+            join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
+            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
+            where c.ProjectId == projectId
+                  && (commitSha == null || cv.CommitSha == commitSha)
+                  && scanners.Contains(f.Scanner)
+                  && f.Status == FindingStatus.Open
+                  && f.RuleId == ruleId
+            select new RuleFinding(
+                f.Id, f.Severity, f.Title, f.Description, f.FilePath, f.Line, f.Scanner))
+            .ToArrayAsync(ct);
+
+        return rows
+            .OrderBy(r => r.FilePath ?? "", StringComparer.Ordinal)
+            .ThenBy(r => r.Line ?? 0)
+            .ToArray();
+    }
+
+    /// <summary>
     /// The file's source, if this product happens to have it.
     ///
     /// It does NOT store source for SAST. The only full file content in the
@@ -138,3 +172,8 @@ public sealed record FindingLeaf(string Path, Severity WorstSeverity, int Count)
 
 public sealed record FindingDetail(
     Guid Id, string RuleId, Severity Severity, string Title, string? Description, int? Line, ScannerKind Scanner);
+
+/// <summary>One occurrence of a rule, with the file it fired in (TFND-18).</summary>
+public sealed record RuleFinding(
+    Guid Id, Severity Severity, string Title, string? Description,
+    string? FilePath, int? Line, ScannerKind Scanner);
