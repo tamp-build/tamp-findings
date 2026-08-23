@@ -59,6 +59,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Explorer.CoverageAndTestsQuery>();
         services.AddScoped<Explorer.HostAliasService>();
         services.AddScoped<Explorer.RuleBreakdownQuery>();
+        services.AddScoped<Explorer.CostsAndLicensesQuery>();
+        services.AddScoped<SystemAdmin.PaidComponentRegistry>();
         services.AddScoped<Poam.PoamQuery>();
         services.AddScoped<Poam.PoamService>();
         services.AddScoped<Vex.VexQuery>();

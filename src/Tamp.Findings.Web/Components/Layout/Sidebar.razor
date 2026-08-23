@@ -116,6 +116,7 @@
                 {
                     new(L["Nav.Poam"], Routes.Poam(c!, p!)),
                     new(L["Nav.Vex"], Routes.Vex(c!, p!)),
+                    new(L["Nav.Costs"], Routes.Costs(c!, p!)),
                 };
                 if (b is not null) evidence.Add(new(L["Nav.Attestation"], Routes.Attestation(c!, p!, b)));
                 groups.Add(new(L["Nav.Group.Evidence"], evidence));
@@ -135,6 +136,7 @@
                 new(L["Nav.Users"], Routes.System(SystemPanels.Users)),
                 new(L["Nav.Authentication"], Routes.System(SystemPanels.Authentication)),
                 new(L["Nav.Scanners"], Routes.System(SystemPanels.Scanners)),
+                new(L["Nav.PaidComponents"], Routes.System(SystemPanels.PaidComponents)),
                 new(L["Nav.InstanceSettings"], Routes.System(SystemPanels.Settings)),
                 new(L["Nav.AuditLog"], Routes.System(SystemPanels.Audit)),
             ], Instance: true));

@@ -199,6 +199,17 @@ else
                                      OnSelect="() => Select(dep.Purl)">
                                 <Badge>
                                     <span class="row" style="gap: var(--space-1)">
+                                        @if (dep.PaidVendor is { Length: > 0 } vendor)
+                                        {
+                                            @* TFND-8 (F7.3). Shown HERE, not
+                                               only on the costs view, because
+                                               this is the screen somebody is on
+                                               when they decide whether to keep a
+                                               dependency — and "this one renews"
+                                               is part of that decision. *@
+                                            <span class="mono" style="color: var(--color-accent)"
+                                                  title="@($"{vendor} — a paid subscription covers this package")">$</span>
+                                        }
                                         @if (dep.StaleDays is { } behind)
                                         {
                                             @* TFND-22. The registry told us how
