@@ -60,6 +60,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Explorer.HostAliasService>();
         services.AddScoped<Poam.PoamQuery>();
         services.AddScoped<Poam.PoamService>();
+        services.AddScoped<Vex.VexQuery>();
         services.AddScoped<Ingest.IngestTokenService>();
         services.AddScoped<Projects.ProjectKeyService>();
 
