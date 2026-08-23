@@ -10,9 +10,13 @@
   </ItemGroup>
 
   <ItemGroup Label="Entity Framework Core + Postgres">
-    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.8" />
+    <!-- 10.0.11 rather than 10.0.8: Data Protection's EF key store (TFND-111)
+         is built against 10.0.11 and a lower reference is a hard compile error,
+         not a warning. Patch-level within the same major, so Npgsql's 10.0.x
+         provider is unaffected. -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
   </ItemGroup>
 
@@ -37,6 +41,19 @@
          that scans its own supply chain and generates attestation evidence, a
          prerelease in the graph is a deliberate decision rather than a
          surprise in its own SBOM. -->
+  </ItemGroup>
+
+  <ItemGroup Label="Data protection (TFND-111)">
+    <!-- Identity-provider client secrets are encrypted at rest and the keys
+         live in the DATABASE beside them. The default key store is the
+         filesystem or the registry, which in a container means a restart
+         orphans every secret on the instance — the operator would have to
+         re-enter them, and would only discover that at the moment sign-in
+         stopped working. -->
+    <PackageVersion Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.11" />
+    <!-- Generic OIDC. One handler covers Entra, Okta, Keycloak and Auth0
+         because discovery does the rest. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup Label="Logging / config">
@@ -96,10 +113,16 @@
   </ItemGroup>
 
   <ItemGroup Label="Transitive pins (CVE patches; central package transitive pinning surfaces these)">
-    <!-- Npgsql 10.0.1 pulls in System.Security.Cryptography.Xml 9.0.0 which has
-         known high-severity advisories (GHSA-37gx-xxp4-5rgx, GHSA-w3x6-4m5h-cxqf).
-         Pin to a patched 10.x. -->
-    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.8" />
+    <!-- Npgsql pulls this in transitively and it has a long advisory history.
+         10.0.8 was the patched version when this pin was written; it has since
+         picked up FIVE more high-severity advisories (GHSA-23rf-6693-g89p,
+         GHSA-8q5v-6pqq-x66h, GHSA-cvvh-rhrc-wg4q, GHSA-g8r8-53c2-pm3f,
+         GHSA-mmjf-rqrv-855v).
+         Found by NuGet audit failing the build while adding Data Protection —
+         which is the point of a transitive pin: it makes the version visible
+         and therefore auditable. An unpinned transitive would have floated and
+         nobody would have known either way. -->
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup Label="Test stack (TFND mirrors tamp test stack)">

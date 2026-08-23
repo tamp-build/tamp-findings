@@ -2,7 +2,9 @@ using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OAuth;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
@@ -146,11 +148,21 @@ public static class AuthExtensions
         return services;
     }
 
-    // Looks up / upserts the User row from the GitHub profile response, then
-    // either stashes the internal identity on the principal (approved) or
-    // aborts with a Fail("not_approved") that OnRemoteFailure translates into
-    // a /auth/denied redirect.
-    private static async Task HandleGitHubTicket(OAuthCreatingTicketContext ctx)
+    // ------------------------------------------------------------------
+    // Provider ticket handlers
+    // ------------------------------------------------------------------
+    //
+    // Each of these does ONE thing: turn a provider's response into a
+    // normalised Profile. Everything after that — the first-run admin claim,
+    // the allowed-domain check, the MFA requirement, the approval gate, the
+    // claims that go into the cookie — is ExternalSignIn's, because it is one
+    // policy and two copies of it would eventually be two policies.
+
+    /// <summary>
+    /// GitHub's OAuth profile. Internal so the database-registered scheme
+    /// (TFND-111) can reuse it rather than owning a second copy.
+    /// </summary>
+    internal static async Task HandleGitHubTicket(OAuthCreatingTicketContext ctx)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, ctx.Options.UserInformationEndpoint);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ctx.AccessToken);
@@ -173,10 +185,10 @@ public static class AuthExtensions
         var avatar = root.TryGetProperty("avatar_url", out var avatarEl) && avatarEl.ValueKind == JsonValueKind.String
             ? avatarEl.GetString() : null;
 
-        // GitHub omits a private primary email from /user. The user:email
-        // scope lets us pull it from /user/emails — pick the verified
-        // primary. Fall through silently if the call fails; email is
-        // optional and the user is already identified by their GitHub id.
+        // GitHub omits a private primary email from /user. The user:email scope
+        // lets us pull it from /user/emails — pick the verified primary. Fall
+        // through silently if the call fails; email is optional and the user is
+        // already identified by their GitHub id.
         if (string.IsNullOrEmpty(email))
         {
             using var emailReq = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/user/emails");
@@ -201,117 +213,146 @@ public static class AuthExtensions
             }
         }
 
-        var db = ctx.HttpContext.RequestServices.GetRequiredService<FindingsDbContext>();
+        // The bootstrap login env var predates the registry and stays: it is
+        // the recovery path for "the admin signed in before the variable was
+        // set", and removing it would leave that instance unrecoverable.
         var bootstrapLogin = ctx.HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GitHub:BootstrapAdminLogin"]
             ?? Environment.GetEnvironmentVariable("GITHUB_BOOTSTRAP_ADMIN_LOGIN");
-        var isBootstrap = !string.IsNullOrWhiteSpace(bootstrapLogin)
-            && string.Equals(bootstrapLogin, login, StringComparison.OrdinalIgnoreCase);
 
-        var user = await db.Users.FirstOrDefaultAsync(u => u.GitHubUserId == githubId, ctx.HttpContext.RequestAborted);
-
-        // FIRST RUN: claiming the administrator seat (TFND-126).
-        //
-        // The bootstrap for the entire RBAC model. Without it a fresh
-        // deployment has no admin, so nobody can approve anyone, grant a role
-        // or create a client, and the only way in is editing the database by
-        // hand.
-        //
-        // "First to sign in wins" would be simpler and has a race: between
-        // deploying and the operator signing in, the instance is reachable
-        // with an unclaimed admin seat. So the claim requires the setup token
-        // printed to the container log at startup — possession of the log is
-        // what proves you are the operator.
-        //
-        // The check is "no users at all", not "no admins": once anyone exists
-        // the instance is in use, and promoting the next arrival would be
-        // privilege escalation dressed as convenience.
-        var setup = ctx.HttpContext.RequestServices
-            .GetRequiredService<Tamp.Findings.Application.Setup.SetupToken>();
-
-        var isUnclaimed = user is null
-            && !await db.Users.AnyAsync(ctx.HttpContext.RequestAborted);
-
-        if (isUnclaimed)
+        if (!string.IsNullOrWhiteSpace(bootstrapLogin)
+            && string.Equals(bootstrapLogin, login, StringComparison.OrdinalIgnoreCase))
         {
-            // Entered on the sign-in page and carried through the challenge,
-            // so it is available here — BEFORE any row is written.
-            ctx.Properties.Items.TryGetValue(SetupTokenItem, out var presented);
-
-            if (!setup.Validate(presented))
-            {
-                // THE LOAD-BEARING BRANCH. Fail without creating anything.
-                //
-                // Writing a user row here — even an unapproved one — would
-                // consume the "no users exist" condition and permanently break
-                // the bootstrap, leaving an instance nobody can administer.
-                // That is the difference between a setup token and a speed
-                // bump, so this returns before the upsert rather than after.
-                ctx.HttpContext.RequestServices
-                    .GetRequiredService<ILoggerFactory>()
-                    .CreateLogger("Tamp.Findings.Setup")
-                    .LogWarning(
-                        "Rejected an admin claim for {Login}: setup token missing or wrong. No account created.",
-                        login);
-                ctx.Fail("setup_token");
-                return;
-            }
+            await PromoteBootstrapAsync(ctx.HttpContext, githubId, ctx.HttpContext.RequestAborted);
         }
 
-        var isFirstUser = isUnclaimed;
+        ctx.Properties.Items.TryGetValue(SetupTokenItem, out var presented);
 
-        if (user is null)
-        {
-            user = new User
-            {
-                Login = login,
-                DisplayName = displayName,
-                Email = email,
-                GitHubUserId = githubId,
-                AvatarUrl = avatar,
-                IsApproved = isBootstrap || isFirstUser,
-                IsAdmin = isBootstrap || isFirstUser,
-            };
-            db.Users.Add(user);
-        }
-        else
-        {
-            user.Login = login;
-            user.DisplayName = displayName;
-            user.Email = email ?? user.Email;
-            user.AvatarUrl = avatar ?? user.AvatarUrl;
-            // Bootstrap login promotes an existing row too — covers the
-            // "admin signed in before GITHUB_BOOTSTRAP_ADMIN_LOGIN was set"
-            // recovery case.
-            if (isBootstrap)
-            {
-                user.IsApproved = true;
-                user.IsAdmin = true;
-            }
-        }
-        user.LastLoginAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ctx.HttpContext.RequestAborted);
+        var outcome = await ExternalSignIn.ResolveAsync(
+            ctx.HttpContext,
+            new ExternalSignIn.Profile(
+                ctx.Scheme.Name, githubId.ToString(), login, displayName, email, avatar,
+                GitHubUserId: githubId,
+                // GitHub OAuth asserts nothing about multi-factor. Reporting
+                // otherwise would satisfy an MFA requirement that was never met
+                // — which is why the registry refuses to let a GitHub provider
+                // be marked as requiring one.
+                MfaAsserted: false),
+            presented,
+            ctx.HttpContext.RequestAborted);
 
-        // The seat is claimed. Disarm immediately so the token stops working
-        // and stops being printed on the next restart — a claim token that
-        // outlives the claim is just a standing credential.
-        if (isFirstUser) setup.Claim();
-
-        if (!user.IsApproved)
+        if (!outcome.Ok)
         {
-            ctx.Fail("not_approved");
+            ctx.Fail(outcome.Reason!);
             return;
         }
 
-        // Wipe the placeholder identity the OAuth handler built and replace
-        // it with one we control — keeps the cookie minimal (no GH access
-        // token, no scattered urn:github:* claims).
-        var identity = new ClaimsIdentity(ctx.Scheme.Name);
-        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()));
-        identity.AddClaim(new Claim(ClaimTypes.Name, user.Login));
-        identity.AddClaim(new Claim(TampUserIdClaim, user.Id.ToString()));
-        identity.AddClaim(new Claim(TampIsAdminClaim, user.IsAdmin.ToString()));
-        if (!string.IsNullOrEmpty(user.Email))
-            identity.AddClaim(new Claim(ClaimTypes.Email, user.Email));
-        ctx.Principal = new ClaimsPrincipal(identity);
+        ctx.Principal = outcome.Principal;
     }
+
+    /// <summary>
+    /// An OIDC token, already validated by the handler (TFND-111).
+    ///
+    /// Claim names vary between issuers, so each is read with a fallback chain
+    /// rather than assuming one shape. An issuer that supplies none of them for
+    /// a display name falls back to the subject, which is ugly and honest —
+    /// better than a blank row.
+    /// </summary>
+    internal static async Task HandleOidcTicket(TokenValidatedContext ctx)
+    {
+        var claims = ctx.Principal ?? throw new InvalidOperationException("oidc principal missing");
+
+        var subject = claims.FindFirst("sub")?.Value
+            ?? claims.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? throw new InvalidOperationException("oidc subject missing");
+
+        var email = claims.FindFirst("email")?.Value ?? claims.FindFirst(ClaimTypes.Email)?.Value;
+
+        var login = claims.FindFirst("preferred_username")?.Value
+            ?? email
+            ?? subject;
+
+        var displayName = claims.FindFirst("name")?.Value
+            ?? claims.FindFirst(ClaimTypes.Name)?.Value
+            ?? login;
+
+        // `amr` is the standard's own answer to "how did they authenticate".
+        // Absent means the issuer did not say — which is NOT the same as "no
+        // MFA happened", but it is the only thing this end can verify, and a
+        // requirement satisfied by an absence would not be a requirement.
+        var mfa = claims.FindAll("amr")
+            .Any(c => c.Value is "mfa" or "otp" or "hwk" or "swk" or "sc" or "fpt" or "face" or "pin");
+
+        // The setup token rides on the authentication properties, which are
+        // null when the handler is invoked outside a challenge it started.
+        string? presented = null;
+        ctx.Properties?.Items.TryGetValue(SetupTokenItem, out presented);
+
+        var outcome = await ExternalSignIn.ResolveAsync(
+            ctx.HttpContext,
+            new ExternalSignIn.Profile(
+                ctx.Scheme.Name, subject, login, displayName, email,
+                AvatarUrl: claims.FindFirst("picture")?.Value,
+                GitHubUserId: null,
+                MfaAsserted: mfa),
+            presented,
+            ctx.HttpContext.RequestAborted);
+
+        if (!outcome.Ok)
+        {
+            ctx.Fail(outcome.Reason!);
+            return;
+        }
+
+        ctx.Principal = outcome.Principal;
+    }
+
+    /// <summary>
+    /// The bootstrap-login recovery path, kept from before the registry.
+    ///
+    /// Promotes an EXISTING row. It covers "the admin signed in before
+    /// GITHUB_BOOTSTRAP_ADMIN_LOGIN was set", which is otherwise unrecoverable
+    /// without database access — and it deliberately does not create a row,
+    /// because creating one would consume the first-run condition that the
+    /// setup token guards.
+    /// </summary>
+    private static async Task PromoteBootstrapAsync(HttpContext http, long githubId, CancellationToken ct)
+    {
+        var db = http.RequestServices.GetRequiredService<FindingsDbContext>();
+        var user = await db.Users.FirstOrDefaultAsync(u => u.GitHubUserId == githubId, ct);
+        if (user is null) return;
+
+        if (user is { IsApproved: true, IsAdmin: true }) return;
+
+        user.IsApproved = true;
+        user.IsAdmin = true;
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Land a failed round-trip back on the sign-in page with a reason it can
+    /// render, rather than on a framework error page.
+    /// </summary>
+    internal static Task HandleRemoteFailure(RemoteFailureContext ctx)
+    {
+        ctx.Response.Redirect($"/signin?error={FailureReason(ctx.Failure)}");
+        ctx.HandleResponse();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Map a failure to a token the sign-in page knows how to explain.
+    ///
+    /// The known reasons pass through by name; everything else collapses to
+    /// "remote_failure" rather than echoing an exception message into a query
+    /// string, which is how internal detail ends up in a browser history and a
+    /// proxy log.
+    /// </summary>
+    internal static string FailureReason(Exception? failure) => failure?.Message switch
+    {
+        "not_approved" => "not_approved",
+        "setup_token" => "setup_token",
+        "domain_not_allowed" => "domain_not_allowed",
+        "mfa_required" => "mfa_required",
+        _ => "remote_failure",
+    };
 }
