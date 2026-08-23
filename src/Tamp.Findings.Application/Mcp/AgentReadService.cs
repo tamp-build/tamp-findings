@@ -248,19 +248,18 @@ public sealed class AgentReadService
     /// Expired suppressions are included and MARKED. A suppression that lapsed
     /// is exactly the case where "why is this still open" has a real answer.
     ///
-    /// One awkward case, and it is a property of the model rather than of this
-    /// method: a RuleOnFile or RuleEverywhere suppression carries NO client,
-    /// project or component. <c>SuppressionMatcher</c> applies it globally, so
-    /// a rule silenced by any tenant is silenced here too — which means these
-    /// rows genuinely describe the caller's project and cannot be filtered out
-    /// without telling an agent a finding is open when ingest suppresses it.
+    /// One remaining case, now a shrinking one: suppressions written before
+    /// TFND-132 carry no client at all. <c>SuppressionMatcher</c> keeps their
+    /// original instance-wide behaviour — retroactively narrowing them would
+    /// silently un-suppress findings people have already signed off — so they
+    /// genuinely silence this project and cannot be filtered out without
+    /// telling an agent a finding is open when ingest suppresses it.
     ///
-    /// They are therefore returned, marked <c>InstanceWide</c>, with the reason
-    /// and the author REDACTED unless the row is anchored inside this scope.
+    /// They are returned marked <c>InstanceWide</c>, with the reason and the
+    /// author withheld, because there is no record of which client wrote them.
     /// "This rule is muted here" is a fact about the caller's own project;
-    /// "Priya at another client wrote it off in March" is not the caller's to
-    /// read. TODO(TFND-132): the underlying defect is that rule-scoped
-    /// suppressions are instance-wide at all.
+    /// whose decision it was is not the caller's to read. Every row written
+    /// since TFND-132 carries a tenant, so this set only shrinks.
     /// </summary>
     public async Task<AgentSuppressionState?> SuppressionsAsync(
         AgentIdentity agent, Guid projectId, DateTimeOffset asOf, CancellationToken ct = default)
@@ -285,13 +284,25 @@ public sealed class AgentReadService
             .Where(s => s.ComponentId != null && components.Contains(s.ComponentId.Value))
             .ToArrayAsync(ct);
 
-        // Unanchored: silences this project's findings, but was written
-        // somewhere this caller cannot see.
-        var instanceWide = await _db.Suppressions.AsNoTracking()
-            .Where(s => s.FindingId == null && s.ComponentId == null)
+        // Rule-scoped rows that belong to this project, or to its client.
+        var clientId = await _db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => (Guid?)p.ClientId)
+            .SingleOrDefaultAsync(ct);
+
+        var ruleScoped = await _db.Suppressions.AsNoTracking()
+            .Where(s => s.FindingId == null && s.ComponentId == null && s.ClientId != null
+                        && s.ClientId == clientId
+                        && (s.ProjectId == null || s.ProjectId == projectId))
             .ToArrayAsync(ct);
 
-        var mine = anchored.Concat(componentAnchored).ToArray();
+        // Legacy: written before suppressions carried a tenant. Still applies
+        // here, and there is no record of who asked for it.
+        var legacy = await _db.Suppressions.AsNoTracking()
+            .Where(s => s.FindingId == null && s.ComponentId == null && s.ClientId == null)
+            .ToArrayAsync(ct);
+
+        var mine = anchored.Concat(componentAnchored).Concat(ruleScoped).ToArray();
 
         var authorIds = mine.Select(s => s.CreatedByUserId).Distinct().ToArray();
         var authors = await _db.Users.AsNoTracking()
@@ -307,11 +318,11 @@ public sealed class AgentReadService
                 s.CreatedByRole, s.CreatedAt, s.ExpiresAt,
                 s.ExpiresAt is not null && s.ExpiresAt <= asOf,
                 InstanceWide: false))
-            .Concat(instanceWide.Select(s => new AgentSuppression(
+            .Concat(legacy.Select(s => new AgentSuppression(
                 s.Id, s.Scope, s.RuleId, s.FilePath, s.FindingId,
                 // The rule and the expiry are the operative facts and they are
-                // about this project. The rest belongs to whoever wrote it.
-                "(written outside this scope — reason withheld)",
+                // about this project. Whose decision it was, nothing records.
+                "(written before suppressions carried a tenant — author unknown)",
                 "(withheld)",
                 s.CreatedByRole, s.CreatedAt, s.ExpiresAt,
                 s.ExpiresAt is not null && s.ExpiresAt <= asOf,
@@ -470,9 +481,8 @@ public sealed record AgentSuppression(
     string Reason, string Author, ProjectRole AuthorRole,
     DateTimeOffset CreatedAt, DateTimeOffset? ExpiresAt, bool Expired,
     /// <summary>
-    /// Written outside this scope, but silencing findings inside it — a
-    /// rule-scoped suppression carries no project, so the matcher applies it
-    /// everywhere. Reason and author are withheld on these.
+    /// A pre-TFND-132 row: no tenant recorded, so the matcher still applies it
+    /// everywhere and nothing says who wrote it. Reason and author are withheld.
     /// </summary>
     bool InstanceWide);
 
