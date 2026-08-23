@@ -12,6 +12,7 @@ using Tamp.Findings.Data;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Tamp.Findings.Workflows;
 
@@ -98,6 +99,13 @@ builder.Services.AddScoped<SbomEnrichmentService>();
 
 // TFND-26: CISA Known Exploited Vulnerabilities catalog. Service does
 // the actual upsert; the hosted worker schedules it (startup + daily).
+// TFND-23: check runs are published OUT OF BAND of the ingest that triggers
+// them. The findings are stored by the time this is queued; a notification that
+// holds a CI step open is worse than a late one.
+builder.Services.AddSingleton<Tamp.Findings.Api.Services.CheckPublishQueue>();
+builder.Services.AddHostedService<Tamp.Findings.Api.Services.CheckPublishWorker>();
+builder.Services.TryAddSingleton(TimeProvider.System);
+
 builder.Services.AddScoped<Tamp.Findings.Api.Services.KevFeedSyncService>();
 builder.Services.AddHostedService<Tamp.Findings.Api.Services.KevFeedSyncWorker>();
 

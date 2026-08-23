@@ -37,9 +37,22 @@ namespace Tamp.Findings.Application.SystemAdmin;
 /// </summary>
 public sealed class ProviderSecretProtector
 {
+    private readonly Lazy<IDataProtectionProvider> _provider;
     private readonly Lazy<IDataProtector> _protector;
 
+    /// <summary>Identity-provider client secrets (TFND-111).</summary>
     public const string Purpose = "tamp.findings.identity-provider-secret.v1";
+
+    /// <summary>
+    /// The GitHub App private key (TFND-23).
+    ///
+    /// A SEPARATE purpose, not a shared one. Data Protection derives a distinct
+    /// key per purpose, so a ciphertext from one cannot be decrypted as the
+    /// other — which means a bug that fed an identity-provider secret into the
+    /// GitHub path would fail loudly rather than produce something that looked
+    /// like a private key.
+    /// </summary>
+    public const string GitHubAppPurpose = "tamp.findings.github-app-key.v1";
 
     public ProviderSecretProtector(IServiceScopeFactory scopes)
     {
@@ -47,7 +60,7 @@ public sealed class ProviderSecretProtector
         // singleton resolved during DI graph construction, and a constructor
         // that opened a connection would make the host's startup depend on
         // Postgres being up.
-        _protector = new Lazy<IDataProtector>(() =>
+        _provider = new Lazy<IDataProtectionProvider>(() =>
         {
             var inner = new ServiceCollection();
             inner.AddDataProtection()
@@ -57,15 +70,24 @@ public sealed class ProviderSecretProtector
                  .SetApplicationName("tamp.findings")
                  .AddKeyManagementOptions(o => o.XmlRepository = new DatabaseXmlRepository(scopes));
 
-            return inner.BuildServiceProvider()
-                        .GetRequiredService<IDataProtectionProvider>()
-                        .CreateProtector(Purpose);
+            return inner.BuildServiceProvider().GetRequiredService<IDataProtectionProvider>();
         }, LazyThreadSafetyMode.ExecutionAndPublication);
+
+        _protector = new Lazy<IDataProtector>(
+            () => _provider.Value.CreateProtector(Purpose),
+            LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public string Protect(string plaintext) => _protector.Value.Protect(plaintext);
 
     public string Unprotect(string protectedPayload) => _protector.Value.Unprotect(protectedPayload);
+
+    /// <summary>Protect against a named purpose other than the default.</summary>
+    public string Protect(string purpose, string plaintext) =>
+        _provider.Value.CreateProtector(purpose).Protect(plaintext);
+
+    public string Unprotect(string purpose, string protectedPayload) =>
+        _provider.Value.CreateProtector(purpose).Unprotect(protectedPayload);
 }
 
 /// <summary>

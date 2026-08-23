@@ -77,6 +77,17 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Projects.ClientQuery>();
         services.AddScoped<Ingest.IngestTokenService>();
         services.AddScoped<Ingest.CveReconciler>();
+
+        // TFND-23: the GitHub App client. A NAMED client with the API base
+        // address pinned here, so no call site can accidentally point the
+        // App's credentials at a different host.
+        services.AddHttpClient<GitHub.GitHubCheckPublisher>(http =>
+        {
+            http.BaseAddress = new Uri("https://api.github.com/");
+            // GitHub is a dependency, not a partner: a slow response must not
+            // hold an ingest open.
+            http.Timeout = TimeSpan.FromSeconds(20);
+        });
         services.AddScoped<Projects.ProjectKeyService>();
 
         return services;

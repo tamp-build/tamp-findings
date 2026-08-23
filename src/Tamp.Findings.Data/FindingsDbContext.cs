@@ -74,6 +74,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            e.Property(x => x.GitHubRepository).HasMaxLength(256);
             e.HasOne(x => x.Client).WithMany(c => c.Projects).HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.ClientId, x.Name }).IsUnique();
             e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
@@ -189,6 +190,9 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.InstanceUrl).HasMaxLength(512);
             e.Property(x => x.SmtpHost).HasMaxLength(256);
             e.Property(x => x.SmtpFrom).HasMaxLength(256);
+            e.Property(x => x.GitHubAppId).HasMaxLength(32);
+            e.Property(x => x.GitHubAppPrivateKeyProtected).HasColumnType("text");
+            e.Property(x => x.GitHubCheckName).HasMaxLength(128);
             // Native text[]: the list is short, read whole, and never queried
             // by element, so a join table would be three tables of ceremony
             // for no gain.

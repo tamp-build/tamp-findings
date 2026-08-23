@@ -167,6 +167,88 @@ public class ProjectSettingsIntegrationTests
         Assert.True(result.WasDenied);
     }
 
+    // ---- GitHub repository (TFND-23) ----------------------------------------
+
+    [SkippableFact]
+    public async Task A_project_maps_to_a_repository_by_owner_and_name()
+    {
+        Skip.IfNot(_fx.Available);
+
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var settings = scope.ServiceProvider.GetRequiredService<ProjectSettingsService>();
+
+        var result = await settings.SaveRepositoryAsync(
+            world.Admin, world.Scope, world.ProjectId, "tamp-build/tamp-findings");
+
+        Assert.True(result.Success);
+        Assert.Equal("tamp-build/tamp-findings", await settings.RepositoryAsync(world.ProjectId));
+    }
+
+    [Theory]
+    [InlineData("https://github.com/tamp-build/tamp-findings")]
+    [InlineData("tamp-build/tamp-findings.git/tree/main")]
+    [InlineData("tamp-findings")]
+    [InlineData("tamp-build/")]
+    public async Task Anything_that_is_not_owner_slash_name_is_refused(string repository)
+    {
+        Skip.IfNot(_fx.Available);
+
+        // A URL, a .git suffix or a branch path all produce a 404 from GitHub
+        // at publish time — which surfaces as a check that silently never
+        // appears, and looks exactly like a check that passed.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var settings = scope.ServiceProvider.GetRequiredService<ProjectSettingsService>();
+
+        var result = await settings.SaveRepositoryAsync(
+            world.Admin, world.Scope, world.ProjectId, repository);
+
+        Assert.False(result.Success);
+        Assert.False(result.WasDenied);
+    }
+
+    [SkippableFact]
+    public async Task Unmapping_a_repository_is_allowed_and_audited()
+    {
+        Skip.IfNot(_fx.Available);
+
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var settings = scope.ServiceProvider.GetRequiredService<ProjectSettingsService>();
+        var db = _fx.Db(scope);
+
+        await settings.SaveRepositoryAsync(world.Admin, world.Scope, world.ProjectId, "acme/thing");
+        await settings.SaveRepositoryAsync(world.Admin, world.Scope, world.ProjectId, null);
+
+        Assert.Null(await settings.RepositoryAsync(world.ProjectId));
+
+        var entry = db.AuditEntries
+            .Where(a => a.SubjectId == world.ProjectId && a.Action == "project.github_repository_changed")
+            .OrderByDescending(a => a.At)
+            .First();
+
+        // Access class: it decides where this instance writes on somebody
+        // else's platform, which is a reach outward rather than housekeeping.
+        Assert.Equal(AuditClass.Access, entry.Class);
+        Assert.Contains("unmapped", entry.Detail!, StringComparison.Ordinal);
+    }
+
+    [SkippableFact]
+    public async Task An_architect_cannot_change_where_checks_are_published()
+    {
+        Skip.IfNot(_fx.Available);
+
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var settings = scope.ServiceProvider.GetRequiredService<ProjectSettingsService>();
+
+        var result = await settings.SaveRepositoryAsync(
+            world.Architect, world.Scope, world.ProjectId, "acme/thing");
+
+        Assert.True(result.WasDenied);
+    }
+
     // ---- Disclosure policy --------------------------------------------------
 
     [SkippableFact]
