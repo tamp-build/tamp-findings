@@ -113,8 +113,14 @@ public static class IngestEndpoints
             .Where(s => s.ExpiresAt == null || s.ExpiresAt > now)
             .ToListAsync(ct);
 
+        // The finding's full position in the tree, not just its component
+        // (TFND-132). Rule-scoped suppressions are bounded by client and
+        // project, and the matcher cannot apply that bound without being told
+        // where the finding is.
+        var suppressionTarget = new SuppressionTarget(client!.Id, project!.Id, version!.ComponentId);
+
         bool CoveredBySuppression(Guid? findingId, string ruleId, string? filePath)
-            => SuppressionMatcher.AnyCovers(activeSuppressions, version!.ComponentId, ruleId, filePath, findingId, now);
+            => SuppressionMatcher.AnyCovers(activeSuppressions, suppressionTarget, ruleId, filePath, findingId, now);
 
         // In-batch dedup: a single scanner run may emit the same effective
         // finding twice (e.g., overlapping OpenGrep rule patterns). Collapse
