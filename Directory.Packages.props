@@ -16,6 +16,29 @@
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
   </ItemGroup>
 
+  <ItemGroup Label="Elsa workflow engine (TFND-115)">
+    <!-- 3.7.1 is the latest STABLE line and ships real net10.0 lib targets —
+         verified in the TFND-58 spike, not merely forward-compatible via
+         net9.0. 3.8.0 is at rc2 and there is no reason to take a prerelease
+         for a runtime when the stable line already targets net10.
+         The persistence coordinate is Elsa.Persistence.EFCore.PostgreSql.
+         Elsa.EntityFrameworkCore.PostgreSql ALSO exists on nuget.org and is
+         stale at 3.2.4 — four minors behind, and silently so. -->
+    <PackageVersion Include="Elsa" Version="3.7.1" />
+    <PackageVersion Include="Elsa.Persistence.EFCore.PostgreSql" Version="3.7.1" />
+    <!-- Timer / Delay / Cron activities. NOT in the Elsa meta package — the
+         scheduled workflows (due-date reminders, gate notification) are the
+         only things that genuinely need the engine, so this is the reference
+         that earns its keep. -->
+    <PackageVersion Include="Elsa.Scheduling" Version="3.7.1" />
+    <!-- Elsa.Studio is NOT referenced (TFND-125, deferrable). It brings
+         MudBlazor 9.0.0, Radzen.Blazor 9.0.5 and a PRERELEASE
+         CodeBeam.MudBlazor.Extensions 9.0.0-rc.1 transitively. For a product
+         that scans its own supply chain and generates attestation evidence, a
+         prerelease in the graph is a deliberate decision rather than a
+         surprise in its own SBOM. -->
+  </ItemGroup>
+
   <ItemGroup Label="Logging / config">
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
   </ItemGroup>

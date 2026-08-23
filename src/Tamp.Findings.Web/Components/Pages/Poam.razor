@@ -13,6 +13,7 @@
 @inject ProjectHubQuery Hub
 @inject PoamQuery Query
 @inject PoamService Service
+@inject ApprovalService Approvals
 @inject CurrentUser Me
 
 <PageTitle>POA&amp;M — @Project</PageTitle>
@@ -91,6 +92,32 @@ else
             </Card>
         }
 
+        @if (_awaitingYou.Count > 0)
+        {
+            @* "Anything awaiting THIS user shows up as an action, not a
+               notification" — so it is a filter on this table, not an inbox.
+               Driven by real assignment and by capability at the approval's own
+               scope, never by role alone: a filter that matched on role would
+               put every InfoSec officer's name on every decision and teach all
+               of them to ignore it. *@
+            <Card>
+                <div class="row row--between">
+                    <div class="row" style="gap: var(--space-3)">
+                        <Chip Label="@($"AWAITING YOU · {_awaitingYou.Count}")"
+                              Tone="var(--color-accent)" Style="Chip.ChipStyle.Solid" />
+                        <span>
+                            @_awaitingYou.Count decision@(_awaitingYou.Count == 1 ? "" : "s")
+                            on this project @(_awaitingYou.Count == 1 ? "needs" : "need") you.
+                        </span>
+                    </div>
+                    <Button Variant="Button.ButtonVariant.Text"
+                            OnClick="() => _onlyAwaitingYou = !_onlyAwaitingYou">
+                        @(_onlyAwaitingYou ? "show everything" : "show only these")
+                    </Button>
+                </div>
+            </Card>
+        }
+
         <Card Padded="false">
             <div class="card-body poam-stats">
                 <Stat Label="Open" Value="@_board.Stats.Open" />
@@ -124,7 +151,7 @@ else
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var row in _board.Items)
+                            @foreach (var row in VisibleItems)
                             {
                                 <tr class="@(row.Id == _selectedId ? "is-selected" : null)"
                                     @onclick="() => Select(row.Id)">
@@ -135,7 +162,12 @@ else
                                         </div>
                                     </td>
                                     <td><SeverityBadge Severity="row.Severity" /></td>
-                                    <td><PoamStatusChip Status="row.Status" PastDue="row.PastDue" /></td>
+                                    <td>
+                                        <span class="row" style="gap: var(--space-2)">
+                                            <PoamStatusChip Status="row.Status" PastDue="row.PastDue" />
+                                            <PendingMark State="@Pending(row.Id)" />
+                                        </span>
+                                    </td>
                                     <td>@row.Owner</td>
                                     <td class="mono">
                                         @if (row.ScheduledCompletionDate is { } due)
@@ -153,11 +185,13 @@ else
                                     <td class="num align-end">@row.LinkCount</td>
                                     <td>
                                         <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
-                                                Disabled="@(!_canCreate.Allowed)" DisabledReason="@_canCreate.Reason"
+                                                Disabled="@(!_canCreate.Allowed || Pending(row.Id) is not null)"
+                                                DisabledReason="@RowReason(row.Id)"
                                                 OnClick="() => StartEdit(row.Id)">edit</Button>
                                         <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
                                                 Class="btn--danger"
-                                                Disabled="@(!_canCreate.Allowed)" DisabledReason="@_canCreate.Reason"
+                                                Disabled="@(!_canCreate.Allowed || Pending(row.Id) is not null)"
+                                                DisabledReason="@RowReason(row.Id)"
                                                 OnClick="() => _deleting = row">delete</Button>
                                     </td>
                                 </tr>
@@ -170,7 +204,7 @@ else
 
         @if (_record is { } record)
         {
-            <PoamRecordView Record="record" Project="_project"
+            <PoamRecordView Record="record" Project="_project" Pending="@Pending(record.Id)"
                             CanEdit="_canCreate" CanComplete="_canComplete" CanAccept="_canAccept"
                             OnEdit="() => StartEdit(record.Id)"
                             OnExtend="StartExtend"
@@ -298,6 +332,10 @@ else
     private Guid? _selectedId;
     private string? _error, _dialogError;
 
+    private IReadOnlyDictionary<Guid, PendingState> _pending = new Dictionary<Guid, PendingState>();
+    private IReadOnlyList<AwaitingRow> _awaitingYou = [];
+    private bool _onlyAwaitingYou;
+
     private AuthorizationDecision _canCreate = AuthorizationDecision.Deny("Checking…");
     private AuthorizationDecision _canComplete = AuthorizationDecision.Deny("Checking…");
     private AuthorizationDecision _canAccept = AuthorizationDecision.Deny("Checking…");
@@ -340,6 +378,25 @@ else
                 ? await Query.RecordAsync(_project.ProjectId, id, asOf)
                 : null;
 
+            // One query for the whole page's pending states rather than one
+            // per row.
+            _pending = await Approvals.ForSubjectsAsync(
+                "PoamItem", _board.Items.Select(i => i.Id).ToArray());
+
+            if (await Me.AtAsync(Here) is { } principal)
+            {
+                var awaiting = await Approvals.AwaitingAsync(
+                    principal, target => Me.AtAsync(target));
+
+                _awaitingYou = awaiting
+                    .Where(a => a.SubjectKind == "PoamItem" && a.ProjectId == _project.ProjectId)
+                    .ToArray();
+            }
+            else
+            {
+                _awaitingYou = [];
+            }
+
             _canCreate = await Me.CanAsync(Capability.CreatePoamItem, Here);
             _canComplete = await Me.CanAsync(Capability.CompletePoamItem, Here);
             _canAccept = await Me.CanAsync(Capability.AcceptRisk, Here);
@@ -349,6 +406,22 @@ else
             _error = ex.GetType().Name;
         }
     }
+
+    private PendingState? Pending(Guid id) =>
+        _pending.TryGetValue(id, out var state) ? state : null;
+
+    private IEnumerable<PoamRow> VisibleItems =>
+        _onlyAwaitingYou
+            ? _board.Items.Where(i => _awaitingYou.Any(a => a.SubjectId == i.Id))
+            : _board.Items;
+
+    // A pending decision DISABLES the actions that would race it. Editing an
+    // item somebody is being asked to approve would change what they are
+    // approving after they were asked.
+    private string? RowReason(Guid id) =>
+        Pending(id) is { } pending
+            ? $"A decision is {pending.Qualifier}. Editing would change what the approver was asked about."
+            : _canCreate.Reason;
 
     private void Select(Guid id) => Nav.NavigateTo(Routes.PoamItem(Client, Project, id.ToString()));
 
