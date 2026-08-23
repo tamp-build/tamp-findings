@@ -212,6 +212,61 @@ else
                         </div>
                     </Card>
 
+                    @* ---- Licences and paid components (TFND-10 / F9.3) ---- *@
+                    <Card Padded="false">
+                        <div class="card-body">
+                            <h2>Licences</h2>
+                            <p class="field__help">
+                                The product ships a classification of the common SPDX licences, and
+                                these two lists override it. Which licences an organisation can live
+                                with is a legal position rather than a fact about software — two
+                                adopters can hold opposite views about the same licence and both be
+                                right — so the built-in table is a default, not the rule.
+                            </p>
+                        </div>
+
+                        <div class="card-body">
+                            <TextField Label="Allow" Mono="true" Multiline="true" Rows="2"
+                                       Disabled="@ReadOnly"
+                                       Value="@_allowList" ValueChanged="v => SetLicenses(allow: v)"
+                                       Help="SPDX ids, comma or newline separated. Treated as permissive whatever the built-in table says — for a licence your counsel has cleared." />
+
+                            <TextField Label="Deny" Mono="true" Multiline="true" Rows="2"
+                                       Disabled="@ReadOnly"
+                                       Value="@_denyList" ValueChanged="v => SetLicenses(deny: v)"
+                                       Help="Treated as denied whatever the built-in table says. Deny wins over Allow: a licence in both is a mistake, and the strict reading is the safe one." />
+
+                            <CheckField Label="Treat an unidentified licence as denied"
+                                        Disabled="@ReadOnly"
+                                        Checked="@draft.Licenses.DenyUnknown"
+                                        CheckedChanged="v => SetDenyUnknown(v)" />
+                            <p class="field__help">
+                                Off by default. On a real SBOM the unknown pile is large and mostly
+                                benign, so turning this on will fail the policy on day one — and a
+                                policy that always fails is one people learn to ignore. Turn it on
+                                only if you genuinely cannot ship an unidentified licence.
+                            </p>
+                        </div>
+
+                        <div class="card-body">
+                            <h2>Paid components</h2>
+                            <CheckField Label="Paid components must be approved"
+                                        Disabled="@ReadOnly"
+                                        Checked="@draft.PaidComponents.RequireApproval"
+                                        CheckedChanged="v => SetRequireApproval(v)" />
+                            <p class="field__help">
+                                A licence somebody has to buy, appearing in a build nobody approved
+                                it for, is a procurement problem before it is a security one. The
+                                vendors are those in the registry under System &gt; Paid components.
+                            </p>
+
+                            <TextField Label="Approved vendors" Mono="true" Multiline="true" Rows="2"
+                                       Disabled="@ReadOnly"
+                                       Value="@_approvedVendors" ValueChanged="v => SetApproved(v)"
+                                       Help="Vendor names, comma or newline separated. By vendor rather than by package — these vendors ship dozens of packages under one subscription, so the approval is a decision about the vendor." />
+                        </div>
+                    </Card>
+
                     <Card Padded="false">
                         <div class="card-body row row--between">
                             <div>
@@ -416,6 +471,14 @@ else
     private IReadOnlyList<PolicyCard> _library = [];
     private PolicyDetail? _detail;
     private RiskPolicyConfig? _draft;
+
+    // Edited as text and parsed on change, rather than bound straight to the
+    // lists: a comma-separated box is how people actually think about a licence
+    // list, and round-tripping through the list on every keystroke would
+    // reorder and dedupe under the cursor.
+    private string _allowList = "";
+    private string _denyList = "";
+    private string _approvedVendors = "";
     private Guid? _selectedId;
     private IReadOnlyList<RescoreRow>? _preview;
     private bool _dirty;
@@ -536,6 +599,9 @@ else
         // Selecting resets pending edits, per the hand-off. Carrying them
         // across policies would apply one policy's weights to another.
         _draft = _detail?.Config;
+        _allowList = Join(_draft?.Licenses.Allow);
+        _denyList = Join(_draft?.Licenses.Deny);
+        _approvedVendors = Join(_draft?.PaidComponents.ApprovedVendors);
         _dirty = false;
         _preview = null;
         _saveError = null;
@@ -569,6 +635,53 @@ else
 
     private static double Parse(ChangeEventArgs e, double fallback) =>
         double.TryParse(e.Value?.ToString(), out var value) && value >= 0 ? value : fallback;
+
+    private static string Join(IEnumerable<string>? values) =>
+        values is null ? "" : string.Join(", ", values);
+
+    /// <summary>
+    /// Split on commas and newlines, trim, drop blanks, keep order.
+    ///
+    /// Order is kept because these lists are read by people, and a box that
+    /// re-sorted itself on every edit would be maddening to use.
+    /// </summary>
+    private static List<string> Split(string? raw) =>
+        (raw ?? "")
+            .Split([',', '\n', '\r', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private void SetLicenses(string? allow = null, string? deny = null)
+    {
+        if (_draft is null || ReadOnly) return;
+
+        if (allow is not null) { _allowList = allow; _draft.Licenses.Allow = Split(allow); }
+        if (deny is not null) { _denyList = deny; _draft.Licenses.Deny = Split(deny); }
+
+        _dirty = true;
+    }
+
+    private void SetDenyUnknown(bool value)
+    {
+        if (_draft is null || ReadOnly) return;
+        _draft.Licenses.DenyUnknown = value;
+        _dirty = true;
+    }
+
+    private void SetRequireApproval(bool value)
+    {
+        if (_draft is null || ReadOnly) return;
+        _draft.PaidComponents.RequireApproval = value;
+        _dirty = true;
+    }
+
+    private void SetApproved(string? value)
+    {
+        if (_draft is null || ReadOnly) return;
+        _approvedVendors = value ?? "";
+        _draft.PaidComponents.ApprovedVendors = Split(value);
+        _dirty = true;
+    }
 
     private async Task Save()
     {

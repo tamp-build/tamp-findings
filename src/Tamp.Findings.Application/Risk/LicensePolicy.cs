@@ -1,8 +1,16 @@
+using Tamp.Findings.Domain.Entities;
 namespace Tamp.Findings.Application.Risk;
 
 // Classifies a license string (SPDX-id or short expression) into a
-// permissiveness tier. POC-grade — hardcoded allow/deny lists; will
-// flip to a policy template (F9) when policies become first-class.
+// permissiveness tier.
+//
+// The built-in table below is the DEFAULT, not the rule (TFND-10 / F9.3).
+// Which licences an organisation can live with is a legal position rather than
+// a fact about software — two adopters can hold opposite views about the same
+// licence and both be right — so a policy's allow- and denylist is layered
+// over this and wins. Pass RiskPolicyConfig.Licenses to Classify to apply it;
+// the parameterless overload is the built-in default and is what the product
+// falls back to when no policy applies.
 //
 // Composite SPDX expressions ("MIT OR Apache-2.0", "(GPL-2.0 WITH
 // Classpath-exception-2.0) AND MIT") are evaluated by the loosest
@@ -67,6 +75,48 @@ public static class LicensePolicy
         ["SSPL-1.0"] = Tier.Denied,
         ["Commons-Clause"] = Tier.Denied,
     };
+
+    /// <summary>
+    /// Classify under a policy's allow- and denylist (F9.3).
+    ///
+    /// Deny is checked FIRST and wins over Allow. A licence named in both is a
+    /// configuration mistake, and the safe reading of a mistake on this
+    /// question is the strict one.
+    /// </summary>
+    public static Tier Classify(string? license, LicenseRules? rules)
+    {
+        if (rules is null) return Classify(license);
+
+        if (!string.IsNullOrWhiteSpace(license))
+        {
+            // Whole-expression match first, then per-atom: an adopter denying
+            // "AGPL-3.0" means it wherever it appears, including inside
+            // "MIT OR AGPL-3.0" — which the loosest-atom default would let
+            // through as permissive.
+            var atoms = Atomise(license).ToArray();
+
+            if (Names(rules.Deny).Overlaps(atoms) || Names(rules.Deny).Contains(license.Trim()))
+                return Tier.Denied;
+
+            if (Names(rules.Allow).Contains(license.Trim()) || Names(rules.Allow).Overlaps(atoms))
+                return Tier.Permissive;
+        }
+
+        var tier = Classify(license);
+
+        return tier == Tier.Unknown && rules.DenyUnknown ? Tier.Denied : tier;
+    }
+
+    private static HashSet<string> Names(IEnumerable<string> values) =>
+        values.Where(v => !string.IsNullOrWhiteSpace(v))
+              .Select(v => v.Trim())
+              .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private static IEnumerable<string> Atomise(string license) =>
+        license
+            .Replace("(", " ").Replace(")", " ")
+            .Split([" OR ", " AND ", " WITH ", ","],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     public static Tier Classify(string? license)
     {
