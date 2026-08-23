@@ -123,7 +123,11 @@ else
         try
         {
             _project = await Hub.ResolveAsync(Client, Project);
-            _data = _project is null ? null : await Hub.LoadAsync(_project, Sha);
+            // "latest" is a sentinel, not a commit prefix. Passing it through
+            // would filter for builds whose sha starts with "latest", match
+            // nothing, and render a scanned project as never-scanned.
+            var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
+            _data = _project is null ? null : await Hub.LoadAsync(_project, sha);
         }
         catch (Exception ex)
         {
