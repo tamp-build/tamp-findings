@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 
-namespace Tamp.Findings.Api.Services;
+namespace Tamp.Findings.Application.Risk;
 
 // Builds the set of Vulnerability ids that an active VEX statement has
 // taken out of the CVE picture for a project. Used by /aggregates and

@@ -38,6 +38,14 @@ public static class ApplicationServiceCollectionExtensions
         // its entry.
         services.AddScoped<Auditing.AuditLog>();
 
+        // Moved here from Tamp.Findings.Api.Services (ADR 0002): the Blazor UI
+        // needs them and cannot reference the API project. The migration is
+        // incremental by design — a service moves when the first non-API
+        // consumer needs it, not in a big bang that would destabilise ingest.
+        services.AddScoped<Risk.RiskInputsBuilder>();
+        services.AddScoped<Risk.VexResolver>();
+        services.AddScoped<Projects.ProjectHubQuery>();
+
         return services;
     }
 }
