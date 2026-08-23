@@ -30,6 +30,10 @@ COPY src/Tamp.Findings.Data/Tamp.Findings.Data.csproj       src/Tamp.Findings.Da
 COPY src/Tamp.Findings.Application/Tamp.Findings.Application.csproj src/Tamp.Findings.Application/
 COPY src/Tamp.Findings.Web/Tamp.Findings.Web.csproj         src/Tamp.Findings.Web/
 COPY src/Tamp.Findings.Workflows/Tamp.Findings.Workflows.csproj src/Tamp.Findings.Workflows/
+# The MCP server (TFND-12). The Api references it, so restore needs its csproj
+# here — a ProjectReference added without a matching COPY fails only at
+# `dotnet publish --no-restore`, which no test run reaches.
+COPY src/Tamp.Findings.Mcp/Tamp.Findings.Mcp.csproj         src/Tamp.Findings.Mcp/
 COPY src/Tamp.Findings.Api/Tamp.Findings.Api.csproj         src/Tamp.Findings.Api/
 
 # Restore only what the API needs — Domain + Data + Api transitively. Skip

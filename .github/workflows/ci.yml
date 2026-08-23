@@ -84,3 +84,36 @@ jobs:
           name: dotnet-test-results
           path: artifacts/test-results/
           if-no-files-found: warn
+
+  # The container image. Separate job because it shares nothing with the test
+  # job — different toolchain, no database — and running it in parallel keeps
+  # the wall clock at whichever is slower rather than their sum.
+  #
+  # This exists because `dotnet test` does NOT catch a broken image build. A
+  # ProjectReference added to the API without a matching COPY in the Dockerfile
+  # restores fine on the solution and fails only at `dotnet publish
+  # --no-restore` inside the image — which nothing here reached until now. That
+  # shipped once (TFND-12 added Tamp.Findings.Mcp and the Dockerfile was not
+  # updated), and the first symptom was a deploy failing days later.
+  image:
+    name: Container image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Never pushed from CI — the lab registry is not reachable from here,
+          # and the point of this job is that the build SUCCEEDS, not that the
+          # artefact goes anywhere.
+          push: false
+          load: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
