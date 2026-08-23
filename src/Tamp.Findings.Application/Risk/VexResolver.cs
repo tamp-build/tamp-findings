@@ -76,7 +76,11 @@ public sealed class VexResolver(FindingsDbContext db)
 
     // pkg:nuget/Foo@1.2.3 → pkg:nuget/Foo. Returns the input unchanged
     // when no '@' separates name from version.
-    private static string StripPurlVersion(string purl)
+    //
+    // Public because the SBOM explorer resolves the same statements for
+    // display. Two implementations of this would eventually disagree, and the
+    // table would then show a disposition scoring does not honour.
+    public static string StripPurlVersion(string purl)
     {
         var at = purl.LastIndexOf('@');
         return at < 4 ? purl : purl[..at];

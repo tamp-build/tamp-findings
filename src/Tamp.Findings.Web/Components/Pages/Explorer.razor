@@ -12,6 +12,8 @@
 @inject ProjectHubQuery Hub
 @inject FindingsExplorerQuery Findings
 @inject DastExplorerQuery Dast
+@inject SbomExplorerQuery Sbom
+@inject CoverageAndTestsQuery CoverageAndTests
 
 <PageTitle>@Spine — @Project</PageTitle>
 
@@ -59,12 +61,29 @@ else
                                           OnMerged="Reload" />
                 </div>
             }
-            @if (Spine is Spines.Sast or Spines.Dast)
+            @if (Spine is Spines.Sast or Spines.Dast or Spines.Sbom)
             {
                 @foreach (var s in new[] { Severity.Critical, Severity.High, Severity.Medium, Severity.Low, Severity.Info })
                 {
                     <SeverityBadge Severity="s" ShowName="true" />
                 }
+            }
+            @if (Spine == Spines.Coverage)
+            {
+                <span class="mono" style="color: var(--color-pass)">+ covered</span>
+                <span class="mono" style="color: var(--color-critical)">− not covered</span>
+                <span class="muted" style="font-size: var(--text-secondary)">
+                    unmarked lines are not executable
+                </span>
+            }
+            @if (Spine == Spines.Tests)
+            {
+                <Chip Label="PASSED" Tone="var(--color-pass)" Style="Chip.ChipStyle.Outlined" />
+                <Chip Label="SKIPPED" Tone="var(--color-high)" Style="Chip.ChipStyle.Outlined" />
+                <Chip Label="FAILED" Tone="var(--color-critical)" Style="Chip.ChipStyle.Outlined" />
+                <span class="muted" style="font-size: var(--text-secondary)">
+                    a skipped test is not a passing test
+                </span>
             }
         </Legend>
 
@@ -94,6 +113,108 @@ else
                                     <span class="row" style="gap: var(--space-1)">
                                         <SeverityBadge Severity="route.WorstSeverity" />
                                         <span class="num">@route.Count</span>
+                                    </span>
+                                </Badge>
+                            </TreeRow>
+                        </Virtualize>
+                    }
+                }
+            }
+            else if (Spine == Spines.Sbom)
+            {
+                @if (_sbom.Count == 0)
+                {
+                    <div class="card-body">
+                        <p class="muted">No dependencies recorded on this build.</p>
+                        <p class="field__help">
+                            No SBOM was ingested for this build. That is not the same as a project with
+                            no dependencies — check the scan receipts on the project hub.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var ecosystem in _sbom)
+                    {
+                        <TreeRow Name="@ecosystem.Ecosystem" Group="true" />
+                        <Virtualize TItem="SbomLeaf" Items="ecosystem.Components" Context="dep" ItemSize="26">
+                            <TreeRow Name="@($"{dep.Name} {dep.Version}")" Depth="1"
+                                     Selected="@(dep.Purl == Selection)"
+                                     OnSelect="() => Select(dep.Purl)">
+                                <Badge>
+                                    @if (dep.WorstSeverity is { } worst)
+                                    {
+                                        <span class="row" style="gap: var(--space-1)">
+                                            <SeverityBadge Severity="worst" />
+                                            <span class="num">@dep.VulnerabilityCount</span>
+                                        </span>
+                                    }
+                                </Badge>
+                            </TreeRow>
+                        </Virtualize>
+                    }
+                }
+            }
+            else if (Spine == Spines.Coverage)
+            {
+                @if (_coverage.Count == 0)
+                {
+                    <div class="card-body">
+                        <p class="muted">No coverage recorded on this build.</p>
+                        <p class="field__help">
+                            Zero coverage and no coverage report are different states, and this is the
+                            second — the scan receipts on the project hub say which ran.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var module in _coverage)
+                    {
+                        <TreeRow Name="@($"{module.Module} · {module.Percent:0.#}%")" Group="true" />
+                        <Virtualize TItem="CoverageLeaf" Items="module.Files" Context="file" ItemSize="26">
+                            <TreeRow Name="@file.Path" Depth="1"
+                                     Selected="@(file.Path == Selection)"
+                                     OnSelect="() => Select(file.Path)">
+                                <Badge>
+                                    <span class="num" style="@PercentStyle(file.Percent)">@file.Percent.ToString("0.#")%</span>
+                                </Badge>
+                            </TreeRow>
+                        </Virtualize>
+                    }
+                }
+            }
+            else if (Spine == Spines.Tests)
+            {
+                @if (_tests.Count == 0)
+                {
+                    <div class="card-body">
+                        <p class="muted">No test results recorded on this build.</p>
+                        <p class="field__help">
+                            A build with no ingested test run has not been shown to pass anything.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var assembly in _tests)
+                    {
+                        <TreeRow Name="@assembly.Assembly" Group="true" />
+                        <Virtualize TItem="TestLeaf" Items="assembly.Suites" Context="suite" ItemSize="26">
+                            <TreeRow Name="@suite.ClassName" Depth="1"
+                                     Selected="@(suite.ClassName == Selection)"
+                                     OnSelect="() => Select(suite.ClassName)">
+                                <Badge>
+                                    <span class="row" style="gap: var(--space-1)">
+                                        @if (suite.Failed > 0)
+                                        {
+                                            <span class="num" style="color: var(--color-critical)">@suite.Failed ✕</span>
+                                        }
+                                        @if (suite.Skipped > 0)
+                                        {
+                                            <span class="num" style="color: var(--color-high)">@suite.Skipped ⃝</span>
+                                        }
+                                        <span class="num muted">@suite.Total</span>
                                     </span>
                                 </Badge>
                             </TreeRow>
@@ -146,6 +267,48 @@ else
                     <p class="muted">@_dastDetail.Count finding@(_dastDetail.Count == 1 ? "" : "s") on this route</p>
                 </div>
                 <DastDetail Findings="_dastDetail" />
+            }
+            else if (Spine == Spines.Sbom)
+            {
+                <div class="card-body">
+                    <h2 class="mono">@Selection</h2>
+                    <p class="muted">
+                        @_sbomDetail.Count known vulnerabilit@(_sbomDetail.Count == 1 ? "y" : "ies")
+                    </p>
+                </div>
+                <SbomDetail Vulnerabilities="_sbomDetail" Client="@Client" Project="@Project"
+                            Purl="@(Selection ?? "")" />
+            }
+            else if (Spine == Spines.Coverage)
+            {
+                <div class="card-body">
+                    <h2 class="mono">@Selection</h2>
+                </div>
+                @if (_coverageDetail is { } map && _coverageSource is { Count: > 0 })
+                {
+                    <SourceViewer Lines="_coverageSource" Covered="map.Visited" Uncovered="map.Unvisited" />
+                    <div class="card-body">
+                        <p class="field__help">
+                            @map.Visited.Count of @(map.Visited.Count + map.Unvisited.Count) executable
+                            lines were visited. Lines with no mark are not executable — comments, blanks
+                            and declarations — and counting them either way would misstate the number.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <div class="card-body">
+                        <p class="muted">No source stored for this file.</p>
+                    </div>
+                }
+            }
+            else if (Spine == Spines.Tests)
+            {
+                <div class="card-body">
+                    <h2 class="mono">@Selection</h2>
+                    <p class="muted">@_testsDetail.Count case@(_testsDetail.Count == 1 ? "" : "s")</p>
+                </div>
+                <TestsDetail Cases="_testsDetail" />
             }
             else
             {
@@ -217,6 +380,13 @@ else
     private IReadOnlyList<FindingDetail> _detail = [];
     private DastTree? _dast;
     private IReadOnlyList<DastFinding> _dastDetail = [];
+    private IReadOnlyList<SbomGroup> _sbom = [];
+    private IReadOnlyList<SbomVulnerability> _sbomDetail = [];
+    private IReadOnlyList<CoverageGroup> _coverage = [];
+    private CoverageLineMap? _coverageDetail;
+    private List<SourceLine>? _coverageSource;
+    private IReadOnlyList<TestGroup> _tests = [];
+    private IReadOnlyList<TestCase> _testsDetail = [];
     private List<SourceLine>? _source;
     private IReadOnlyDictionary<int, Severity> _flagged = new Dictionary<int, Severity>();
     private string? _error;
@@ -241,6 +411,26 @@ else
         _ => "",
     };
 
+    /// <summary>
+    /// The sha as the QUERIES want it: null for "whatever is newest".
+    ///
+    /// The sentinel must never reach a query — it would be treated as a commit
+    /// prefix and match nothing, which renders as a clean screen rather than as
+    /// the bug it is.
+    /// </summary>
+    private string? BuildSha =>
+        string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
+
+    // A coverage number is a fact, but a reader still wants to know at a glance
+    // whether it is a good one. The thresholds match the coverage gate's own
+    // defaults so the colour never disagrees with the gate.
+    private static string PercentStyle(double percent) => percent switch
+    {
+        >= 80 => "color: var(--color-pass)",
+        >= 50 => "color: var(--color-high)",
+        _ => "color: var(--color-critical)",
+    };
+
     private void GoToSast() => Nav.NavigateTo(Routes.Explorer(Client, Project, Sha, Spines.Sast));
 
     private void Select(string path) =>
@@ -261,15 +451,12 @@ else
             _project = await Hub.ResolveAsync(Client, Project);
             if (_project is null) return;
 
-            // Only the SAST spine is wired so far; the rest arrive with
-            // TFND-90 … TFND-94 and render an empty tree until then.
             if (Spine == Spines.Sast)
             {
-                var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
-                _groups = await Findings.TreeAsync(_project.ProjectId, sha, ScannerKinds.Sast);
+                _groups = await Findings.TreeAsync(_project.ProjectId, BuildSha, ScannerKinds.Sast);
                 _detail = Selection is null
                     ? []
-                    : await Findings.DetailAsync(_project.ProjectId, sha, ScannerKinds.Sast, Selection);
+                    : await Findings.DetailAsync(_project.ProjectId, BuildSha, ScannerKinds.Sast, Selection);
 
                 _source = null;
                 _flagged = new Dictionary<int, Severity>();
@@ -293,11 +480,34 @@ else
             }
             else if (Spine == Spines.Dast)
             {
-                var dastSha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
-                _dast = await Dast.TreeAsync(_project.ProjectId, dastSha);
+                _dast = await Dast.TreeAsync(_project.ProjectId, BuildSha);
                 _dastDetail = Selection is null
                     ? []
-                    : await Dast.DetailAsync(_project.ProjectId, dastSha, Selection);
+                    : await Dast.DetailAsync(_project.ProjectId, BuildSha, Selection);
+            }
+            else if (Spine == Spines.Sbom)
+            {
+                _sbom = await Sbom.TreeAsync(_project.ProjectId, BuildSha);
+                _sbomDetail = Selection is null
+                    ? []
+                    : await Sbom.DetailAsync(_project.ProjectId, BuildSha, Selection);
+            }
+            else if (Spine == Spines.Coverage)
+            {
+                _coverage = await CoverageAndTests.CoverageTreeAsync(_project.ProjectId, BuildSha);
+                _coverageDetail = Selection is null
+                    ? null
+                    : await CoverageAndTests.CoverageDetailAsync(_project.ProjectId, BuildSha, Selection);
+                _coverageSource = _coverageDetail is { SourceText.Length: > 0 }
+                    ? SourceTokenizer.Tokenize(_coverageDetail.SourceText, Selection!)
+                    : null;
+            }
+            else if (Spine == Spines.Tests)
+            {
+                _tests = await CoverageAndTests.TestTreeAsync(_project.ProjectId, BuildSha);
+                _testsDetail = Selection is null
+                    ? []
+                    : await CoverageAndTests.TestDetailAsync(_project.ProjectId, BuildSha, Selection);
             }
             else
             {

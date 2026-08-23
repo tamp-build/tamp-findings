@@ -55,6 +55,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Projects.HierarchyService>();
         services.AddScoped<Explorer.FindingsExplorerQuery>();
         services.AddScoped<Explorer.DastExplorerQuery>();
+        services.AddScoped<Explorer.SbomExplorerQuery>();
+        services.AddScoped<Explorer.CoverageAndTestsQuery>();
         services.AddScoped<Explorer.HostAliasService>();
         services.AddScoped<Ingest.IngestTokenService>();
         services.AddScoped<Projects.ProjectKeyService>();
