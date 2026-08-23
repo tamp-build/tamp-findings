@@ -1,0 +1,20 @@
+@* One count tile with a glyph.
+
+   The glyph is not decoration. This screen gets printed, often in monochrome,
+   and ✓ ◐ ✕ ○ are what keeps the four tallies distinguishable when the colour
+   is gone — the same three-signal rule the severity ladder follows. *@
+
+<div class="tally">
+    <div class="tally__glyph" style="@(Tone is null ? null : $"color: {Tone}")" aria-hidden="true">@Glyph</div>
+    <div>
+        <div class="tally__value">@Value</div>
+        <div class="tally__label">@Label</div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Glyph { get; set; } = "";
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public int Value { get; set; }
+    [Parameter] public string? Tone { get; set; }
+}

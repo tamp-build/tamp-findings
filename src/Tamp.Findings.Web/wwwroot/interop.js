@@ -20,4 +20,31 @@ window.tampFindings = {
   set: function (key, value) {
     try { window.localStorage.setItem(key, value); } catch { /* ignore */ }
   }
+
+};
+
+// Hand a generated file to the browser (TFND-101).
+//
+// The bytes arrive base64 because the document is already built server-side
+// and fetching it over a second request could rebuild it — producing a file
+// that disagrees with what the reader just looked at.
+//
+// A blob URL rather than a data: URL: a full attestation PDF runs past the
+// length some browsers will accept in an address, and a truncated download is
+// worse than a failed one.
+window.tampDownload = function (fileName, mediaType, base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  const url = URL.createObjectURL(new Blob([bytes], { type: mediaType }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoke on the next turn, not immediately: some browsers have not yet
+  // started reading the blob when click() returns.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 };
