@@ -680,6 +680,54 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
    that tells the reader what to do. */
 .portfolio__blocking { max-width: 42ch; white-space: normal; }
 
+/* ── Explorer ───────────────────────────────────────────────────────────
+   320px tree, detail fills the rest — above the dense breakpoint.
+
+   Below it the two panes become MASTER-DETAIL: the tree, or the detail with a
+   way back, never both. The two-pane grid claims SC 1.4.10's
+   two-dimensional-layout exception only while it genuinely IS two dimensions;
+   at 320px it stops being a matrix and has to reflow (ADR 0003). */
+
+.explorer {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* The tree scrolls independently of the page so the detail stays put while
+   the reader moves through a long list. */
+.explorer__scroll { max-height: 70vh; overflow-y: auto; }
+
+/* Shown only below the breakpoint, where the detail replaces the tree. */
+.explorer__back { display: none; }
+
+@media (max-width: 900px) {
+  .explorer { grid-template-columns: 1fr; }
+  .explorer__scroll { max-height: none; }
+
+  /* With a selection, the detail IS the view: hide the tree and offer a way
+     back. Stacking both would make the reader scroll past the whole tree to
+     reach what they just clicked. */
+  .explorer--detail .explorer__tree { display: none; }
+  .explorer--detail .explorer__back {
+    display: block;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-divider);
+  }
+  .explorer:not(.explorer--detail) .explorer__detail { display: none; }
+}
+
+/* ── Severity ───────────────────────────────────────────────────────────
+   Three redundant signals: ladder, letter, colour. The first two survive a
+   monochrome print and a colour-blind reader — the attestation has to be
+   readable off a black-and-white printer. */
+
+.sev { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+.sev__ladder { font-size: var(--text-kicker); letter-spacing: -1px; }
+.sev__letter { font-family: var(--font-mono); font-size: var(--text-kicker); font-weight: 500; }
+.sev__name { font-size: var(--text-secondary); }
+
 /* ── Utility ────────────────────────────────────────────────────────── */
 
 .hr { height: 1px; border: 0; background: var(--color-divider); margin: var(--space-4) 0; }
