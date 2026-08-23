@@ -680,6 +680,22 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
    that tells the reader what to do. */
 .portfolio__blocking { max-width: 42ch; white-space: normal; }
 
+/* ── Sign-in ────────────────────────────────────────────────────────────
+   Centred, narrow, no chrome. Vertically centred with min-height rather than
+   a fixed height so it still reflows at 320px (ADR 0003). */
+
+.signin {
+  min-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+}
+.signin__brand { text-align: center; }
+.signin__card { width: 100%; max-width: 420px; }
+.signin__card .btn { margin-top: var(--space-3); }
+
 /* ── Explorer ───────────────────────────────────────────────────────────
    320px tree, detail fills the rest — above the dense breakpoint.
 
