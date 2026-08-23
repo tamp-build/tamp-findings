@@ -129,6 +129,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.Description).HasColumnType("text");
             // TFND-17: short tag (secret / misconfiguration / vulnerability).
             e.Property(x => x.SubCategory).HasMaxLength(64);
+            e.Property(x => x.Purl).HasMaxLength(512);
             e.HasOne(x => x.ComponentVersion).WithMany(v => v.Findings).HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
             // Dedup invariant: a finding is unique per (component version + hash).
             e.HasIndex(x => new { x.ComponentVersionId, x.Hash }).IsUnique();
