@@ -54,6 +54,9 @@ public static class Routes
 
     public static string Poam(string client, string project) => $"/c/{E(client)}/p/{E(project)}/poam";
     public static string PoamItem(string client, string project, string id) => $"{Poam(client, project)}/{E(id)}";
+    /// <summary>Costs &amp; licences (TFND-8 / F7.3).</summary>
+    public static string Costs(string client, string project) => $"/c/{E(client)}/p/{E(project)}/costs";
+
     public static string Vex(string client, string project) => $"/c/{E(client)}/p/{E(project)}/vex";
 
     /// <summary>
@@ -117,7 +120,11 @@ public static class SystemPanels
     public const string Settings = "settings";
     public const string Audit = "audit";
 
-    public static readonly IReadOnlyList<string> All = [Users, Authentication, Scanners, Settings, Audit];
+    /// <summary>The paid-component registry (TFND-8 / F7.2).</summary>
+    public const string PaidComponents = "paid-components";
+
+    public static readonly IReadOnlyList<string> All =
+        [Users, Authentication, Scanners, PaidComponents, Settings, Audit];
 
     public static bool IsValid(string? panel) => panel is not null && All.Contains(panel);
 }
