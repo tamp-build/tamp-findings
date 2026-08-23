@@ -718,6 +718,57 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
   .explorer:not(.explorer--detail) .explorer__detail { display: none; }
 }
 
+/* ── Source viewer ──────────────────────────────────────────────────────
+   Fixed 22px rows so the gutter lines up with the code and Virtualize can
+   size without measuring.
+
+   THE HEIGHT IS ON THE ROW, NOT THE CODE SPAN. An empty line in a
+   baseline-aligned flex row otherwise collapses and the gutter drifts out of
+   step with the file — the hand-off calls this out specifically. */
+
+.source {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  /* Virtualize needs a BOUNDED, scrollable container to compute how many rows
+     fit. Without a height it renders zero rows — silently, in a real browser,
+     with no error anywhere. The viewer would scroll inside the detail pane
+     regardless; this is what makes it work at all. */
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.source__row {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  line-height: 22px;
+  border-left: 3px solid transparent;
+  white-space: pre;
+}
+
+.source__gutter {
+  width: 46px;
+  flex: none;
+  padding-right: var(--space-2);
+  text-align: right;
+  color: var(--color-neutral-500);
+  /* Copying a block of code should give the code, not the code with a line
+     number welded to every line. */
+  user-select: none;
+}
+
+.source__mark { width: 16px; flex: none; display: inline-flex; align-items: center; }
+.source__code { min-width: 0; }
+
+.tok-keyword { color: var(--syntax-keyword); }
+.tok-type    { color: var(--syntax-type); }
+.tok-method  { color: var(--syntax-method); }
+.tok-string  { color: var(--syntax-string); }
+.tok-number  { color: var(--syntax-number); }
+.tok-comment { color: var(--syntax-comment); }
+.tok-plain   { color: var(--syntax-plain); }
+.tok-punct   { color: var(--syntax-punctuation); }
+
 /* ── Severity ───────────────────────────────────────────────────────────
    Three redundant signals: ladder, letter, colour. The first two survive a
    monochrome print and a colour-blind reader — the attestation has to be
