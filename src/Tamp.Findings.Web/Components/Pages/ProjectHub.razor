@@ -78,6 +78,8 @@ else
             <GateRail Gates="_data.Gates" />
         </div>
 
+        <ComponentsTable Project="_data.Project" Sha="@ShortSha" />
+
         <ScanReceipts Inputs="_data.Inputs" Sha="@ShortSha" />
 
         @if (_data.History.Count > 0)

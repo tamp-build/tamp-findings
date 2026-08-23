@@ -119,6 +119,11 @@ builder.Services.AddScoped<Tamp.Findings.Web.Routing.RouteScope>();
 // same data, which the brief called the central design problem (TFND-66).
 builder.Services.AddScoped<Tamp.Findings.Web.Routing.ViewPreferences>();
 
+// The signed-in user resolved to a Principal at a scope. Every gated screen
+// needs it, because the design disables an action and says why rather than
+// hiding it (TFND-80).
+builder.Services.AddScoped<Tamp.Findings.Web.Security.CurrentUser>();
+
 // Localization (TFND-67). Strings live in resources, never in markup.
 //
 // The pseudo-locale decorator sits ON TOP of the real localizer, so a string
