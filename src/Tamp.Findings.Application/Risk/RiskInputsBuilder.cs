@@ -152,7 +152,11 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         }
         foreach (var c in sbomComponents)
         {
-            switch (LicensePolicy.Classify(c.License))
+            // TFND-10 (F9.3): under THIS policy's allow/denylist, not under the
+            // built-in table. A policy that says "we have signed off AGPL" and
+            // a score that still counts it as denied would be two answers to
+            // one question, and the score is the one people act on.
+            switch (LicensePolicy.Classify(c.License, policy.Licenses))
             {
                 case LicensePolicy.Tier.StrongCopyleft: strong++; break;
                 case LicensePolicy.Tier.Denied:         denied++; break;
