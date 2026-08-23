@@ -1,0 +1,17 @@
+@* One number in a stats strip: a 26px numeral over a 10px uppercase label.
+
+   The label is BELOW the number, not beside it. A row of numbers reads as a
+   comparison; a number with its label trailing reads as a sentence, and the
+   strip's job is the comparison. *@
+
+<div class="stat">
+    <div class="stat__value" style="@(Tone is null ? null : $"color: {Tone}")">@Value</div>
+    <div class="stat__label">@Label</div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public int Value { get; set; }
+    /// <summary>Colour for the numeral. Null keeps the default ink.</summary>
+    [Parameter] public string? Tone { get; set; }
+}

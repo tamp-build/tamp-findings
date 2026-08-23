@@ -58,6 +58,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Explorer.SbomExplorerQuery>();
         services.AddScoped<Explorer.CoverageAndTestsQuery>();
         services.AddScoped<Explorer.HostAliasService>();
+        services.AddScoped<Poam.PoamQuery>();
+        services.AddScoped<Poam.PoamService>();
         services.AddScoped<Ingest.IngestTokenService>();
         services.AddScoped<Projects.ProjectKeyService>();
 
