@@ -198,6 +198,22 @@ public static class AuthExtensions
             && string.Equals(bootstrapLogin, login, StringComparison.OrdinalIgnoreCase);
 
         var user = await db.Users.FirstOrDefaultAsync(u => u.GitHubUserId == githubId, ctx.HttpContext.RequestAborted);
+
+        // FIRST RUN: the first person to sign in on an empty instance becomes
+        // the administrator (TFND-126).
+        //
+        // This is the bootstrap for the entire RBAC model. Without it a fresh
+        // deployment has no admin, so nobody can approve anyone, grant a role,
+        // or create a client — and the only way in is editing the database by
+        // hand. GITHUB_BOOTSTRAP_ADMIN_LOGIN still works and is now a RECOVERY
+        // path rather than the only door.
+        //
+        // The check is "no users at all", not "no admins": once anyone exists,
+        // the instance is in use, and promoting the next arrival would be a
+        // privilege escalation dressed as convenience.
+        var isFirstUser = user is null
+            && !await db.Users.AnyAsync(ctx.HttpContext.RequestAborted);
+
         if (user is null)
         {
             user = new User
@@ -207,8 +223,8 @@ public static class AuthExtensions
                 Email = email,
                 GitHubUserId = githubId,
                 AvatarUrl = avatar,
-                IsApproved = isBootstrap,
-                IsAdmin = isBootstrap,
+                IsApproved = isBootstrap || isFirstUser,
+                IsAdmin = isBootstrap || isFirstUser,
             };
             db.Users.Add(user);
         }

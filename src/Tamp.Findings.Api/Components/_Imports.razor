@@ -1,0 +1,9 @@
+@* Present so the Razor SDK treats this project as hosting Blazor components.
+
+   The components themselves live in Tamp.Findings.Web (ADR 0002). But the SDK
+   decides whether to bring in the framework's static web assets — the package
+   that carries blazor.web.js — by looking for Razor items in the HOST project,
+   not in a referenced RCL. Without any, MapStaticAssets has nothing to serve
+   and /_framework/blazor.web.js 404s, so no circuit ever boots.
+*@
+@using Microsoft.AspNetCore.Components.Web
