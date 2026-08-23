@@ -1,0 +1,660 @@
+@* Policy and gates (TFND-104 … TFND-106).
+
+   The definition of what "bad" means on this instance. The screen exists to
+   demonstrate one thing that a static table cannot: A CATEGORY'S CEILING IS NOT
+   A FIXED NUMBER. Effective maxima recompute as weights change and as
+   categories are switched on and off, because disabling a category
+   REDISTRIBUTES its share rather than deflating the score.
+
+   Effective maxima come from RiskScorer.EffectiveMaxima — the scorer's own
+   function, not a copy. A second implementation would eventually disagree, and
+   the editor would then be demonstrating a normalisation that does not happen. *@
+@page "/c/{Client}/p/{Project}/settings/policy"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject RouteScope Scope
+@inject ProjectHubQuery Hub
+@inject PolicyService Policies
+@inject GateService Gates
+@inject CurrentUser Me
+
+<PageTitle>Policy &amp; gates — @Project</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>Policy &amp; gates</h1>
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not load the policy library.</span>
+            </div>
+            <p class="field__help">
+                Nothing is shown rather than an editable form over guessed values — saving one would
+                move every score on this instance. @_error
+            </p>
+        </Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <div>
+            <div class="kicker">Instance risk policies</div>
+            <h1>Policy &amp; gates</h1>
+        </div>
+
+        @* ---- Library ---- *@
+        <div class="policy-library">
+            @foreach (var card in _library)
+            {
+                <Card Class="@(card.Id == _selectedId ? "policy-card policy-card--on" : "policy-card")">
+                    <div @onclick="() => Select(card.Id)" style="cursor: pointer">
+                        <div class="row row--between">
+                            <strong>@card.Name</strong>
+                            @if (card.IsDefault)
+                            {
+                                <Chip Label="DEFAULT" Tone="var(--color-accent)" Style="Chip.ChipStyle.Solid" />
+                            }
+                        </div>
+                        <div class="muted" style="font-size: var(--text-secondary)">
+                            schema @card.SchemaVersion ·
+                            @(card.IsSeeded ? "system" : "custom") ·
+                            @card.EnabledCategories categories
+                        </div>
+                        <div class="muted" style="font-size: var(--text-secondary)">
+                            @if (card.UseCount == 0)
+                            {
+                                <text>used by nothing</text>
+                            }
+                            else
+                            {
+                                <text>@card.ProjectCount project@(card.ProjectCount == 1 ? "" : "s")</text>
+                                @if (card.ClientCount > 0)
+                                {
+                                    <text>, @card.ClientCount client@(card.ClientCount == 1 ? "" : "s")</text>
+                                }
+                            }
+                        </div>
+                        @if (card.Description is { Length: > 0 } note)
+                        {
+                            <div class="field__help">@note</div>
+                        }
+                    </div>
+                    <div class="row" style="gap: var(--space-2); margin-top: var(--space-2)">
+                        <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
+                                Disabled="@(!_canDuplicate.Allowed)" DisabledReason="@_canDuplicate.Reason"
+                                OnClick="() => StartDuplicate(card)">duplicate…</Button>
+                        <Button Variant="Button.ButtonVariant.Text" StopPropagation="true" Class="btn--danger"
+                                Disabled="@(!_canEdit.Allowed)" DisabledReason="@_canEdit.Reason"
+                                OnClick="() => _deleting = card">delete</Button>
+                    </div>
+                </Card>
+            }
+        </div>
+
+        @if (_detail is { } detail && _draft is { } draft)
+        {
+            @if (detail.IsSeeded)
+            {
+                @* Read-only, and it says why. A disabled input with no
+                   explanation reads as a bug. *@
+                <Card>
+                    <div class="row" style="gap: var(--space-3)">
+                        <Chip Label="SYSTEM POLICY" Tone="var(--color-neutral-500)" Style="Chip.ChipStyle.Outlined" />
+                        <span>Read-only.</span>
+                    </div>
+                    <p class="field__help">
+                        This is the baseline every other policy on this instance was derived from.
+                        Editing it in place would make "how does ours differ from the standard?"
+                        unanswerable. Duplicate it and edit the copy.
+                    </p>
+                </Card>
+            }
+
+            <div class="policy-editor">
+                @* ---- Categories ---- *@
+                <Card Padded="false">
+                    <div class="card-body">
+                        <h2>Categories</h2>
+                        <p class="field__help">
+                            Weights are RELATIVE. The basis is the sum across enabled categories
+                            (currently <strong>@Basis.ToString("0.#")</strong>), and each category's
+                            effective maximum is its share of 100 points out of that basis. Switching a
+                            category off redistributes its share to the others rather than deflating the
+                            score — which is why a ceiling below is not a fixed number.
+                        </p>
+                    </div>
+
+                    <ScrollBox Label="Categories">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>On</th><th>Category</th>
+                                    <th class="align-end">Weight</th>
+                                    <th class="align-end">Effective max</th>
+                                    <th>Sub-weights</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var key in draft.Categories.Keys.OrderBy(k => k, StringComparer.Ordinal))
+                                {
+                                    var category = draft.Categories[key];
+                                    <tr>
+                                        <td>
+                                            <input type="checkbox" checked="@category.Enabled"
+                                                   disabled="@ReadOnly"
+                                                   @onchange="e => ToggleCategory(key, e)" />
+                                        </td>
+                                        <td>
+                                            <div>@Label(key)</div>
+                                            <div class="mono muted" style="font-size: var(--text-secondary)">@key</div>
+                                        </td>
+                                        <td class="align-end">
+                                            <input class="input input--num" type="number" step="1" min="0"
+                                                   disabled="@ReadOnly"
+                                                   value="@category.Max"
+                                                   @onchange="e => SetWeight(key, e)" />
+                                        </td>
+                                        <td class="num align-end">
+                                            @* The demonstration. Recomputed on every edit from the
+                                               scorer's own function. *@
+                                            <span style="@(category.Enabled ? null : "color: var(--color-neutral-500)")">
+                                                @Maxima.GetValueOrDefault(key).ToString("0.#")
+                                            </span>
+                                        </td>
+                                        <td class="mono muted" style="font-size: var(--text-secondary)">
+                                            @(category.Weights.Count == 0
+                                                ? "—"
+                                                : string.Join(" · ", category.Weights.Select(w => $"{w.Key}={w.Value:0.##}")))
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </ScrollBox>
+                </Card>
+
+                @* ---- Gates and bands ---- *@
+                <div class="stack">
+                    <Card Padded="false">
+                        <div class="card-body">
+                            <h2>Bands</h2>
+                            <p class="field__help">Red has no upper boundary to set — it runs to 100.</p>
+                        </div>
+                        <div class="card-body band-grid">
+                            <div class="band">
+                                <span class="band__swatch" style="background: var(--color-band-green)"></span>
+                                <span>Green up to</span>
+                                <input class="input input--num" type="number" step="1" min="1" max="99"
+                                       disabled="@ReadOnly" value="@draft.Bands.GreenMax"
+                                       @onchange="e => SetBand(b => b.GreenMax = Parse(e, b.GreenMax))" />
+                            </div>
+                            <div class="band">
+                                <span class="band__swatch" style="background: var(--color-band-yellow)"></span>
+                                <span>Yellow up to</span>
+                                <input class="input input--num" type="number" step="1" min="1" max="99"
+                                       disabled="@ReadOnly" value="@draft.Bands.YellowMax"
+                                       @onchange="e => SetBand(b => b.YellowMax = Parse(e, b.YellowMax))" />
+                            </div>
+                            <div class="band">
+                                <span class="band__swatch" style="background: var(--color-band-orange)"></span>
+                                <span>Orange up to</span>
+                                <input class="input input--num" type="number" step="1" min="1" max="99"
+                                       disabled="@ReadOnly" value="@draft.Bands.OrangeMax"
+                                       @onchange="e => SetBand(b => b.OrangeMax = Parse(e, b.OrangeMax))" />
+                            </div>
+                            <div class="band">
+                                <span class="band__swatch" style="background: var(--color-band-red)"></span>
+                                <span>Red</span>
+                                <span class="num muted">to 100</span>
+                            </div>
+                        </div>
+                    </Card>
+
+                    <Card Padded="false">
+                        <div class="card-body row row--between">
+                            <div>
+                                <h2>Acceptance gates</h2>
+                                <p class="field__help">
+                                    Gates are the release contract and belong to <strong>@Project</strong>,
+                                    not to the policy — the same weights can back very different shipping
+                                    rules. A pilot and a production service score identically and ship on
+                                    different terms.
+                                </p>
+                            </div>
+                            <Button Variant="Button.ButtonVariant.Primary"
+                                    Disabled="@(!_canEditGates.Allowed || !_gatesDirty)"
+                                    DisabledReason="@GateSaveReason"
+                                    OnClick="SaveGates">Save gates</Button>
+                        </div>
+                        @if (_gateError is not null)
+                        {
+                            <div class="card-body"><p style="color: var(--color-critical)">@_gateError</p></div>
+                        }
+                        <ScrollBox Label="Gates">
+                            <table class="table">
+                                <tbody>
+                                    @for (var i = 0; i < _gates.Count; i++)
+                                    {
+                                        var index = i;
+                                        var gate = _gates[index];
+                                        <tr>
+                                            <td>
+                                                <input type="checkbox" checked="@gate.Enabled"
+                                                       disabled="@(!_canEditGates.Allowed)"
+                                                       @onchange="e => ToggleGate(index, e)" />
+                                            </td>
+                                            <td>
+                                                <div>@gate.Label</div>
+                                                <div class="mono muted" style="font-size: var(--text-secondary)">@gate.Key</div>
+                                                <div class="field__help">@gate.Description</div>
+                                            </td>
+                                            <td class="align-end">
+                                                @if (gate.HasThreshold)
+                                                {
+                                                    <input class="input input--num" type="number" step="1" min="0"
+                                                           disabled="@(!_canEditGates.Allowed || !gate.Enabled)"
+                                                           value="@gate.Threshold"
+                                                           @onchange="e => SetThreshold(index, e)" />
+                                                }
+                                                else
+                                                {
+                                                    @* A boolean gate with an editable threshold invites
+                                                       someone to set one and believe it did something. *@
+                                                    <span class="muted">—</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </ScrollBox>
+                    </Card>
+                </div>
+            </div>
+
+            @* ---- Save bar ---- *@
+            <Card>
+                <div class="row" style="gap: var(--space-3); flex-wrap: wrap">
+                    <Button Variant="Button.ButtonVariant.Primary"
+                            Disabled="@(ReadOnly || !_canEdit.Allowed || !_dirty)"
+                            DisabledReason="@SaveReason"
+                            OnClick="Save">Save policy</Button>
+                    <Button Disabled="@(!_dirty)" OnClick="Discard">Discard changes</Button>
+                    <Button Disabled="@ReadOnly" OnClick="Preview">Preview rescore</Button>
+
+                    @if (_dirty)
+                    {
+                        <Chip Label="@($"unsaved · {_library.FirstOrDefault(c => c.Id == _selectedId)?.UseCount ?? 0} rescore")"
+                              Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" />
+                    }
+                </div>
+                @if (_saveError is not null)
+                {
+                    <p style="color: var(--color-critical)">@_saveError</p>
+                }
+            </Card>
+
+            @if (_preview is { Count: > 0 })
+            {
+                <Card Padded="false">
+                    <div class="card-body">
+                        <h2>Rescore preview</h2>
+                        <p class="field__help">
+                            Both scores are computed from the SAME ingested evidence, so any movement
+                            here is the weight change and nothing else. Nothing has been saved.
+                        </p>
+                    </div>
+                    <ScrollBox Label="Rescore preview">
+                        <table class="table">
+                            <thead>
+                                <tr><th>Project</th><th class="align-end">Now</th><th class="align-end">After</th><th>Band</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _preview)
+                                {
+                                    <tr>
+                                        <td>@row.ProjectName</td>
+                                        <td class="num align-end">@(row.Before?.ToString("0.0") ?? "—")</td>
+                                        <td class="num align-end">@(row.After?.ToString("0.0") ?? "—")</td>
+                                        <td>
+                                            @if (row.Before is null)
+                                            {
+                                                @* Not 0.0. A zero nobody measured reads like a
+                                                   clean result. *@
+                                                <span class="muted">no build to score</span>
+                                            }
+                                            else if (row.BandChanged)
+                                            {
+                                                <span style="color: var(--color-high)">
+                                                    @row.BeforeBand → @row.AfterBand
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="muted">@row.AfterBand</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </ScrollBox>
+                </Card>
+            }
+        }
+    </div>
+}
+
+<Dialog Open="_duplicating is not null" OpenChanged="v => { if (!v) _duplicating = null; }"
+        Title="Duplicate policy" Width="560">
+    <ChildContent>
+        @if (_duplicating is { } source)
+        {
+            <p>Copy <strong>@source.Name</strong> into a new policy you can edit.</p>
+            <TextField Label="Name" @bind-Value="_duplicateName"
+                       Help="The copy is never the instance default and never a system policy, whatever the source was." />
+            @if (_dialogError is not null)
+            {
+                <p style="color: var(--color-critical)">@_dialogError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Duplicate">Create copy</Button>
+        <Button OnClick="() => _duplicating = null">Cancel</Button>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_deleting is not null" OpenChanged="v => { if (!v) _deleting = null; }"
+        Title="Delete policy" Width="620">
+    <ChildContent>
+        @if (_deleting is { } target)
+        {
+            <p>Delete <strong>@target.Name</strong>?</p>
+
+            @if (target.UseCount > 0)
+            {
+                <p class="field__help">
+                    @target.UseCount assignment@(target.UseCount == 1 ? "" : "s") still point here.
+                    Deleting without moving them would change their scores with no record of why, so
+                    choose where they go.
+                </p>
+                <div class="field">
+                    <span class="field__label">Move them to</span>
+                    <select class="input" @onchange="e => _moveTo = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null">
+                        <option value="">— choose a policy —</option>
+                        @foreach (var option in _library.Where(c => c.Id != target.Id))
+                        {
+                            <option value="@option.Id">@option.Name</option>
+                        }
+                    </select>
+                </div>
+            }
+
+            @if (_dialogError is not null)
+            {
+                <p style="color: var(--color-critical)">@_dialogError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Danger"
+                Disabled="@(_deleting is { UseCount: > 0 } && _moveTo is null)"
+                DisabledReason="Choose where the projects using this policy should go."
+                OnClick="Delete">Delete permanently</Button>
+        <Button OnClick="() => _deleting = null">Cancel</Button>
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+
+    private ProjectRef? _project;
+    private IReadOnlyList<PolicyCard> _library = [];
+    private PolicyDetail? _detail;
+    private RiskPolicyConfig? _draft;
+    private Guid? _selectedId;
+    private IReadOnlyList<RescoreRow>? _preview;
+    private bool _dirty;
+    private string? _error, _saveError, _dialogError;
+
+    private AuthorizationDecision _canEdit = AuthorizationDecision.Deny("Checking…");
+    private AuthorizationDecision _canDuplicate = AuthorizationDecision.Deny("Checking…");
+    private AuthorizationDecision _canEditGates = AuthorizationDecision.Deny("Checking…");
+
+    private List<GateRow> _gates = [];
+    private bool _gatesDirty;
+    private string? _gateError;
+
+    private PolicyCard? _duplicating, _deleting;
+    private string? _duplicateName;
+    private Guid? _moveTo;
+
+    private bool ReadOnly => _detail?.IsSeeded ?? true;
+
+    private string? SaveReason => ReadOnly
+        ? "System policies are read-only. Duplicate this one and edit the copy."
+        : !_canEdit.Allowed ? _canEdit.Reason
+        : !_dirty ? "Nothing has changed."
+        : null;
+
+    private double Basis => _draft is null ? 0 : RiskScorer.WeightBasis(_draft);
+
+    private IReadOnlyDictionary<string, double> Maxima =>
+        _draft is null ? new Dictionary<string, double>() : RiskScorer.EffectiveMaxima(_draft);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project);
+        _error = null;
+
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project);
+            _library = await Policies.LibraryAsync();
+
+            // Policies are instance-scoped, so the capability is evaluated at
+            // the instance, not at the project the URL happens to name.
+            _canEdit = await Me.CanAsync(Capability.EditPolicyWeights, ScopeTarget.Instance);
+            _canDuplicate = await Me.CanAsync(Capability.DuplicatePolicy, ScopeTarget.Instance);
+
+            if (_project is not null)
+            {
+                // Gates are scoped to the PROJECT, so this capability is
+                // evaluated there rather than at the instance.
+                _canEditGates = await Me.CanAsync(Capability.EditGates, Here);
+                if (!_gatesDirty) _gates = (await Gates.ListAsync(_project.ProjectId)).ToList();
+            }
+
+            // Default the selection to the policy this project actually scores
+            // under, since that is why the reader opened the page.
+            _selectedId ??= _project?.RiskPolicyId
+                         ?? _library.FirstOrDefault(c => c.IsDefault)?.Id
+                         ?? _library.FirstOrDefault()?.Id;
+
+            if (_selectedId is { } id && _detail?.Id != id) await LoadAsync(id);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetType().Name;
+        }
+    }
+
+    private ScopeTarget Here =>
+        _project is null
+            ? ScopeTarget.Instance
+            : ScopeTarget.Project(_project.ClientId, _project.ProjectId);
+
+    private string? GateSaveReason =>
+        !_canEditGates.Allowed ? _canEditGates.Reason
+        : !_gatesDirty ? "Nothing has changed."
+        : null;
+
+    private void ToggleGate(int index, ChangeEventArgs e)
+    {
+        _gates[index] = _gates[index].With(e.Value is true);
+        _gatesDirty = true;
+    }
+
+    private void SetThreshold(int index, ChangeEventArgs e)
+    {
+        var parsed = double.TryParse(e.Value?.ToString(), out var value) && value >= 0
+            ? value
+            : (double?)null;
+        _gates[index] = _gates[index].With(parsed);
+        _gatesDirty = true;
+    }
+
+    private async Task SaveGates()
+    {
+        if (_project is null) return;
+        _gateError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _gateError = "You are not signed in."; return; }
+
+        var result = await Gates.SaveAsync(actor, Here, _project.ProjectId, _gates);
+        if (!result.Success) { _gateError = result.Error; return; }
+
+        _gatesDirty = false;
+        _gates = (await Gates.ListAsync(_project.ProjectId)).ToList();
+    }
+
+    private async Task Select(Guid id)
+    {
+        if (_selectedId == id) return;
+        _selectedId = id;
+        await LoadAsync(id);
+    }
+
+    private async Task LoadAsync(Guid id)
+    {
+        _detail = await Policies.LoadAsync(id);
+        // Selecting resets pending edits, per the hand-off. Carrying them
+        // across policies would apply one policy's weights to another.
+        _draft = _detail?.Config;
+        _dirty = false;
+        _preview = null;
+        _saveError = null;
+    }
+
+    private void ToggleCategory(string key, ChangeEventArgs e)
+    {
+        if (_draft is null || ReadOnly) return;
+        _draft.Categories[key].Enabled = e.Value is true;
+        _dirty = true;
+        // The preview described the old weights. Leaving it up would show
+        // numbers that no longer correspond to anything on screen.
+        _preview = null;
+    }
+
+    private void SetWeight(string key, ChangeEventArgs e)
+    {
+        if (_draft is null || ReadOnly) return;
+        _draft.Categories[key].Max = Parse(e, _draft.Categories[key].Max);
+        _dirty = true;
+        _preview = null;
+    }
+
+    private void SetBand(Action<RiskBands> apply)
+    {
+        if (_draft is null || ReadOnly) return;
+        apply(_draft.Bands);
+        _dirty = true;
+        _preview = null;
+    }
+
+    private static double Parse(ChangeEventArgs e, double fallback) =>
+        double.TryParse(e.Value?.ToString(), out var value) && value >= 0 ? value : fallback;
+
+    private async Task Save()
+    {
+        if (_detail is null || _draft is null) return;
+        _saveError = null;
+
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _saveError = "You are not signed in."; return; }
+
+        var result = await Policies.SaveAsync(
+            actor, _detail.Id, _draft, _detail.Name, _detail.Description);
+        if (!result.Success) { _saveError = result.Error; return; }
+
+        _dirty = false;
+        _preview = null;
+        _library = await Policies.LibraryAsync();
+        await LoadAsync(_detail.Id);
+    }
+
+    private async Task Discard()
+    {
+        if (_detail is null) return;
+        await LoadAsync(_detail.Id);
+    }
+
+    private async Task Preview()
+    {
+        if (_detail is null || _draft is null) return;
+        _preview = await Policies.PreviewAsync(_detail.Id, _draft);
+    }
+
+    private void StartDuplicate(PolicyCard card)
+    {
+        _duplicating = card;
+        _duplicateName = $"{card.Name} (copy)";
+        _dialogError = null;
+    }
+
+    private async Task Duplicate()
+    {
+        if (_duplicating is not { } source) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Policies.DuplicateAsync(actor, source.Id, _duplicateName ?? "");
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _duplicating = null;
+        _library = await Policies.LibraryAsync();
+        await Select(result.Value);
+    }
+
+    private async Task Delete()
+    {
+        if (_deleting is not { } target) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Policies.DeleteAsync(actor, target.Id, _moveTo);
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _deleting = null;
+        _moveTo = null;
+        if (_selectedId == target.Id) { _selectedId = null; _detail = null; _draft = null; }
+        _library = await Policies.LibraryAsync();
+        await OnParametersSetAsync();
+    }
+
+    private static string Label(string key) => key switch
+    {
+        RiskCategoryNames.Cve => "Dependency CVEs",
+        RiskCategoryNames.Secrets => "Committed secrets",
+        RiskCategoryNames.SastSevere => "Severe static findings",
+        RiskCategoryNames.SastLow => "Low static findings",
+        RiskCategoryNames.DastSevere => "Severe dynamic findings",
+        RiskCategoryNames.DastLow => "Low dynamic findings",
+        RiskCategoryNames.IacSevere => "Infrastructure misconfiguration",
+        RiskCategoryNames.Coverage => "Test coverage shortfall",
+        RiskCategoryNames.Tests => "Failing tests",
+        RiskCategoryNames.SbomStaleness => "Dependency staleness",
+        RiskCategoryNames.License => "Licence exposure",
+        RiskCategoryNames.MissingScanners => "Scanners that did not run",
+        _ => key,
+    };
+}
