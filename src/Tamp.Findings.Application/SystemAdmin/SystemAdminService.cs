@@ -359,6 +359,17 @@ public sealed class SystemAdminService
         if (proposed.SessionLifetimeHours < 1)
             return Result<bool>.Invalid("A session has to last at least an hour.");
 
+        // TFND-23. Enabling checks without credentials would mean an operator
+        // watching for check runs that can never appear — and a check that
+        // never appears is indistinguishable from one that passed.
+        if (proposed.GitHubChecksEnabled
+            && (string.IsNullOrWhiteSpace(proposed.GitHubAppId)
+                || string.IsNullOrWhiteSpace(proposed.GitHubAppPrivateKeyProtected)))
+        {
+            return Result<bool>.Invalid(
+                "GitHub checks need an App id and a private key before they can be enabled.");
+        }
+
         if (proposed.FindingRetentionDays is < 1 || proposed.BuildRetentionDays is < 1)
             return Result<bool>.Invalid("Retention is measured in whole days, or left blank to keep forever.");
 
@@ -373,6 +384,15 @@ public sealed class SystemAdminService
         settings.SmtpPort = proposed.SmtpPort;
         settings.SmtpFrom = Blank(proposed.SmtpFrom);
         settings.EnforceSeparationOfDuties = proposed.EnforceSeparationOfDuties;
+        settings.GitHubAppId = Blank(proposed.GitHubAppId);
+        settings.GitHubCheckName = Blank(proposed.GitHubCheckName) ?? "tamp.findings";
+        settings.GitHubChecksEnabled = proposed.GitHubChecksEnabled;
+        // A blank key means "keep what is stored", the same rule the identity
+        // provider registry follows: renaming a check should not require
+        // re-pasting a private key the operator may no longer have.
+        if (!string.IsNullOrWhiteSpace(proposed.GitHubAppPrivateKeyProtected))
+            settings.GitHubAppPrivateKeyProtected = proposed.GitHubAppPrivateKeyProtected;
+
         settings.UpdatedAt = DateTimeOffset.UtcNow;
 
         // Turning SoD enforcement on or off changes who may hold which roles

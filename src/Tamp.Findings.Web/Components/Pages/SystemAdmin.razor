@@ -15,6 +15,7 @@
 @inject NavigationManager Nav
 @inject SystemAdminService Admin
 @inject IdentityProviderService Providers
+@inject ProviderSecretProtector Protector
 @inject CurrentUser Me
 
 <PageTitle>System — tamp.findings</PageTitle>
@@ -487,6 +488,38 @@ else
                                Disabled="@(!_canAdminister.Allowed)"
                                Help="Blank means no mail is sent at all — notifications are dropped rather than queued, and the product would rather say so than pretend." />
 
+                    <div class="field">
+                        <span class="field__label">GitHub App</span>
+                        <span class="field__help">
+                            Writes a check run back to the commit each ingest scans, so branch
+                            protection can block a merge on a failing gate. The dashboard acts as
+                            ITSELF here — a different identity from the OIDC providers above, with a
+                            different credential and a different lifecycle.
+                        </span>
+                    </div>
+
+                    <TextField Label="App id" Mono="true" @bind-Value="_githubAppId"
+                               Disabled="@(!_canAdminister.Allowed)"
+                               Help="The numeric id from the App's settings page. Public information — it is in the App's own URL." />
+
+                    <TextField Label="App private key (PEM)" Multiline="true" Rows="3" Mono="true"
+                               Disabled="@(!_canAdminister.Allowed)"
+                               @bind-Value="_githubAppKey"
+                               Help="@GitHubKeyHelp" />
+
+                    <TextField Label="Check name" Mono="true" @bind-Value="_githubCheckName"
+                               Disabled="@(!_canAdminister.Allowed)"
+                               Help="What the check is called on the commit. Branch protection rules are written against this name, so an operator who has already written one should not have to rewrite it." />
+
+                    <CheckField Label="Publish check runs" @bind-Checked="_githubEnabled"
+                                Disabled="@(!_canAdminister.Allowed)" />
+                    <p class="field__help">
+                        Separate from having credentials, so an operator rotating a key or chasing a
+                        noisy check can stop publishing without destroying the configuration. A
+                        project only gets checks once its GitHub repository is set on its own
+                        settings.
+                    </p>
+
                     <CheckField Label="Enforce separation of duties"
                                 Disabled="@(!_canAdminister.Allowed)"
                                 @bind-Checked="_enforceSod" />
@@ -727,6 +760,8 @@ else
 
     private InstanceSettings _settings = new();
     private string? _instanceUrl, _sessionHours, _findingRetention, _buildRetention, _smtpHost;
+    private string? _githubAppId, _githubAppKey, _githubCheckName;
+    private bool _githubEnabled;
     private bool _enforceSod, _settingsSaved;
 
     private IReadOnlyList<ProviderRow> _providers = [];
@@ -789,6 +824,12 @@ else
                     _buildRetention = _settings.BuildRetentionDays?.ToString();
                     _smtpHost = _settings.SmtpHost;
                     _enforceSod = _settings.EnforceSeparationOfDuties;
+                    _githubAppId = _settings.GitHubAppId;
+                    _githubCheckName = _settings.GitHubCheckName;
+                    _githubEnabled = _settings.GitHubChecksEnabled;
+                    // Never populated. A field that is sometimes the real key
+                    // and sometimes a placeholder is how one gets logged.
+                    _githubAppKey = null;
                     break;
 
                 case SystemPanels.Authentication:
@@ -904,6 +945,19 @@ else
             SmtpPort = _settings.SmtpPort,
             SmtpFrom = _settings.SmtpFrom,
             EnforceSeparationOfDuties = _enforceSod,
+            GitHubAppId = _githubAppId,
+            // Non-nullable on the entity: an empty check name would make branch
+            // protection rules match nothing.
+            GitHubCheckName = string.IsNullOrWhiteSpace(_githubCheckName)
+                ? "tamp.findings"
+                : _githubCheckName.Trim(),
+            GitHubChecksEnabled = _githubEnabled,
+            // Protected here rather than in the service, so the plaintext never
+            // travels further than the form that collected it. A blank field
+            // keeps whatever is stored.
+            GitHubAppPrivateKeyProtected = string.IsNullOrWhiteSpace(_githubAppKey)
+                ? _settings.GitHubAppPrivateKeyProtected
+                : Protector.Protect(ProviderSecretProtector.GitHubAppPurpose, _githubAppKey.Trim()),
         };
 
         var result = await Admin.SaveSettingsAsync(actor, proposed);
@@ -918,6 +972,10 @@ else
         _auditFilter = @class;
         _audit = await Admin.AuditAsync(@class);
     }
+
+    private string GitHubKeyHelp => _settings.GitHubAppPrivateKeyProtected is { Length: > 0 }
+        ? "A key is stored. Leave blank to keep it; paste a new one to rotate."
+        : "The .pem GitHub generated when the App was created. Encrypted at rest and never shown again.";
 
     private static string KindLabel(IdentityProviderKind kind) =>
         kind == IdentityProviderKind.GitHubOAuth ? "GitHub OAuth" : "OIDC";

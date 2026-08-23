@@ -79,6 +79,28 @@ public sealed class InstanceSettings
     // control that silently does nothing.
     public List<string> MfaRequiredRoles { get; set; } = new();
 
+    // ---- GitHub App (TFND-23) ---------------------------------------------
+
+    // The App's numeric id. Public information — it is in the App's own URL —
+    // so it is not protected.
+    public string? GitHubAppId { get; set; }
+
+    // The App's RSA private key, PEM, encrypted at rest under its own Data
+    // Protection purpose. This is the credential that lets this instance ACT AS
+    // the App against every installation, so it is the most powerful secret the
+    // deployment holds.
+    public string? GitHubAppPrivateKeyProtected { get; set; }
+
+    // What the check run is called on the commit. Configurable because branch
+    // protection rules are written against the name, and an operator who has
+    // already written one should not have to rewrite it to match ours.
+    public string GitHubCheckName { get; set; } = "tamp.findings";
+
+    // Publish check runs at all. Separate from having credentials: an operator
+    // rotating a key, or debugging a noisy check, needs to stop publishing
+    // without destroying the configuration.
+    public bool GitHubChecksEnabled { get; set; }
+
     // Telemetry is OFF and there is no switch. Self-hosted means self-hosted;
     // a compliance tool that phoned home would be reporting its customers'
     // security posture to a third party. The System panel states this as a

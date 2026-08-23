@@ -58,6 +58,8 @@
 
   <ItemGroup Label="Logging / config">
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
+    <!-- IHttpClientFactory, for the GitHub App client (TFND-23). -->
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup Label="Tamp ecosystem (TFND-14 — dogfood pipeline)">

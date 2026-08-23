@@ -129,6 +129,60 @@ public sealed class ProjectSettingsService
 
     // ---- Disclosure policy ------------------------------------------------
 
+    /// <summary>
+    /// The GitHub repository this project maps to, "owner/name" (TFND-23).
+    /// </summary>
+    public async Task<string?> RepositoryAsync(Guid projectId, CancellationToken ct = default) =>
+        await _db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => p.GitHubRepository)
+            .SingleOrDefaultAsync(ct);
+
+    /// <summary>
+    /// Map this project to a repository, or unmap it.
+    ///
+    /// Per project rather than derived from the commit, because a commit sha
+    /// says nothing about which repository it came from — the same sha exists
+    /// in every fork, and posting a check run to the wrong repository is a
+    /// message to somebody else's team.
+    /// </summary>
+    public async Task<Result<bool>> SaveRepositoryAsync(
+        Principal actor, ScopeTarget scope, Guid projectId, string? repository,
+        CancellationToken ct = default)
+    {
+        var decision = _capabilities.Evaluate(actor, Capability.ManageIngestKey);
+        if (!decision.Allowed) return Result<bool>.Denied(decision.Reason!);
+
+        var normalised = Normalise(repository);
+
+        if (normalised is not null)
+        {
+            // "owner/name", nothing else. A full URL, a trailing .git or a
+            // branch suffix all produce a 404 from GitHub at publish time,
+            // which surfaces as a check that silently never appears.
+            var parts = normalised.Split('/');
+            if (parts.Length != 2 || parts.Any(string.IsNullOrWhiteSpace))
+                return Result<bool>.Invalid("Use owner/name — not a URL, and without a .git suffix.");
+        }
+
+        var project = await _db.Projects.SingleOrDefaultAsync(p => p.Id == projectId, ct);
+        if (project is null) return Result<bool>.Invalid("That project no longer exists.");
+
+        var before = project.GitHubRepository;
+        project.GitHubRepository = normalised;
+
+        // Access class: this decides where this instance writes on somebody
+        // else's platform, which is a reach outward rather than housekeeping.
+        _audit.Record(actor, "project.github_repository_changed", AuditClass.Access, scope,
+            subjectId: project.Id, subjectKind: nameof(Project),
+            detail: normalised is null
+                ? $"unmapped from {before ?? "(nothing)"}"
+                : $"{before ?? "(nothing)"} → {normalised}");
+
+        await _db.SaveChangesAsync(ct);
+        return Result<bool>.Ok(true);
+    }
+
     public async Task<VdpSettings?> DisclosureAsync(Guid projectId, CancellationToken ct = default) =>
         await _db.Projects.AsNoTracking()
             .Where(p => p.Id == projectId)

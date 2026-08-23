@@ -26,6 +26,18 @@ public sealed class Project
     //   - VdpContactEmail: security@... or equivalent inbox
     //   - VdpReportingFormUrl: optional triage form / hackerone /
     //     bugcrowd link
+    // TFND-23: "owner/name" on GitHub, when this project maps to a repository.
+    //
+    // Per PROJECT rather than derived from the commit, because a commit sha
+    // says nothing about which repository it came from — the same sha can exist
+    // in a fork, and posting a check run to the wrong repository is a message
+    // to someone else's team.
+    //
+    // Null means "do not publish checks for this project", which is the default
+    // and the right one: most projects have no GitHub repository, and guessing
+    // one from a name would eventually guess wrong.
+    public string? GitHubRepository { get; set; }
+
     public string? VdpPolicyUrl { get; set; }
     public string? VdpContactEmail { get; set; }
     public string? VdpReportingFormUrl { get; set; }
