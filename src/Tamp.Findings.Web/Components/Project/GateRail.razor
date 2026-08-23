@@ -1,0 +1,114 @@
+@* "Can this ship" — the gate rail, with three verdict states.
+
+   The hand-off draws two (PASS / FAIL). TFND-74 gave GateResult four verdicts
+   because an unscanned project passed every severity gate, and
+   docs/redesign/gate-verdict-marks.md defines the marks for the rest.
+
+   Without that third state this rail would read PASS for a scanner that never
+   ran, directly above scan receipts saying it never ran — the ADR 0001 bug
+   drawn in high fidelity. *@
+
+<Card>
+    <div class="kicker">Can this ship</div>
+
+    <div class="verdict">
+        @if (Gates.Blocking > 0 && Gates.Failed > 0)
+        {
+            <Chip Label="Blocked" Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" Glyph="✕" />
+        }
+        else if (Gates.Blocking > 0)
+        {
+            @* No failures, but something could not be answered. Blocks exactly
+               as BLOCKED does — ClearToShip is false for both — but worded
+               differently because the remedy is different: "your pipeline is
+               not running the scanner", not "go fix the finding". *@
+            <Chip Label="Not assessed" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+        }
+        else
+        {
+            <Chip Label="Clear to ship" Tone="var(--color-pass)" Glyph="✓" />
+        }
+    </div>
+
+    @* Derived, never hard-coded. This line contradicting a computed value is
+       the original "9 gates enabled" bug, and Passed + Failed silently drops
+       every Unknown. *@
+    <p class="muted">@SubLine()</p>
+
+    <div class="gates">
+        @foreach (var gate in Gates.Results.Where(r => r.Enabled))
+        {
+            <div class="gate">
+                <VerdictMark Verdict="gate.Verdict" ShowTag="false" />
+                <div class="gate__label">@GateLabel(gate.Key)</div>
+                <Chip Label="@gate.Verdict.ToString()" Tone="@Tone(gate.Verdict)" Style="@Style(gate.Verdict)" />
+                <div class="gate__observed muted">@gate.Observed</div>
+            </div>
+        }
+    </div>
+
+    @if (Disabled.Count > 0)
+    {
+        <p class="field__help">
+            Configured but disabled: @string.Join(", ", Disabled.Select(g => GateLabel(g.Key))).
+        </p>
+    }
+</Card>
+
+@code {
+    [Parameter, EditorRequired] public GateEvaluation Gates { get; set; } = default!;
+
+    private IReadOnlyList<GateResult> Disabled =>
+        Gates.Results.Where(r => !r.Enabled).ToArray();
+
+    // Three clauses, each dropped at zero. Error folds into the unanswered
+    // clause rather than earning a fourth — it is rare and operator-facing.
+    private string SubLine()
+    {
+        if (Gates.Enabled == 0) return "No gates are enabled on this project.";
+
+        var parts = new List<string>();
+        if (Gates.Failed > 0) parts.Add($"{Gates.Failed} of {Gates.Enabled} enabled gates failing on this build");
+        if (Gates.Unknown > 0) parts.Add($"{Gates.Unknown} unanswered");
+        if (Gates.Errored > 0) parts.Add($"{Gates.Errored} could not be evaluated");
+
+        return parts.Count == 0
+            ? $"All {Gates.Enabled} enabled gates passing on this build"
+            : string.Join(" · ", parts);
+    }
+
+    private static string Tone(GateVerdict v) => v switch
+    {
+        GateVerdict.Pass => "var(--color-accent)",
+        GateVerdict.Fail => "var(--color-critical)",
+        GateVerdict.Unknown => "var(--color-medium)",
+        _ => "var(--color-high)",
+    };
+
+    private static Chip.ChipStyle Style(GateVerdict v) => v switch
+    {
+        GateVerdict.Fail or GateVerdict.Error => Chip.ChipStyle.Solid,
+        GateVerdict.Unknown => Chip.ChipStyle.Dashed,
+        _ => Chip.ChipStyle.Outlined,
+    };
+
+    private static string GateLabel(string key) => key switch
+    {
+        "riskScoreRegression" => "Risk score regression",
+        "kevExposure" => "KEV exposure",
+        "anyCves" => "Any CVEs",
+        "criticalCves" => "Critical CVEs",
+        "highCves" => "High CVEs",
+        "criticalSast" => "Critical SAST",
+        "highSast" => "High SAST",
+        "criticalDast" => "Critical DAST",
+        "highDast" => "High DAST",
+        "criticalIac" => "Critical IaC",
+        "verifiedSecrets" => "Verified secrets",
+        "deniedLicenses" => "Denied licences",
+        "testFailures" => "Test failures",
+        "coverageRegression" => "Coverage regression",
+        "poamPastDue" => "POA&M past due",
+        _ => key,
+    };
+}

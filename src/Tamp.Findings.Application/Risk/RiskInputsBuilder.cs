@@ -4,7 +4,7 @@ using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Risk;
 using Tamp.Findings.Domain.Values;
 
-namespace Tamp.Findings.Api.Services;
+namespace Tamp.Findings.Application.Risk;
 
 // Builds RiskInputs for an explicit set of ComponentVersions. The
 // /aggregates endpoint computes the same shape inline against the

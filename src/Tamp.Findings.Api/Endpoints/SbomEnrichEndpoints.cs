@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Services;
+using Tamp.Findings.Application.Risk;
 
 namespace Tamp.Findings.Api.Endpoints;
 

@@ -572,6 +572,75 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
   .shell { padding: var(--space-3); }
 }
 
+/* ── Project hub ────────────────────────────────────────────────────── */
+
+.hubhead { padding-left: var(--space-3); }
+
+/* Two columns above the dense breakpoint, stacked below it (ADR 0003). The
+   minimums are the design's, but they are MINIMUMS for English — verify
+   against the pseudo-locale before treating them as settled. */
+.hubrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 1180px) { .hubrow { grid-template-columns: 1fr; } }
+
+.score { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+.score__value { font-family: var(--font-heading); font-weight: 600; font-size: 46px; line-height: 1; }
+/* Never wraps: a delta on its own line reads as a separate fact rather than a
+   qualifier on the score. */
+.score__delta { color: var(--color-accent-700); white-space: nowrap; font-size: var(--text-secondary); }
+.score__caption { margin-left: auto; text-align: right; font-size: var(--text-kicker); max-width: 34ch; }
+
+.contrib { margin-top: var(--space-4); }
+.contrib__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 150px) minmax(80px, 1fr) 74px 34px minmax(0, 1.15fr);
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border-left: 2px solid transparent;
+}
+.contrib__row:hover { background: var(--hover-row); }
+/* A category costing points reads hotter. */
+.contrib__row--hot { border-left-color: var(--color-critical); }
+.contrib__row--hot .contrib__evidence { color: var(--color-text); }
+.contrib__row--off { opacity: 0.55; }
+
+.contrib__label { font-size: var(--text-body); }
+.contrib__key { font-size: var(--text-column); color: var(--color-neutral-500); }
+.contrib__bar { height: 9px; background: var(--color-neutral-200); }
+.contrib__fill { height: 100%; }
+.contrib__points { font-size: var(--text-secondary); text-align: right; }
+.contrib__sat { font-size: var(--text-column); color: var(--color-critical); }
+.contrib__evidence { font-size: var(--text-secondary); color: var(--color-neutral-500); min-width: 0; }
+
+@media (max-width: 720px) {
+  /* Below this the five-column grid stops being a matrix and becomes a list.
+     The relationship between columns is no longer legible at that width, so
+     the 1.4.10 exception does not apply — it reflows. */
+  .contrib__row { grid-template-columns: 1fr auto; }
+  .contrib__bar, .contrib__evidence { grid-column: 1 / -1; }
+}
+
+.verdict { margin: var(--space-2) 0; }
+.gates { margin-top: var(--space-3); }
+.gate {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1.2fr);
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) 0;
+}
+.gate__label { font-size: var(--text-secondary); }
+.gate__observed { font-size: var(--text-secondary); min-width: 0; }
+@media (max-width: 720px) {
+  .gate { grid-template-columns: auto 1fr auto; }
+  .gate__observed { grid-column: 1 / -1; }
+}
+
 /* ── Utility ────────────────────────────────────────────────────────── */
 
 .hr { height: 1px; border: 0; background: var(--color-divider); margin: var(--space-4) 0; }

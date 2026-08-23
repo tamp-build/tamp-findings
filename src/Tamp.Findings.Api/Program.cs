@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Endpoints;
 using Tamp.Findings.Api.Services;
+using Tamp.Findings.Application.Risk;
 using Tamp.Findings.Data;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -70,10 +71,8 @@ builder.Services.AddScoped<SbomEnrichmentService>();
 // Builds RiskInputs for an explicit CV-id set — drives the per-build
 // evaluator. /aggregates still computes its own inline against the
 // latest-canonical set; a future refactor can consolidate.
-builder.Services.AddScoped<Tamp.Findings.Api.Services.RiskInputsBuilder>();
 // TFND-25: project-scoped VEX statements suppress matching vulns from
 // CVE counts + KEV count.
-builder.Services.AddScoped<Tamp.Findings.Api.Services.VexResolver>();
 
 // TFND-26: CISA Known Exploited Vulnerabilities catalog. Service does
 // the actual upsert; the hosted worker schedules it (startup + daily).
