@@ -792,6 +792,40 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 .tok-plain   { color: var(--syntax-plain); }
 .tok-punct   { color: var(--syntax-punctuation); }
 
+/* ── DAST ───────────────────────────────────────────────────────────────
+   Request and response side by side above the breakpoint, stacked below it.
+   The comparison IS the evidence, so the panes claim SC 1.4.10's
+   two-dimensional exception — but only while they are genuinely side by side. */
+
+.dast-evidence {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4);
+}
+@media (max-width: 900px) { .dast-evidence { grid-template-columns: 1fr; } }
+
+.dast-pane {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-divider);
+  font-size: var(--text-secondary);
+  /* break-all, per the design: a payload has no spaces to wrap on and would
+     otherwise push the page sideways. */
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.dup-host {
+  border: 1px solid var(--color-high);
+  background: color-mix(in srgb, var(--color-high) 8%, transparent);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
 /* ── Severity ───────────────────────────────────────────────────────────
    Three redundant signals: ladder, letter, colour. The first two survive a
    monochrome print and a colour-blind reader — the attestation has to be
