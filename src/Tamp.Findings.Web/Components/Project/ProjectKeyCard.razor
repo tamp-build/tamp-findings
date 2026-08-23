@@ -1,0 +1,110 @@
+@* The project ingest key.
+
+   The warning is the design's, verbatim, and it earns its place: a recycled
+   key does not break loudly. The pipeline simply stops producing receipts, and
+   every subsequent build reads UNKNOWN on its gates until someone notices. *@
+
+@inject ProjectKeyService Keys
+@inject CurrentUser Me
+
+<Card>
+    <div class="row row--between">
+        <h2>Project ingest key</h2>
+        <Button Variant="Button.ButtonVariant.Warning"
+                Disabled="@(!_canManage.Allowed)"
+                DisabledReason="@_canManage.Reason"
+                OnClick="() => _confirming = true">
+            Recycle
+        </Button>
+    </div>
+
+    @if (_minted is not null)
+    {
+        <SecretPanel Value="@_minted" Heading="New key — copy it now, it is not stored">
+            <Actions>
+                <Button OnClick="() => _minted = null">Done</Button>
+            </Actions>
+        </SecretPanel>
+        <p class="field__help">
+            This is the only time this value is shown. It is stored as a hash, so it genuinely
+            cannot be recovered — not by you, and not by an administrator.
+        </p>
+    }
+    else if (_key is null)
+    {
+        <p class="muted">No ingest key has been issued for this project.</p>
+        <p class="field__help">CI cannot post scanner output until one exists.</p>
+    }
+    else
+    {
+        <p class="mono muted">prj_••••••••••••••••••••••••</p>
+        <p class="field__help">
+            Issued @_key.CreatedAt.ToString("yyyy-MM-dd").
+            @if (_key.LastUsedAt is { } used)
+            {
+                <text>Last used @used.ToString("yyyy-MM-dd HH:mm").</text>
+            }
+            else
+            {
+                @* A key that has never been used is worth surfacing: it usually
+                   means CI was never wired up, and the project has been
+                   silently unscanned since it was created. *@
+                <text>Never used — no pipeline has posted with it.</text>
+            }
+        </p>
+    }
+
+    @if (_error is not null)
+    {
+        <p style="color: var(--color-critical)">@_error</p>
+    }
+</Card>
+
+<Dialog Open="_confirming" OpenChanged="v => _confirming = v" Title="Recycle the ingest key" Width="620">
+    <ChildContent>
+        <p>
+            Recycling invalidates the old key <strong>immediately</strong>. Any pipeline still using
+            it fails its next ingest, and a missing scan is not a clean scan — the affected builds
+            will read as unscanned.
+        </p>
+        <p class="field__help">
+            The failure is quiet: nothing errors in this app, the receipts simply stop arriving and
+            the gates start reporting UNKNOWN. Have the new key ready to deploy before you do this.
+        </p>
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Warning" OnClick="Recycle">Recycle key</Button>
+        <Button OnClick="() => _confirming = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter, EditorRequired] public ProjectRef Project { get; set; } = default!;
+
+    private ProjectKeyInfo? _key;
+    private AuthorizationDecision _canManage = AuthorizationDecision.Deny("Checking…");
+    private bool _confirming;
+    private string? _minted, _error;
+
+    private ScopeTarget Scope => ScopeTarget.Project(Project.ClientId, Project.ProjectId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _key = await Keys.CurrentAsync(Project.ProjectId);
+        _canManage = await Me.CanAsync(Capability.ManageIngestKey, Scope);
+    }
+
+    private async Task Recycle()
+    {
+        _error = null;
+        var actor = await Me.AtAsync(Scope);
+        if (actor is null) { _error = "You are not signed in."; return; }
+
+        var result = await Keys.RecycleAsync(actor, Scope, Project.ProjectId);
+        if (!result.Success) { _error = result.Error; _confirming = false; return; }
+
+        _confirming = false;
+        _minted = result.Value;
+        _key = await Keys.CurrentAsync(Project.ProjectId);
+    }
+}

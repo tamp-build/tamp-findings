@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.Ingest;
 using Microsoft.Net.Http.Headers;
 using Tamp.Findings.Domain.Entities;
 

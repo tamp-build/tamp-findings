@@ -78,7 +78,10 @@ else
             <GateRail Gates="_data.Gates" />
         </div>
 
-        <ComponentsTable Project="_data.Project" Sha="@ShortSha" />
+        <div class="hubrow">
+            <ComponentsTable Project="_data.Project" Sha="@ShortSha" />
+            <ProjectKeyCard Project="_data.Project" />
+        </div>
 
         <ScanReceipts Inputs="_data.Inputs" Sha="@ShortSha" />
 
