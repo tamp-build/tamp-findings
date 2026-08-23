@@ -21,6 +21,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     public DbSet<InstanceSettings> InstanceSettings => Set<InstanceSettings>();
+
+    public DbSet<HostAlias> HostAliases => Set<HostAlias>();
     public DbSet<SbomSnapshot> SbomSnapshots => Set<SbomSnapshot>();
     public DbSet<SbomComponent> SbomComponents => Set<SbomComponent>();
     public DbSet<SbomDependency> SbomDependencies => Set<SbomDependency>();
@@ -143,6 +145,15 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // GitHub's numeric id is the durable identity (login can be
             // renamed); sparse-unique so pre-OIDC rows with NULL don't collide.
             e.HasIndex(x => x.GitHubUserId).IsUnique().HasFilter("\"GitHubUserId\" IS NOT NULL");
+        });
+
+        b.Entity<HostAlias>(e =>
+        {
+            e.Property(x => x.Alias).HasMaxLength(320).IsRequired();
+            e.Property(x => x.CanonicalHost).HasMaxLength(320).IsRequired();
+            // One alias can only point one way, or a lookup becomes
+            // ambiguous and the tree would group non-deterministically.
+            e.HasIndex(x => new { x.ProjectId, x.Alias }).IsUnique();
         });
 
         b.Entity<InstanceSettings>(e =>

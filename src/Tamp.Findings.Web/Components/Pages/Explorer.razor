@@ -11,6 +11,7 @@
 @inject NavigationManager Nav
 @inject ProjectHubQuery Hub
 @inject FindingsExplorerQuery Findings
+@inject DastExplorerQuery Dast
 
 <PageTitle>@Spine — @Project</PageTitle>
 
@@ -51,6 +52,13 @@ else
     <ExplorerShell Client="@Client" Project="@Project" Sha="@Sha" ActiveSpine="@Spine"
                    Title="@SpineTitle" SubTitle="@SpineSubTitle" HasSelection="@(Selection is not null)">
         <Legend>
+            @if (Spine == Spines.Dast && _dast is { Duplicates.Count: > 0 } && _project is not null)
+            {
+                <div style="width: 100%">
+                    <DuplicateHostCallout Suspicions="_dast.Duplicates" Project="_project"
+                                          OnMerged="Reload" />
+                </div>
+            }
             @if (Spine is Spines.Sast or Spines.Dast)
             {
                 @foreach (var s in new[] { Severity.Critical, Severity.High, Severity.Medium, Severity.Low, Severity.Info })
@@ -61,7 +69,39 @@ else
         </Legend>
 
         <Tree>
-            @if (_groups.Count == 0)
+            @if (Spine == Spines.Dast)
+            {
+                @if (_dast is null || _dast.Hosts.Count == 0)
+                {
+                    <div class="card-body">
+                        <p class="muted">No open dynamic-scan findings on this build.</p>
+                        <p class="field__help">
+                            If no DAST scanner ran, that is not the same as a clean result — check the
+                            scan receipts on the project hub.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var host in _dast.Hosts)
+                    {
+                        <TreeRow Name="@host.Host" Group="true" />
+                        <Virtualize TItem="DastRouteRow" Items="host.Routes" Context="route" ItemSize="26">
+                            <TreeRow Name="@route.Route" Depth="1"
+                                     Selected="@(route.Route == Selection)"
+                                     OnSelect="() => Select(route.Route)">
+                                <Badge>
+                                    <span class="row" style="gap: var(--space-1)">
+                                        <SeverityBadge Severity="route.WorstSeverity" />
+                                        <span class="num">@route.Count</span>
+                                    </span>
+                                </Badge>
+                            </TreeRow>
+                        </Virtualize>
+                    }
+                }
+            }
+            else if (_groups.Count == 0)
             {
                 <div class="card-body">
                     @* Distinguishing these two is the whole point of the
@@ -99,6 +139,16 @@ else
         </Tree>
 
         <Detail>
+            @if (Spine == Spines.Dast)
+            {
+                <div class="card-body">
+                    <h2 class="mono">@Selection</h2>
+                    <p class="muted">@_dastDetail.Count finding@(_dastDetail.Count == 1 ? "" : "s") on this route</p>
+                </div>
+                <DastDetail Findings="_dastDetail" />
+            }
+            else
+            {
             <div class="card-body">
                 <h2 class="mono">@Selection</h2>
                 <p class="muted">@_detail.Count finding@(_detail.Count == 1 ? "" : "s") on this build</p>
@@ -148,6 +198,7 @@ else
                     </tbody>
                 </table>
             </ScrollBox>
+            }
         </Detail>
     </ExplorerShell>
 }
@@ -164,6 +215,8 @@ else
     private ProjectRef? _project;
     private IReadOnlyList<FindingGroup> _groups = [];
     private IReadOnlyList<FindingDetail> _detail = [];
+    private DastTree? _dast;
+    private IReadOnlyList<DastFinding> _dastDetail = [];
     private List<SourceLine>? _source;
     private IReadOnlyDictionary<int, Severity> _flagged = new Dictionary<int, Severity>();
     private string? _error;
@@ -192,6 +245,8 @@ else
 
     private void Select(string path) =>
         Nav.NavigateTo(Routes.Explorer(Client, Project, Sha, Spine, path));
+
+    private async Task Reload() => await OnParametersSetAsync();
 
     protected override async Task OnParametersSetAsync()
     {
@@ -235,6 +290,14 @@ else
                             .ToDictionary(g => g.Key, g => g.Max(f => f.Severity));
                     }
                 }
+            }
+            else if (Spine == Spines.Dast)
+            {
+                var dastSha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
+                _dast = await Dast.TreeAsync(_project.ProjectId, dastSha);
+                _dastDetail = Selection is null
+                    ? []
+                    : await Dast.DetailAsync(_project.ProjectId, dastSha, Selection);
             }
             else
             {
