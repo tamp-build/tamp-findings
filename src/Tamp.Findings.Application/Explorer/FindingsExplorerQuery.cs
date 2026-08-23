@@ -82,6 +82,36 @@ public sealed class FindingsExplorerQuery
             .ToArray();
     }
 
+    /// <summary>
+    /// The file's source, if this product happens to have it.
+    ///
+    /// It does NOT store source for SAST. The only full file content in the
+    /// database is CoverageSourceFile.SourceText, captured when a coverage
+    /// report is ingested — so the source viewer is available for a
+    /// SAST-flagged file exactly when coverage also ran over it.
+    ///
+    /// That is a real limitation the hand-off does not account for, and the
+    /// honest response is to show the viewer when the source exists and the
+    /// findings table when it does not, rather than pretending to a capability
+    /// the ingest contract never had. Storing source for every flagged file
+    /// would be a new ingest responsibility and a significant one — it is
+    /// worth a ticket, not a silent assumption.
+    /// </summary>
+    public async Task<string?> SourceAsync(
+        Guid projectId, string filePath, CancellationToken ct = default)
+    {
+        var normalised = filePath.Replace("\\", "/");
+
+        return await (
+            from f in _db.CoverageSourceFiles.AsNoTracking()
+            join r in _db.CoverageReports.AsNoTracking() on f.CoverageReportId equals r.Id
+            join cv in _db.ComponentVersions.AsNoTracking() on r.ComponentVersionId equals cv.Id
+            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
+            where c.ProjectId == projectId && f.RelativePath == normalised
+            orderby r.Id
+            select f.SourceText).FirstOrDefaultAsync(ct);
+    }
+
     // Top path segment. Falls back to a named bucket rather than an empty
     // string, so a finding with no path is visible rather than silently
     // grouped under "".
