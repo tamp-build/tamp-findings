@@ -9,13 +9,27 @@
    component's own type name. *@
 @inject PortfolioQuery Query
 @inject NavigationManager Nav
+@inject HierarchyService Hierarchy
+@inject CurrentUser Me
 
 <PageTitle>Portfolio — tamp.findings</PageTitle>
 
 <div class="stack">
-    <div>
-        <h1>Portfolio</h1>
-        <p class="muted">Which project is worst right now.</p>
+    <div class="row row--between">
+        <div>
+            <h1>Portfolio</h1>
+            <p class="muted">Which project is worst right now.</p>
+        </div>
+        <div class="row">
+            @* The hand-off renders these but lists the create-hierarchy flow
+               as not covered. Buttons with no destination read as broken, so
+               they are wired here (TFND-85). *@
+            <Button Disabled="@(!_canCreateClient.Allowed)" DisabledReason="@_canCreateClient.Reason"
+                    OnClick="() => _newClient = true">New client</Button>
+            <Button Variant="Button.ButtonVariant.Primary"
+                    Disabled="@(!_canCreateProject.Allowed)" DisabledReason="@_canCreateProject.Reason"
+                    OnClick="OpenNewProject">New project</Button>
+        </div>
     </div>
 
     @if (_loading)
@@ -117,8 +131,63 @@
     }
 </div>
 
+<Dialog Open="_newClient" OpenChanged="v => _newClient = v" Title="New client" Width="560">
+    <ChildContent>
+        <TextField Label="Name" @bind-Value="_clientName"
+                   Help="An organisation or customer. The top of the hierarchy — every project and component sits beneath one." />
+        @if (_formError is not null)
+        {
+            <p style="color: var(--color-critical)">@_formError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="CreateClient">Create client</Button>
+        <Button OnClick="() => _newClient = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_newProject" OpenChanged="v => _newProject = v" Title="New project" Width="560">
+    <ChildContent>
+        @if (_clients.Count == 0)
+        {
+            <p>There are no clients yet. A project has to sit beneath one.</p>
+        }
+        else
+        {
+            <label class="field">
+                <span class="field__label">Client</span>
+                <select class="select" @bind="_selectedClientId">
+                    @foreach (var c in _clients)
+                    {
+                        <option value="@c.Id">@c.Name</option>
+                    }
+                </select>
+                <span class="field__help">Project names are unique per client, not globally.</span>
+            </label>
+            <TextField Label="Name" @bind-Value="_projectName"
+                       Help="A product. Owns its risk policy and acceptance gates." />
+            <TextField Label="Description" @bind-Value="_projectDescription" Help="Optional." />
+        }
+        @if (_formError is not null)
+        {
+            <p style="color: var(--color-critical)">@_formError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" Disabled="@(_clients.Count == 0)"
+                DisabledReason="Create a client first." OnClick="CreateProject">Create project</Button>
+        <Button OnClick="() => _newProject = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
 @code {
     private IReadOnlyList<PortfolioRow> _rows = [];
+    private IReadOnlyList<ClientRow> _clients = [];
+    private AuthorizationDecision _canCreateClient = AuthorizationDecision.Deny("Checking…");
+    private AuthorizationDecision _canCreateProject = AuthorizationDecision.Deny("Checking…");
+    private bool _newClient, _newProject;
+    private string? _clientName, _projectName, _projectDescription, _formError;
+    private Guid _selectedClientId;
     private bool _loading = true;
     private string? _error;
 
@@ -146,6 +215,53 @@
             // imply a clean one it could not measure.
             _error = ex.GetType().Name;
         }
+        // Instance scope: a client sits above every project, so nothing
+        // narrower can grant the right to create one.
+        _canCreateClient = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Instance);
+        _canCreateProject = _canCreateClient;
         _loading = false;
+    }
+
+    private async Task OpenNewProject()
+    {
+        _formError = null;
+        _clients = await Hierarchy.ClientsAsync();
+        if (_clients.Count > 0 && _selectedClientId == Guid.Empty) _selectedClientId = _clients[0].Id;
+        _newProject = true;
+    }
+
+    private async Task CreateClient()
+    {
+        _formError = null;
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _formError = "You are not signed in."; return; }
+
+        var result = await Hierarchy.CreateClientAsync(actor, _clientName ?? "");
+        if (!result.Success) { _formError = result.Error; return; }
+
+        _newClient = false;
+        _clientName = null;
+        await Reload();
+    }
+
+    private async Task CreateProject()
+    {
+        _formError = null;
+        var actor = await Me.AtAsync(ScopeTarget.Client(_selectedClientId));
+        if (actor is null) { _formError = "You are not signed in."; return; }
+
+        var result = await Hierarchy.CreateProjectAsync(
+            actor, _selectedClientId, _projectName ?? "", _projectDescription);
+        if (!result.Success) { _formError = result.Error; return; }
+
+        _newProject = false;
+        _projectName = _projectDescription = null;
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        try { _rows = await Query.LoadAsync(); }
+        catch (Exception ex) { _error = ex.GetType().Name; }
     }
 }
