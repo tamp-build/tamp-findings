@@ -1,22 +1,476 @@
-@* Literal "attestation" beats the explorer's {Spine} parameter at the same
+@* The deliverable (TFND-100 … TFND-103).
+
+   The CISA SSDF form, auto-populated from real evidence, printed to PDF and
+   attached to contract packages. Someone signs this. That single fact governs
+   every decision on the screen:
+
+   - The sub-line names THE POLICY that produced the score, bound to the same
+     source as the score itself, because a number without its policy is not
+     evidence.
+   - Manual practices carry their own count and their own explanation. They are
+     not failures, and a form that scored them would be inventing an answer the
+     signatory is the only person entitled to give.
+   - Every tally glyph (✓ ◐ ✕ ○) survives monochrome, because this gets printed.
+
+   Literal "attestation" beats the explorer's {Spine} parameter at the same
    segment count, so this route wins without needing a constraint. *@
 @page "/c/{Client}/p/{Project}/build/{Sha}/attestation"
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject RouteScope Scope
+@inject ProjectHubQuery Hub
+@inject SsdfAttestationBuilder Builder
+@inject AttestationExporter Exporter
+@inject AttestationSnapshotService Snapshots
+@inject CurrentUser Me
+@inject IJSRuntime Js
 
 <PageTitle>Attestation — @Project</PageTitle>
 
-<Placeholder Title="Attestation" Ticket="TFND-100 … TFND-103"
-             Description="The deliverable: the CISA SSDF form auto-populated from real evidence, printed and attached to contract packages."
-             Scope="Params" />
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>Attestation</h1>
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not build the attestation.</span>
+            </div>
+            <p class="field__help">
+                Nothing partial is rendered on purpose. A half-populated attestation is worse than
+                none — someone signs this. @_error
+            </p>
+        </Card>
+    </div>
+}
+else if (_doc is null)
+{
+    <div class="stack">
+        <h1>Attestation</h1>
+        <Card><p>No project matches <code class="mono">@Client / @Project</code>.</p></Card>
+    </div>
+}
+else
+{
+    <div class="attest">
+        <header class="row row--between attest__head">
+            <div>
+                <div class="kicker">CISA secure software development attestation · NIST SP 800-218</div>
+                <h1 class="attest__title">@_doc.Project.Name</h1>
+                <div class="muted" style="font-size: var(--text-secondary)">
+                    @_doc.Project.ClientName ·
+                    generated @_doc.Generated.ToString("yyyy-MM-dd HH:mm 'UTC'")
+                    @if (_doc.Build is { } build)
+                    {
+                        <text> · build <span class="mono">@Short(build.CommitSha ?? build.VersionString)</span></text>
+                    }
+                    @if (_doc.Risk is { } risk)
+                    {
+                        @* The policy that produced the score, bound to the same
+                           source as the score. A number without its policy is
+                           not evidence. *@
+                        <text> · policy <span class="mono">@risk.PolicyName</span></text>
+                    }
+                </div>
+            </div>
+            <div class="row attest__actions" style="gap: var(--space-2)">
+                <Button OnClick="Print">Print</Button>
+                <Button Variant="Button.ButtonVariant.Primary"
+                        Disabled="@(!_canExport.Allowed)" DisabledReason="@_canExport.Reason"
+                        OnClick="() => _exporting = true">Export…</Button>
+            </div>
+        </header>
+
+        @if (_stored is { } stored)
+        {
+            @* Rendered from the frozen document, not recomputed. ADR 0001: an
+               attestation signed in March must be reproducible in September, or
+               the signature attests to nothing. *@
+            <Card>
+                <div class="row" style="gap: var(--space-3)">
+                    <Chip Label="SNAPSHOT" Tone="var(--color-accent)" Style="Chip.ChipStyle.Solid" />
+                    <span>
+                        Frozen @stored.GeneratedAt.ToString("yyyy-MM-dd HH:mm 'UTC'")
+                        @if (stored.SignedBy is { Length: > 0 } signatory)
+                        {
+                            <text> · signed by <strong>@signatory</strong>
+                                on @stored.SignedAt!.Value.ToString("yyyy-MM-dd")</text>
+                        }
+                    </span>
+                </div>
+                <p class="field__help">
+                    This is the document as it was generated, read back verbatim. Editing the risk
+                    policy or writing a suppression since then has not changed it — which is the
+                    point: recomputing would produce a different answer to the one somebody signed.
+                </p>
+                @if (stored.SignedAt is null)
+                {
+                    <Button Disabled="@(!_canExport.Allowed)" DisabledReason="@_canExport.Reason"
+                            OnClick="() => _signing = true">Record signature</Button>
+                }
+            </Card>
+        }
+        else
+        {
+            <Card>
+                <div class="row" style="gap: var(--space-3)">
+                    <Chip Label="LIVE" Tone="var(--color-high)" Style="Chip.ChipStyle.Outlined" />
+                    <span>Computed just now from current evidence. Nothing is frozen yet.</span>
+                </div>
+                <p class="field__help">
+                    A live document changes as the policy, the suppressions and the advisory feeds
+                    change. Freeze it before anyone signs, or the signature attests to a number that
+                    can no longer be reproduced.
+                </p>
+                <Button Disabled="@(!_canExport.Allowed || _doc.Build is null)"
+                        DisabledReason="@_canExport.Reason"
+                        OnClick="Freeze">Freeze this attestation</Button>
+            </Card>
+        }
+
+        @if (_doc.Build is null)
+        {
+            <Card>
+                <div class="row">
+                    <Chip Label="NO EVIDENCE" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                    <span>@_doc.Summary.Headline</span>
+                </div>
+                <p class="field__help">
+                    Every practice below would read as Manual, which is not the same as an attestation
+                    nobody can make yet. Ingest a canonical build first.
+                </p>
+            </Card>
+        }
+        else
+        {
+            <div class="attest__body">
+                <div class="stack">
+                    <Card>
+                        <h2>@_doc.Summary.Headline</h2>
+                        <div class="attest__tiles">
+                            <Tally Glyph="✓" Label="Yes" Value="_doc.Summary.Yes" Tone="var(--color-pass)" />
+                            <Tally Glyph="◐" Label="Partial" Value="_doc.Summary.Partial" Tone="var(--color-high)" />
+                            <Tally Glyph="✕" Label="No" Value="_doc.Summary.No" Tone="var(--color-critical)" />
+                            <Tally Glyph="○" Label="Manual" Value="_doc.Summary.Manual" />
+                        </div>
+                        <p class="field__help">
+                            Manual practices are not failures — they require the signatory's own
+                            attestation from artefacts outside this tool.
+                        </p>
+                    </Card>
+
+                    @foreach (var family in Families)
+                    {
+                        var practices = _doc.Practices.Where(p => p.Family == family.Key).ToArray();
+                        if (practices.Length == 0) continue;
+
+                        <Card Padded="false">
+                            <div class="card-body">
+                                <div class="kicker">@family.Key</div>
+                                <h3>@family.Value</h3>
+                            </div>
+                            @foreach (var practice in practices)
+                            {
+                                <div class="card-body practice">
+                                    <div class="practice__id mono">@practice.Id</div>
+                                    <div class="practice__status">
+                                        <Chip Label="@practice.Status" Tone="@StatusTone(practice.Status)"
+                                              Style="@StatusStyle(practice.Status)"
+                                              Glyph="@StatusGlyph(practice.Status)" />
+                                    </div>
+                                    <div class="practice__text">
+                                        <div><strong>@practice.Label</strong></div>
+                                        <div class="muted" style="font-size: var(--text-secondary)">@practice.Intent</div>
+                                        <div class="practice__evidence mono">@practice.Evidence</div>
+                                    </div>
+                                </div>
+                            }
+                        </Card>
+                    }
+                </div>
+
+                <aside class="stack attest__rail">
+                    <Card>
+                        <div class="kicker">Build stamp</div>
+                        <dl class="stamp">
+                            <dt>Commit</dt>
+                            <dd class="mono">@Short(_doc.Build.CommitSha ?? "—")</dd>
+                            <dt>Version</dt>
+                            <dd class="mono">@_doc.Build.VersionString</dd>
+                            <dt>Built</dt>
+                            <dd class="mono">@_doc.Build.LatestCreatedAt.ToString("yyyy-MM-dd")</dd>
+                            @if (_doc.Risk is { } risk)
+                            {
+                                <dt>Risk score</dt>
+                                <dd class="mono">@risk.Score.ToString("0.0") · @risk.Band</dd>
+                                <dt>Policy</dt>
+                                <dd class="mono">@risk.PolicyName</dd>
+                            }
+                            @if (_doc.Gates is { } gates)
+                            {
+                                <dt>Gates</dt>
+                                <dd class="mono">
+                                    @gates.Passed / @gates.Enabled pass
+                                    @if (gates.Unknown > 0)
+                                    {
+                                        @* An Unknown gate is not a passing gate.
+                                           Folding it into either column is how
+                                           the evidence becomes false. *@
+                                        <span style="color: var(--color-high)"> · @gates.Unknown unknown</span>
+                                    }
+                                    @if (gates.Failed > 0)
+                                    {
+                                        <span style="color: var(--color-critical)"> · @gates.Failed failing</span>
+                                    }
+                                </dd>
+                            }
+                        </dl>
+                    </Card>
+
+                    @if (_doc.Gates is { Results.Count: > 0 } detail)
+                    {
+                        <Card Padded="false">
+                            <div class="card-body"><div class="kicker">Gate verdicts</div></div>
+                            <table class="table">
+                                <tbody>
+                                    @foreach (var gate in detail.Results)
+                                    {
+                                        <tr>
+                                            <td class="mono">@gate.Key</td>
+                                            <td><VerdictMark Verdict="@ParseVerdict(gate.Verdict)" /></td>
+                                            <td class="mono muted" style="font-size: var(--text-secondary)">@gate.Observed</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </Card>
+                    }
+                </aside>
+            </div>
+
+            <Card>
+                <div class="kicker">Signatory attestation</div>
+                <p>
+                    By signing below, I attest that the software identified above is developed in
+                    conformity with the secure software development practices set out in NIST SP
+                    800-218, to the extent recorded in this document. Practices marked Manual are
+                    attested on the basis of artefacts held outside this tool. I understand that
+                    knowingly providing false information is subject to penalty under 18 U.S.C. § 1001.
+                </p>
+                <div class="signature">
+                    <div><span class="signature__rule"></span><span class="kicker">Name and title</span></div>
+                    <div><span class="signature__rule"></span><span class="kicker">Signature</span></div>
+                    <div><span class="signature__rule"></span><span class="kicker">Date</span></div>
+                </div>
+            </Card>
+        }
+    </div>
+}
+
+<Dialog Open="_signing" OpenChanged="v => _signing = v" Title="Record signature" Width="620">
+    <ChildContent>
+        <TextField Label="Name and title" @bind-Value="_signatory"
+                   Help="As it appears on the signed copy. Recorded against this snapshot and in the audit log." />
+        <p class="field__help">
+            A snapshot can only be signed once. A second signature would overwrite the first and leave
+            no record that it existed.
+        </p>
+        @if (_signError is not null)
+        {
+            <p style="color: var(--color-critical)">@_signError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Sign">Record signature</Button>
+        <Button OnClick="() => _signing = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_exporting" OpenChanged="v => _exporting = v" Title="Export attestation" Width="660">
+    <ChildContent>
+        @foreach (var format in AttestationExporter.Formats)
+        {
+            <div class="format @(_format == format.Key ? "format--on" : null)"
+                 @onclick="() => _format = format.Key">
+                <div class="format__mark">@(_format == format.Key ? "●" : "○")</div>
+                <div>
+                    <div><strong>@format.Title</strong></div>
+                    <div class="muted" style="font-size: var(--text-secondary)">@format.Description</div>
+                </div>
+            </div>
+        }
+
+        @if (_format == AttestationFormat.Oscal)
+        {
+            <div class="field">
+                <span class="field__label">OSCAL model</span>
+                <div class="row" style="gap: var(--space-2)">
+                    @foreach (var model in Enum.GetValues<OscalModel>())
+                    {
+                        <span @onclick="() => _oscalModel = model" style="cursor: pointer">
+                            <Chip Label="@ModelLabel(model)" Tone="var(--color-accent)"
+                                  Style="@(_oscalModel == model ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                        </span>
+                    }
+                </div>
+                <span class="field__help">
+                    A bundle emits both models with shared UUIDs, so POA&amp;M items resolve against the
+                    findings the assessment cites. Exporting them separately does not.
+                </span>
+            </div>
+        }
+
+        <p class="field__help mono">
+            @Exporter.FileName(_format, _oscalModel, _doc?.Project.Name ?? "project",
+                               _doc?.Build?.CommitSha)
+        </p>
+
+        @if (_exportError is not null)
+        {
+            <p style="color: var(--color-critical)">@_exportError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Export">Export</Button>
+        <Button OnClick="() => _exporting = false">Cancel</Button>
+        <span class="field__help">Exports are recorded in the audit log.</span>
+    </Footer>
+</Dialog>
 
 @code {
     [Parameter] public string Client { get; set; } = "";
     [Parameter] public string Project { get; set; } = "";
     [Parameter] public string Sha { get; set; } = "";
 
-    private List<KeyValuePair<string, string?>> Params =>
-        [new("client", Client), new("project", Project), new("build", Sha)];
+    private static readonly KeyValuePair<string, string>[] Families =
+    [
+        new("PO", "Prepare the organization"),
+        new("PS", "Protect the software"),
+        new("PW", "Produce well-secured software"),
+        new("RV", "Respond to vulnerabilities"),
+    ];
 
-    protected override void OnParametersSet() => Scope.SetProject(Client, Project, Sha);
+    private ProjectRef? _project;
+    private SsdfAttestationDoc? _doc;
+    private string? _error, _exportError;
+    private AuthorizationDecision _canExport = AuthorizationDecision.Deny("Checking…");
+
+    private StoredAttestation? _stored;
+    private bool _exporting, _signing;
+    private string? _signatory, _signError;
+    private AttestationFormat _format = AttestationFormat.Oscal;
+    private OscalModel _oscalModel = OscalModel.Bundle;
+
+    private ScopeTarget Here =>
+        _project is null
+            ? ScopeTarget.Instance
+            : ScopeTarget.Project(_project.ClientId, _project.ProjectId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project, Sha);
+        _error = null;
+
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project);
+            if (_project is null) return;
+
+            var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
+
+            // A frozen snapshot WINS over a fresh computation. Merging the two
+            // would produce a document that is half history and half present,
+            // which is neither.
+            _stored = sha is null ? null : await Snapshots.LatestForBuildAsync(_project.ProjectId, sha);
+            _doc = _stored?.Document ?? await Builder.BuildAsync(_project.ProjectId, sha);
+
+            _canExport = await Me.CanAsync(Capability.ExportAttestation, Here);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetType().Name;
+        }
+    }
+
+    private async Task Print() => await Js.InvokeVoidAsync("window.print");
+
+    private async Task Freeze()
+    {
+        if (_project is null || _doc is null) return;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) return;
+
+        await Snapshots.CaptureAsync(actor, Here, _project.ProjectId, _doc);
+        await OnParametersSetAsync();
+    }
+
+    private async Task Sign()
+    {
+        if (_project is null || _stored is null) return;
+        _signError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _signError = "You are not signed in."; return; }
+
+        var result = await Snapshots.SignAsync(
+            actor, Here, _project.ProjectId, _stored.Id, _signatory ?? "");
+        if (!result.Success) { _signError = result.Error; return; }
+
+        _signing = false;
+        await OnParametersSetAsync();
+    }
+
+    private async Task Export()
+    {
+        if (_project is null || _doc is null) return;
+        _exportError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _exportError = "You are not signed in."; return; }
+
+        var result = await Exporter.ExportAsync(actor, Here, _doc, _format, _oscalModel);
+        if (!result.Success) { _exportError = result.Error; return; }
+
+        var payload = result.Value!;
+        // Handed to the browser as base64 rather than fetched over a second
+        // request: the document is already built here, and a rebuild could
+        // disagree with what the reader just looked at.
+        await Js.InvokeVoidAsync("tampDownload",
+            payload.FileName, payload.MediaType, Convert.ToBase64String(payload.Content));
+        _exporting = false;
+    }
+
+    private static string Short(string value) => value.Length <= 12 ? value : value[..12];
+
+    private static string ModelLabel(OscalModel model) => model switch
+    {
+        OscalModel.AssessmentResults => "Assessment results",
+        OscalModel.Poam => "POA&M",
+        _ => "Both — bundle",
+    };
+
+    private static GateVerdict ParseVerdict(string verdict) =>
+        Enum.TryParse<GateVerdict>(verdict, out var parsed) ? parsed : GateVerdict.Error;
+
+    private static string StatusTone(string status) => status switch
+    {
+        "Yes" => "var(--color-accent)",
+        "No" => "var(--color-accent-900)",
+        "Partial" => "var(--color-high)",
+        _ => "var(--color-neutral-500)",
+    };
+
+    private static Chip.ChipStyle StatusStyle(string status) =>
+        status is "Yes" or "No" ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined;
+
+    // The glyph is what survives a monochrome print, which is the medium this
+    // document actually ends up in.
+    private static string StatusGlyph(string status) => status switch
+    {
+        "Yes" => "✓",
+        "Partial" => "◐",
+        "No" => "✕",
+        _ => "○",
+    };
 }

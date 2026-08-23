@@ -900,3 +900,99 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
    applying. */
 .table--rows tbody tr.is-retired { opacity: 0.55; cursor: default; }
 .table--rows tbody tr.is-retired:hover { background: transparent; }
+
+/* ---------------------------------------------------------------------------
+   Attestation (TFND-100 … TFND-103)
+
+   The deliverable. Someone signs this and attaches it to a contract package,
+   so the print rules below are not a nicety — the printed copy IS the artefact.
+   --------------------------------------------------------------------------- */
+
+.attest { max-width: 1080px; display: flex; flex-direction: column; gap: var(--space-4); }
+.attest__title { font-size: 30px; }
+
+/* Practices on the left, the build stamp on the right. Collapses below the
+   density floor: this is a reading column plus a sidebar, not a data table, so
+   it reflows rather than claiming the 1.4.10 exception. */
+.attest__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 1180px) { .attest__body { grid-template-columns: 1fr; } }
+
+.attest__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+.tally { display: flex; align-items: center; gap: var(--space-2); }
+.tally__glyph { font-size: 22px; line-height: 1; }
+.tally__value { font-family: var(--font-heading); font-weight: 600; font-size: 26px; line-height: 1; }
+.tally__label {
+  font-size: var(--text-kicker);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-neutral-500);
+}
+
+/* Practice id, status chip, then the stack of label / intent / evidence. The
+   id column is fixed so the ids line up down the page — an assessor reads this
+   by practice number. */
+.practice {
+  display: grid;
+  grid-template-columns: 62px 92px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+@media (max-width: 720px) { .practice { grid-template-columns: 1fr; } }
+.practice__id { font-weight: 600; }
+.practice__evidence {
+  margin-top: var(--space-1);
+  font-size: var(--text-secondary);
+  color: var(--color-neutral-600);
+  overflow-wrap: anywhere;
+}
+
+.stamp { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); margin-top: var(--space-2); }
+.stamp dt { font-size: var(--text-kicker); text-transform: uppercase; letter-spacing: 0.12em; color: var(--color-neutral-500); }
+.stamp dd { font-size: var(--text-secondary); }
+
+.signature { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); margin-top: var(--space-5); }
+.signature__rule { display: block; border-bottom: 1px solid var(--color-neutral-400); height: 28px; margin-bottom: var(--space-1); }
+
+/* Export format cards. A radio mark rather than a real <input> because the
+   whole card is the target — a 3px radio button is not. */
+.format {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-neutral-300);
+  cursor: pointer;
+  margin-bottom: var(--space-2);
+}
+.format--on { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 8%, transparent); }
+.format__mark { color: var(--color-accent); }
+
+@media print {
+  /* The page chrome is navigation. A printed attestation carries none of it,
+     and a sidebar reproduced on paper wastes a third of every sheet. */
+  .sidebar, .app-header, .attest__actions, .overlay { display: none !important; }
+  .app-main, .attest { max-width: none; margin: 0; padding: 0; }
+
+  /* The build stamp belongs ABOVE the practices on paper: a two-column grid
+     splits across page breaks and strands the stamp on its own sheet. */
+  .attest__body { display: block; }
+  .attest__rail { margin-bottom: var(--space-4); }
+
+  /* A practice split across a page break is unreadable, and the signature
+     block on its own page is how an attestation gets signed without its
+     evidence attached. */
+  .practice, .signature, .tally { break-inside: avoid; }
+  .card { border-color: #999; }
+
+  a[href]::after { content: ""; }
+}
