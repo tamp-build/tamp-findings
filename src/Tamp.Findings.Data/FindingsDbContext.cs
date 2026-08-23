@@ -40,6 +40,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<KevAdvisory> KevAdvisories => Set<KevAdvisory>();
     public DbSet<VexStatement> VexStatements => Set<VexStatement>();
     public DbSet<PoamItem> PoamItems => Set<PoamItem>();
+    public DbSet<AttestationSnapshot> AttestationSnapshots => Set<AttestationSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -237,6 +238,20 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => x.Severity);
         });
 
+        b.Entity<AttestationSnapshot>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.CommitSha).HasMaxLength(64).IsRequired();
+            e.Property(x => x.DocumentJson).HasColumnType("jsonb").IsRequired();
+            e.Property(x => x.RiskPolicyName).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Band).HasMaxLength(32).IsRequired();
+            e.Property(x => x.SignedBy).HasMaxLength(256);
+            // Newest first per project is the only access pattern: the screen
+            // asks "is there a snapshot for this build", and the list asks
+            // "what has been generated here".
+            e.HasIndex(x => new { x.ProjectId, x.CommitSha, x.GeneratedAt });
+        });
+
         b.Entity<CoverageReport>(e =>
         {
             e.HasKey(x => x.Id);
@@ -432,6 +447,35 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
                 throw new InvalidOperationException(
                     $"AuditEntry is append-only; attempted to {entry.State.ToString().ToLowerInvariant()} "
                     + $"entry {entry.Entity.Id} ({entry.Entity.Action}). Write a new entry instead.");
+            }
+        }
+
+        // Attestation snapshots are evidence (TFND-103, ADR 0001). An
+        // attestation signed in March must be reproducible in September, and a
+        // snapshot that can be edited is not evidence — so the document itself
+        // is frozen and only the signature fields may ever be filled in.
+        foreach (var entry in ChangeTracker.Entries<AttestationSnapshot>())
+        {
+            if (entry.State == EntityState.Deleted)
+            {
+                throw new InvalidOperationException(
+                    $"AttestationSnapshot {entry.Entity.Id} is immutable; it cannot be deleted. "
+                    + "It is the evidence that a signature was sound.");
+            }
+
+            if (entry.State != EntityState.Modified) continue;
+
+            var mutated = entry.Properties
+                .Where(p => p.IsModified)
+                .Select(p => p.Metadata.Name)
+                .Where(name => name is not (nameof(AttestationSnapshot.SignedAt) or nameof(AttestationSnapshot.SignedBy)))
+                .ToArray();
+
+            if (mutated.Length > 0)
+            {
+                throw new InvalidOperationException(
+                    $"AttestationSnapshot {entry.Entity.Id} is immutable; attempted to change "
+                    + $"{string.Join(", ", mutated)}. Generate a new snapshot instead.");
             }
         }
     }
