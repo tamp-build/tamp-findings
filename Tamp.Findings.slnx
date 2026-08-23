@@ -25,5 +25,6 @@
     <Project Path="tests/Tamp.Findings.Domain.Tests/Tamp.Findings.Domain.Tests.csproj" />
     <Project Path="tests/Tamp.Findings.Application.Tests/Tamp.Findings.Application.Tests.csproj" />
     <Project Path="tests/Tamp.Findings.Api.Tests/Tamp.Findings.Api.Tests.csproj" />
+    <Project Path="tests/Tamp.Findings.Integration.Tests/Tamp.Findings.Integration.Tests.csproj" />
   </Folder>
 </Solution>
