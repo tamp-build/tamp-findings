@@ -66,6 +66,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Explorer.HostAliasService>();
         services.AddScoped<Explorer.RuleBreakdownQuery>();
         services.AddScoped<Explorer.CostsAndLicensesQuery>();
+        // TFND-7 (F6.2): "what pulls this in" — the edges were ingested from
+        // the first SBOM and nothing rendered them.
+        services.AddScoped<Explorer.DependencyPathQuery>();
         services.AddScoped<SystemAdmin.PaidComponentRegistry>();
 
         // TFND-11 (F10.5): reopening findings whose suppression has lapsed. In
