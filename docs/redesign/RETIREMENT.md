@@ -72,6 +72,35 @@ line.
 - The preview auth bypass in `AuthEndpoints.cs`, which the ticket required not outlive the port. It
   was removed earlier, when the user confirmed it was no longer needed.
 
+## Found afterwards (TFND-131)
+
+The parity audit above covered `web/src`. It did not cover the BUILD, and three
+things in `build/Build.cs` pointed at the deleted directory:
+
+- **`SecurityScanAxeCore`** resolved `@axe-core/cli` out of `web/`'s
+  devDependencies. With `web/` gone it reported "not installed" and skipped —
+  so a scan that had been running stopped running, silently, and the
+  accessibility evidence TFND-27 depends on quietly stopped arriving. The
+  tooling now lives in `build/tools/node/`, which holds no application, only
+  the two CLIs the build shells out to. This repository has no JavaScript
+  application any more, but it still has a browser-rendered UI that Section 508
+  applies to.
+- **`SecurityScanAxeCore`'s default URL** rewrote `:5080` to `:5173` to reach
+  the Vite dev server. That server is not started any more, so the default
+  pointed at nothing. The app and the API are one host now.
+- **`TestSpa`** and the Vitest coverage ingest leg ran against `web/`. Removed
+  with `VitestCoverageIngestMapper`, which nothing called afterwards. Leaving
+  the ingest leg in would have kept a `web` flavor on the dashboard whose
+  coverage silently stopped updating, and a stale number is worse than an
+  absent one.
+
+`SecurityScanEslint` was KEPT and re-pointed. It degrades to a skip when no
+JavaScript source tree is present, which is the correct behaviour for a
+multi-tenant product where another project may well have one.
+
+The lesson worth recording: a retirement audit that reads the application tree
+and not the build will miss the scans that were feeding it.
+
 ## Localisation
 
 The React catalogue had no untranslated survivors to carry over: the SPA shipped `en` only, and the
