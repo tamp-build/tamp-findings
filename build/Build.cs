@@ -20,6 +20,7 @@ using Tamp.Zap;
 using ZapCli = Tamp.Zap.Zap;
 using Tamp.Nuclei;
 using NucleiCli = Tamp.Nuclei.Nuclei;
+using System.Text.Json;
 using Tamp.Docker.V27;
 using DockerCli = Tamp.Docker.V27.Docker;
 using Tamp.Kubectl;
@@ -628,6 +629,136 @@ class Build : SecurityPipelineBuild
     }
 
     // ----- Ingestion -------------------------------------------------------
+
+    Target InspectContainerImage => _ => _
+        .Description("TFND-134: inspect the built image and its base, then POST both to /ingest/container-image. Requires trivy on PATH and the API up. Run DockerBuildImage first.")
+        .Executes(async () =>
+        {
+            var ctx = BuildIngestContext();
+
+            if (string.IsNullOrWhiteSpace(IngestToken))
+            {
+                throw new InvalidOperationException(
+                    "TAMP_FINDINGS_INGEST_TOKEN is not set. Mint a cli_/prj_ token under the "
+                  + "project's Settings > Ingest tokens and put it in repo-root .env (gitignored).");
+            }
+
+            if (Tool.TryFromPath("trivy", RootDirectory.Value) is null)
+            {
+                throw new InvalidOperationException(
+                    "trivy is not on PATH. Install it (winget/brew/apt) — this target reads image "
+                  + "metadata, so it needs no vulnerability database and runs in about a second.");
+            }
+
+            SecurityArtifactsDir.CreateDirectory();
+
+            // The image we just built. LOCAL on purpose: it may not be pushed
+            // yet, so there is nothing in a registry to read.
+            var appReport = (SecurityArtifactsDir / "container-image.json").Value;
+            RunTrivy(ContainerImageInspector.InspectArgs(ImageRefShaTag, appReport, remoteOnly: false));
+            var app = ContainerImageInspector.Parse(File.ReadAllText(appReport));
+
+            Console.WriteLine($"[image] {app.Reference}  built {app.Created:yyyy-MM-dd}  {app.OsFamily} {app.OsVersion}");
+
+            // The base image, from the Dockerfile's FINAL stage — the earlier
+            // SDK stage is a compiler that never ships, and scoring its age
+            // would report a number about something nobody deploys.
+            var baseRef = ContainerImageInspector.BaseImageOf(File.ReadAllText(RootDirectory / "Dockerfile"));
+
+            ImageFacts? baseImage = null;
+            if (baseRef is null)
+            {
+                Console.WriteLine("[image] base   — could not read a base image from the Dockerfile; reporting it as unidentified rather than guessing");
+            }
+            else
+            {
+                // REMOTE on purpose, and this is the one that bites. Trivy
+                // prefers a local daemon copy, so a cached tag answers with the
+                // date the cache was filled rather than the date the tag points
+                // at now. Measured here: aspnet:10.0-alpine read 2026-05-12
+                // from the daemon and 2026-08-10 from the registry — ninety
+                // days, in the direction of making a current base look
+                // neglected.
+                var baseReport = (SecurityArtifactsDir / "container-base-image.json").Value;
+                RunTrivy(ContainerImageInspector.InspectArgs(baseRef, baseReport, remoteOnly: true));
+                baseImage = ContainerImageInspector.Parse(File.ReadAllText(baseReport));
+
+                Console.WriteLine($"[image] base   {baseRef}  published {baseImage.Created:yyyy-MM-dd}  {baseImage.OsFamily} {baseImage.OsVersion}");
+            }
+
+            var client = new IngestClient(IngestUrl, IngestToken);
+            var payload = new ContainerImageIngestRequestDto(
+                Client: ctx.Client,
+                Project: ctx.Project,
+                Component: ctx.Component,
+                ComponentKind: ctx.ComponentKind,
+                Flavor: ctx.Flavor,
+                Version: ctx.Version,
+                CommitSha: ctx.CommitSha,
+                Branch: ctx.Branch,
+                BuildId: ctx.BuildId,
+                PullRequestRef: ctx.PullRequestRef,
+                Reference: app.Reference ?? ImageRefShaTag,
+                Digest: app.Digest,
+                CreatedAt: app.Created,
+                OsFamily: app.OsFamily,
+                OsVersion: app.OsVersion,
+                SizeBytes: app.SizeBytes,
+                BaseImageReference: baseRef,
+                BaseImageDigest: baseImage?.Digest,
+                BaseImageCreatedAt: baseImage?.Created);
+
+            var resp = await client.PostContainerImageAsync(payload);
+
+            var age = resp.TryGetProperty("baseImageAgeInDays", out var a) && a.ValueKind != JsonValueKind.Null
+                ? a.GetInt32().ToString()
+                : "unknown";
+            Console.WriteLine($"[ingest] Image      → base age {age} day(s)");
+
+            // The API says what is MISSING rather than only returning 200. A
+            // pipeline author who thinks they wired this up and did not should
+            // find out from the call that was supposed to do it, not from a
+            // gate reading Unknown three weeks later.
+            if (resp.TryGetProperty("note", out var note) && note.ValueKind == JsonValueKind.String)
+                Console.WriteLine($"[ingest] Image      ! {note.GetString()}");
+        });
+
+    /// <summary>
+    /// Run trivy with the argv Tamp.Trivy.InspectImage produces.
+    ///
+    /// Direct rather than through the wrapper only because the InspectImage API
+    /// is unreleased (TAM-282, Tamp.Trivy 1.11.2). Switch to
+    /// <c>Trivy.InspectImage(s =&gt; s.SetImageRef(r).SetRemoteOnly())</c> and
+    /// delete ContainerImageInspector once the package ships.
+    /// </summary>
+    void RunTrivy(string[] args)
+    {
+        // A CommandPlan rather than a Tool invocation, because ONE of these
+        // arguments is the empty string (--scanners "") and that is what makes
+        // this a metadata read rather than a scan. Joining argv into a command
+        // line would drop it, Trivy would fall back to its default scanners,
+        // and the "instant" inspect would quietly become a full vulnerability
+        // scan with a database download attached.
+        var plan = new CommandPlan
+        {
+            Executable = "trivy",
+            Arguments = args,
+            WorkingDirectory = RootDirectory.Value,
+        };
+
+        var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
+        if (rc == 0) return;
+
+        // The overwhelmingly likely cause is a target that was never built,
+        // and Trivy reports that as four stacked socket errors (docker,
+        // containerd, podman, remote) which bury the one line that matters.
+        // Naming the fix beats making somebody read all four.
+        throw new Exception(
+            $"trivy exited with {rc}. If the image was not found, build it first: "
+          + "`dotnet run --project build -- DockerBuildImage`. If a BASE image was not found, "
+          + "check the reference resolves from the registry — this target reads bases remotely "
+          + "on purpose, so a stale local copy cannot answer with the wrong publish date.");
+    }
 
     Target Ingest => _ => _
         .Description("POST every artifact under artifacts/security/ to the running tamp.findings API. Run ScanAll first to produce the artifacts; the API process must be up.")
