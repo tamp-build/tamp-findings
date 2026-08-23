@@ -96,6 +96,35 @@ Seven endpoints, all bearer-token gated:
 
 A `cli_*` token authorizes ingest under any project beneath one client; a `prj_*` token is locked to one project. Mint on the project's Ingest tokens tab (Settings > Ingest tokens); store in repo-root `.env` as `TAMP_FINDINGS_INGEST_TOKEN=cli_...` (gitignored). The Nuke build picks it up automatically.
 
+## Agent access (MCP)
+
+The instance serves a read-only [MCP](https://modelcontextprotocol.io) endpoint at `/mcp`, so an agent can pull findings and code context while it is fixing something instead of being pasted a screenshot of them.
+
+**Off by default.** An administrator turns it on under **System > Instance settings**, and that switch is the kill switch: turning it off closes the door in one action without revoking anything, so tokens survive a pause.
+
+Tokens are minted per project under **Settings > Agent access**:
+
+```
+claude mcp add --transport http tamp-findings https://findings.example/mcp \
+  --header "Authorization: Bearer mcp_..."
+```
+
+| Tool | Answers |
+|---|---|
+| `list_scope` | Which clients, projects and components this token reaches |
+| `get_findings` | Open findings, worst first, filterable by severity / scanner / commit / path |
+| `get_finding` | One finding in full, with surrounding source where the instance holds it |
+| `get_dependencies` | A component's SBOM as packages plus flat parent→child edges, advisories attached |
+| `get_suppressions` | What has already been muted and why — suppressions and VEX together |
+
+Three properties worth stating, because they are the design:
+
+- **Read only.** There is no write path. An agent that could file a suppression could retire the finding it was asked to fix.
+- **Scoped down, never up.** A component token cannot see its siblings; a project token sees all its components; a client token sees that client's whole tree. Nothing reaches another client.
+- **Same authorization as a person.** A token carries a `ProjectRole` and every read goes through the same `CapabilityEvaluator` a human's does — the tools do not have their own rules to get wrong. `InfoSecOfficer` cannot be minted, because it carries `AcceptRisk` and an agent must not be a route around an Authorizing Official's signature.
+
+Tokens expire (90 days by default), the plaintext is shown once, and minting and revoking are both recorded as access-class audit entries.
+
 ## Federal-readiness coverage
 
 | NIST SSDF (SP 800-218) practice | Evidence |
