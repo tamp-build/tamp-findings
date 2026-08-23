@@ -72,6 +72,8 @@ else
                 <div class="card-body poam-stats">
                     <Stat Label="Packages" Value="@_data.DistinctPackages" />
                     <Stat Label="Paid products" Value="@_data.Paid.Count" />
+                    <Stat Label="Unapproved" Value="@_data.UnapprovedProducts"
+                          Tone="@(_data.UnapprovedProducts > 0 ? "var(--color-critical)" : null)" />
                     <Stat Label="Needing review" Value="@NeedingReview"
                           Tone="@(NeedingReview > 0 ? "var(--color-high)" : null)" />
                     @* Unknown is toned like a problem, because it is one. A
@@ -87,6 +89,31 @@ else
                     </p>
                 </div>
             </Card>
+
+            @if (_data.UnapprovedProducts > 0)
+            {
+                @* TFND-10 (F9.3). A licence somebody has to buy, in a build
+                   nobody approved it for, is a procurement problem before it is
+                   a security one — and unlike the cost figures below, this one
+                   is not an estimate. The policy says approval is required and
+                   these vendors do not have it. *@
+                <Card>
+                    <div class="row">
+                        <Chip Label="@($"{_data.UnapprovedProducts} UNAPPROVED")"
+                              Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                        <span>
+                            Paid @(_data.UnapprovedProducts == 1 ? "component is" : "components are")
+                            in use that this project's risk policy has not approved.
+                        </span>
+                    </div>
+                    <p class="field__help">
+                        The policy requires paid components to be approved by vendor. Either add the
+                        vendor to the policy's approved list, or remove the dependency — a build
+                        shipping a licence nobody signed off is a commitment somebody made on the
+                        organisation's behalf.
+                    </p>
+                </Card>
+            }
 
             @* ---- Paid components ---------------------------------------- *@
             <Card Padded="false">
@@ -169,6 +196,16 @@ else
                                         <td>@product.Vendor</td>
                                         <td>
                                             @product.Product
+                                            @if (!product.Approved)
+                                            {
+                                                <Chip Label="NOT APPROVED" Tone="var(--color-critical)"
+                                                      Style="Chip.ChipStyle.Solid" />
+                                            }
+                                            else if (product.ApprovalRequired)
+                                            {
+                                                <Chip Label="APPROVED" Tone="var(--color-pass)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
                                             @if (product.SupportEnded)
                                             {
                                                 <Chip Label="SUPPORT ENDED" Tone="var(--color-critical)"
