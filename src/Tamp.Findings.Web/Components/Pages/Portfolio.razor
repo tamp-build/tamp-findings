@@ -3,13 +3,149 @@
    `@page "/"` here and update Routes.Portfolio. *@
 @page "/portfolio"
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject RouteScope Scope
+@* Named Query, not Portfolio: an injected member cannot share the
+   component's own type name. *@
+@inject PortfolioQuery Query
+@inject NavigationManager Nav
 
 <PageTitle>Portfolio — tamp.findings</PageTitle>
 
-<Placeholder Title="Portfolio" Ticket="TFND-84"
-             Description="Which project is worst right now. Worst-posture-first, where 'no canonical build in 41 days' is a first-class blocking reason." />
+<div class="stack">
+    <div>
+        <h1>Portfolio</h1>
+        <p class="muted">Which project is worst right now.</p>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="muted">Loading…</p>
+    }
+    else if (_error is not null)
+    {
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not load the portfolio.</span>
+            </div>
+            <p class="field__help">Posture is unknown, not clean. @_error</p>
+        </Card>
+    }
+    else if (_rows.Count == 0)
+    {
+        <Card>
+            <p class="muted">No projects yet.</p>
+        </Card>
+    }
+    else
+    {
+        <Card Padded="false">
+            <ScrollBox Label="Portfolio">
+                <table class="table table--rows">
+                    <thead>
+                        <tr>
+                            <th>Project</th><th>Client</th><th class="align-end">Score</th>
+                            <th>Band</th><th>Ship</th><th>Blocking</th><th>Last build</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _rows)
+                        {
+                            <tr @onclick="() => Open(row)">
+                                <td style="font-family: var(--font-heading); font-weight: 600; font-size: var(--text-emphasis)">
+                                    @row.ProjectName
+                                </td>
+                                <td>@row.ClientName</td>
+                                <td class="num align-end">@(row.Score?.ToString("F1") ?? "—")</td>
+                                <td>
+                                    @if (row.Band is { } band)
+                                    {
+                                        @* The band name is always written out — never
+                                           colour alone. *@
+                                        <Chip Label="@band" Tone="@BandTone(band)" />
+                                    }
+                                    else
+                                    {
+                                        <span class="muted">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    @switch (row.Ship)
+                                    {
+                                        case ShipState.Blocked:
+                                            <Chip Label="Blocked" Tone="var(--color-critical)"
+                                                  Style="Chip.ChipStyle.Solid" Glyph="✕" />
+                                            break;
+                                        case ShipState.NoScan:
+                                            <Chip Label="No scan" Tone="var(--color-medium)"
+                                                  Style="Chip.ChipStyle.Dashed" Glyph="?" />
+                                            break;
+                                        default:
+                                            <Chip Label="Clear" Tone="var(--color-pass)" Glyph="✓" />
+                                            break;
+                                    }
+                                </td>
+                                <td class="portfolio__blocking">
+                                    @* Named in prose. "3 blocking" tells a security lead
+                                       nothing they can act on. *@
+                                    @(row.Blocking.Count == 0 ? "—" : string.Join("; ", row.Blocking))
+                                </td>
+                                <td class="mono">
+                                    @if (row.LastBuild is { } at)
+                                    {
+                                        <span style="@(row.IsStale ? "color: var(--color-high)" : null)">
+                                            @at.ToString("yyyy-MM-dd")
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="muted">never</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </ScrollBox>
+        </Card>
+
+        <p class="field__help">
+            Ordered worst-posture-first. A project with a green score and no recent scan is not
+            healthy, so staleness blocks alongside a failing gate.
+        </p>
+    }
+</div>
 
 @code {
-    protected override void OnInitialized() => Scope.Clear();
+    private IReadOnlyList<PortfolioRow> _rows = [];
+    private bool _loading = true;
+    private string? _error;
+
+    private static string BandTone(string band) => band switch
+    {
+        "green" => "var(--color-band-green)",
+        "yellow" => "var(--color-band-yellow)",
+        "orange" => "var(--color-band-orange)",
+        _ => "var(--color-band-red)",
+    };
+
+    private void Open(PortfolioRow row) =>
+        Nav.NavigateTo(Routes.ProjectHub(row.ClientName, row.ProjectName));
+
+    protected override async Task OnInitializedAsync()
+    {
+        Scope.Clear();
+        try
+        {
+            _rows = await Query.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // Same rule as the hub: a screen that reports posture must never
+            // imply a clean one it could not measure.
+            _error = ex.GetType().Name;
+        }
+        _loading = false;
+    }
 }
