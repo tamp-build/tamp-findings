@@ -42,7 +42,16 @@ public sealed record RiskInputs(
     // any policy that predates the dast categories — compile and score
     // unchanged.
     int DastCritical = 0, int DastHigh = 0, int DastMedium = 0, int DastLow = 0,
-    bool RanDast = false);
+    bool RanDast = false,
+    // TFND-33 … TFND-37 — design and maintainability findings: OpenAPI lint,
+    // breaking-change detection, mutation testing, architecture rules.
+    //
+    // A SEPARATE bucket from SAST, and the separation is the point: an OpenAPI
+    // style nit reported as High must never reach the criticalSast gate, or a
+    // team learns to turn that gate off. No Critical bucket, because none of
+    // these five tools finds something that stops a release on its own.
+    int QualityHigh = 0, int QualityMedium = 0, int QualityLow = 0,
+    bool RanQuality = false);
 
 public sealed record RiskCategoryBreakdown(
     string Key,
@@ -214,6 +223,15 @@ public static class RiskScorer
             case RiskCategoryNames.DastSevere:
                 return i.DastCritical * Get("critical")
                      + i.DastHigh     * Get("high");
+
+            case RiskCategoryNames.Quality:
+                // Severity-weighted like the other finding categories, but with
+                // its own weights so an architecture violation and a critical
+                // CVE are not implicitly equated. Saturates at "count × weight
+                // reaches 1", the same shape as sastSevere.
+                return i.QualityHigh   * Get("high")
+                     + i.QualityMedium * Get("medium")
+                     + i.QualityLow    * Get("low");
 
             case RiskCategoryNames.IacSevere:
                 return i.IacCritical * Get("critical")
