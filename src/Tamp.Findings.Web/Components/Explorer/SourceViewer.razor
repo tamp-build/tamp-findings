@@ -7,17 +7,31 @@
 
    THE ROW HEIGHT IS ON THE ROW, NOT THE CODE SPAN. The hand-off calls this out
    specifically: an empty line in a baseline-aligned flex row otherwise
-   collapses, and the gutter stops lining up with the code. *@
+   collapses, and the gutter stops lining up with the code.
+
+   The coverage spine reuses this viewer with a covered/uncovered gutter in
+   place of the severity mark. Same component on purpose: a reader who has
+   learned to read one has learned to read both, and the alternative was a
+   second viewer that would drift from this one. *@
 
 <div class="source">
     <Virtualize TItem="SourceLine" Items="Lines" Context="line" ItemSize="22">
-        <div class="source__row @(MarkFor(line.Number) is not null ? "source__row--flagged" : null)"
+        <div class="source__row @(MarkFor(line.Number) is not null || CoverageFor(line.Number) is false ? "source__row--flagged" : null)"
              style="@RowStyle(line.Number)" id="L@(line.Number)">
             @* Not selectable: copying a block of code should give the code,
                not the code with a line number welded to every line. *@
             <span class="source__gutter" aria-hidden="true">@line.Number</span>
             <span class="source__mark">
-                @if (MarkFor(line.Number) is { } severity)
+                @if (CoverageFor(line.Number) is { } covered)
+                {
+                    @* '+' and '−' carry the meaning on their own, so the
+                       gutter survives a monochrome print and a colour-blind
+                       reader — the same three-signal rule the severity ladder
+                       follows. *@
+                    <span style="color: @(covered ? "var(--color-pass)" : "var(--color-critical)")"
+                          aria-label="@(covered ? "covered" : "not covered")">@(covered ? "+" : "−")</span>
+                }
+                else if (MarkFor(line.Number) is { } severity)
                 {
                     <SeverityBadge Severity="severity" />
                 }
@@ -35,10 +49,36 @@
     [Parameter] public IReadOnlyDictionary<int, Severity> Flagged { get; set; } =
         new Dictionary<int, Severity>();
 
+    /// <summary>
+    /// Executable lines the tests visited. Lines in NEITHER set are
+    /// non-executable — comments, blanks, declarations — and stay unmarked.
+    /// Treating them as uncovered would tint half a well-tested file red.
+    /// </summary>
+    [Parameter] public IReadOnlySet<int>? Covered { get; set; }
+
+    /// <summary>Executable lines the tests did not visit.</summary>
+    [Parameter] public IReadOnlySet<int>? Uncovered { get; set; }
+
     private Severity? MarkFor(int line) => Flagged.TryGetValue(line, out var s) ? s : null;
+
+    private bool? CoverageFor(int line)
+    {
+        if (Covered?.Contains(line) == true) return true;
+        if (Uncovered?.Contains(line) == true) return false;
+        return null;
+    }
 
     private string? RowStyle(int line)
     {
+        // An uncovered line gets the same 13% tint the flagged line does, so
+        // the two viewers scan identically.
+        if (CoverageFor(line) is false)
+        {
+            return "background: color-mix(in srgb, var(--color-critical) 13%, transparent);"
+                 + " border-left-color: var(--color-critical)";
+        }
+        if (CoverageFor(line) is true) return null;
+
         if (MarkFor(line) is not { } severity) return null;
         var colour = Tone(severity);
         // 13% tint, 3px border, both in the severity's own colour — so the

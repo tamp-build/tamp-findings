@@ -1,0 +1,126 @@
+@* SBOM detail: the "Known vulnerabilities" table.
+
+   The VEX cell is the workflow, not a status readout. A CVE with no statement
+   is an unanswered question, so it renders as an invitation to answer it —
+   "no VEX — write one →" — rather than as an empty cell.
+
+   The subtler case is a statement that exists but does not relieve anything: a
+   NotAffected with no justification. Scoring ignores it (VexResolver), so the
+   table has to as well, or someone writes half a statement, sees it echoed
+   back, and believes the CVE is handled. *@
+
+<ScrollBox Label="Known vulnerabilities">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Advisory</th>
+                <th>Severity</th>
+                <th class="align-end">CVSS</th>
+                <th>KEV</th>
+                <th>Fixed in</th>
+                <th>VEX</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var vuln in Vulnerabilities)
+            {
+                <tr>
+                    <td>
+                        <div class="mono">
+                            @if (vuln.ReferenceUrl is { Length: > 0 } url)
+                            {
+                                <a href="@url" target="_blank" rel="noopener noreferrer">@vuln.AdvisoryId</a>
+                            }
+                            else
+                            {
+                                @vuln.AdvisoryId
+                            }
+                        </div>
+                        @if (vuln.Title is { Length: > 0 } title)
+                        {
+                            <div class="muted" style="font-size: var(--text-secondary)">@title</div>
+                        }
+                    </td>
+                    <td><SeverityBadge Severity="vuln.Severity" ShowName="true" /></td>
+                    <td class="num align-end">
+                        @if (vuln.CvssScore is { } score)
+                        {
+                            @* The vector as a tooltip: a bare score is an
+                               assertion, the vector is a basis. *@
+                            <span title="@vuln.CvssVector">@score.ToString("0.0")</span>
+                        }
+                        else
+                        {
+                            <span class="muted">—</span>
+                        }
+                    </td>
+                    <td>
+                        @if (vuln.KevListed)
+                        {
+                            @* Solid, not outlined. Being exploited in the wild
+                               today is the loudest fact on this row. *@
+                            <Chip Label="KEV" Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" />
+                        }
+                        else
+                        {
+                            <span class="muted">—</span>
+                        }
+                    </td>
+                    <td class="mono">
+                        @if (vuln.FixedInVersion is { Length: > 0 } fixedIn)
+                        {
+                            @fixedIn
+                        }
+                        else
+                        {
+                            <span class="muted" title="No fixed version published">—</span>
+                        }
+                    </td>
+                    <td>
+                        <a href="@VexLink(vuln)" style="@VexStyle(vuln)">@VexLabel(vuln) →</a>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</ScrollBox>
+
+@if (Vulnerabilities.Count == 0)
+{
+    <div class="card-body">
+        <p class="muted">No known vulnerabilities against this dependency.</p>
+        <p class="field__help">
+            That is what the scanners that ran reported. A dependency nobody scanned would show the
+            same empty table — the scan receipts on the project hub say which it is.
+        </p>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<SbomVulnerability> Vulnerabilities { get; set; } = [];
+    [Parameter, EditorRequired] public string Client { get; set; } = "";
+    [Parameter, EditorRequired] public string Project { get; set; } = "";
+    [Parameter, EditorRequired] public string Purl { get; set; } = "";
+
+    private string VexLink(SbomVulnerability vuln) =>
+        Routes.VexStatement(Client, Project, Purl, vuln.AdvisoryId);
+
+    // Three states, because there are three: no statement, a statement that
+    // relieves the CVE, and a statement that does not.
+    private static string VexLabel(SbomVulnerability vuln) => vuln.VexStatus switch
+    {
+        null => "no VEX — write one",
+        VexStatementStatus.NotAffected when !vuln.VexSuppresses => "not_affected — needs a justification",
+        VexStatementStatus.NotAffected => "not_affected",
+        VexStatementStatus.Fixed => "fixed",
+        VexStatementStatus.Affected => "affected",
+        VexStatementStatus.UnderInvestigation => "under investigation",
+        _ => "VEX",
+    };
+
+    // Amber for anything still open: no statement, an unjustified
+    // not_affected, or a triage that has not concluded. All three leave the
+    // CVE counting against the project, and the colour should match that.
+    private static string VexStyle(SbomVulnerability vuln) =>
+        vuln.VexSuppresses ? "color: var(--color-accent-700)" : "color: var(--color-high)";
+}
