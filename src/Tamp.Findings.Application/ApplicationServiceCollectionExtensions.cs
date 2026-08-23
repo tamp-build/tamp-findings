@@ -61,6 +61,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Poam.PoamQuery>();
         services.AddScoped<Poam.PoamService>();
         services.AddScoped<Vex.VexQuery>();
+        services.AddScoped<Attestation.SsdfAttestationBuilder>();
+        services.AddScoped<Attestation.AttestationExporter>();
+        services.AddScoped<Attestation.AttestationSnapshotService>();
         services.AddScoped<Ingest.IngestTokenService>();
         services.AddScoped<Projects.ProjectKeyService>();
 
