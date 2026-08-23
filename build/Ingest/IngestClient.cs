@@ -67,6 +67,15 @@ public sealed class IngestClient
         return await ReadResponseAsync(resp, ct);
     }
 
+    /// <summary>
+    /// TFND-134: the image this build produced, and the base image behind it.
+    /// </summary>
+    public async Task<JsonElement> PostContainerImageAsync<TPayload>(TPayload payload, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("/ingest/container-image", payload, JsonOptions, ct);
+        return await ReadResponseAsync(resp, ct);
+    }
+
     public async Task<JsonElement> PostScanRunsAsync<TPayload>(TPayload payload, CancellationToken ct = default)
     {
         var resp = await _http.PostAsJsonAsync("/ingest/scan-runs", payload, JsonOptions, ct);
