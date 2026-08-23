@@ -75,6 +75,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Approvals.ApprovalService>();
         services.AddScoped<Projects.ClientQuery>();
         services.AddScoped<Ingest.IngestTokenService>();
+        services.AddScoped<Ingest.CveReconciler>();
         services.AddScoped<Projects.ProjectKeyService>();
 
         return services;

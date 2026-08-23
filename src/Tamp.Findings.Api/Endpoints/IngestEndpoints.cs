@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.Ingest;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
@@ -21,7 +22,9 @@ public static class IngestEndpoints
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(IngestRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(
+        IngestRequest req, HttpContext ctx, FindingsDbContext db,
+        CveReconciler reconciler, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project is required");
@@ -147,6 +150,7 @@ public static class IngestEndpoints
                 current.Line = f.Line;
                 current.Snippet = f.Snippet;
                 current.SubCategory = f.SubCategory;
+                current.Purl = f.Purl;
 
                 if (prev == FindingStatus.Accepted)
                 {
@@ -178,6 +182,7 @@ public static class IngestEndpoints
                 queued.Line = f.Line;
                 queued.Snippet = f.Snippet;
                 queued.SubCategory = f.SubCategory;
+                queued.Purl = f.Purl;
                 updated++;
             }
             else
@@ -195,6 +200,7 @@ public static class IngestEndpoints
                     Line = f.Line,
                     Snippet = f.Snippet,
                     SubCategory = f.SubCategory,
+                    Purl = f.Purl,
                     FirstSeen = now,
                     LastSeen = now,
                 };
@@ -224,6 +230,17 @@ public static class IngestEndpoints
         }
 
         await db.SaveChangesAsync(ct);
-        return Results.Ok(new IngestResponse(version.Id, inserted, updated, reopened, closed, suppressed));
+        // TFND-16: dependency scanners report CVEs as findings, while Grype
+        // reports them as Vulnerability rows through the SBOM path. Reconciling
+        // here gives each (component, advisory) pair one source of truth
+        // instead of a count that depends on which scanner happened to see it.
+        //
+        // Runs on BOTH ingest paths because the order is not guaranteed — this
+        // batch may arrive before the SBOM that gives it something to attach to.
+        var reconciled = await reconciler.ReconcileAsync([version.Id], ct);
+
+        return Results.Ok(new IngestResponse(
+            version.Id, inserted, updated, reopened, closed, suppressed,
+            reconciled.Attached, reconciled.Unattached));
     }
 }
