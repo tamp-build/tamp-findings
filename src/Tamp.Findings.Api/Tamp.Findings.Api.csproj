@@ -17,6 +17,10 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- TFND-12: the MCP endpoint is served by this host, in process. Tools
+         reach the Application layer directly, so an agent's read goes through
+         the same CapabilityEvaluator a human's does. -->
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,6 +29,7 @@
     <ProjectReference Include="..\Tamp.Findings.Application\Tamp.Findings.Application.csproj" />
     <ProjectReference Include="..\Tamp.Findings.Web\Tamp.Findings.Web.csproj" />
     <ProjectReference Include="..\Tamp.Findings.Workflows\Tamp.Findings.Workflows.csproj" />
+    <ProjectReference Include="..\Tamp.Findings.Mcp\Tamp.Findings.Mcp.csproj" />
   </ItemGroup>
 
 </Project>

@@ -45,6 +45,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<AttestationSnapshot> AttestationSnapshots => Set<AttestationSnapshot>();
     public DbSet<PendingApproval> PendingApprovals => Set<PendingApproval>();
     public DbSet<IdentityProvider> IdentityProviders => Set<IdentityProvider>();
+    public DbSet<McpToken> McpTokens => Set<McpToken>();
 
     /// <summary>
     /// ASP.NET Data Protection key ring (TFND-111).
@@ -275,6 +276,17 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasOne(x => x.SbomComponent).WithMany(c => c.Vulnerabilities).HasForeignKey(x => x.SbomComponentId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.SbomComponentId, x.AdvisoryId }).IsUnique();
             e.HasIndex(x => x.Severity);
+        });
+
+        b.Entity<McpToken>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.TokenHash).HasMaxLength(64).IsRequired();
+            // The hash IS the lookup key on every agent request, so it is
+            // unique and indexed rather than scanned.
+            e.HasIndex(x => x.TokenHash).IsUnique();
+            e.HasIndex(x => new { x.ClientId, x.ProjectId, x.ComponentId });
         });
 
         b.Entity<IdentityProvider>(e =>

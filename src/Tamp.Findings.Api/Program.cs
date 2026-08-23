@@ -197,6 +197,32 @@ builder.Services.AddFindingsApplication();
 // scope-check resolved Client/Project against it.
 builder.Services.AddScoped<Tamp.Findings.Api.Authentication.IngestAuthFilter>();
 
+// TFND-12 (F11): the MCP server, hosted IN THIS PROCESS.
+//
+// In-process rather than a sidecar so the tools call the Application layer
+// directly (ADR 0002) — an agent's read goes through the same
+// CapabilityEvaluator a human's does. A separate host would need its own copy
+// of that decision, and two copies drift.
+//
+// Registering it is not the same as serving it: the endpoint is gated on the
+// McpEnabled instance setting, which is off until an operator turns it on.
+builder.Services.AddMcpServer(options =>
+    {
+        options.ServerInfo = new ModelContextProtocol.Protocol.Implementation
+        {
+            Name = "tamp.findings",
+            Version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0",
+        };
+    })
+    // Stateless, and that is load-bearing rather than incidental: the agent's
+    // identity lives on a SCOPED AgentContext that the auth middleware fills in
+    // per request, so a tool and the middleware that authorised it have to share
+    // one DI scope. A long-lived session would put them in different scopes and
+    // AgentContext.Require() would throw — loudly, which is the right failure,
+    // but do not turn sessions on without moving the identity with them.
+    .WithHttpTransport(options => options.Stateless = true)
+    .WithTools<Tamp.Findings.Mcp.FindingsTools>();
+
 var app = builder.Build();
 
 // Run pending migrations on startup so adopters don't need to remember
@@ -319,6 +345,19 @@ app.UseRequestLocalization(new Microsoft.AspNetCore.Builder.RequestLocalizationO
 app.UseAuthentication();
 app.UseAuthorization();
 
+// TFND-12: bearer-token auth for the agent surface, attached to the PATH
+// BRANCH rather than to each mapped route.
+//
+// MapMcp registers more than one route — the stream, and the POST that rides it
+// — so a per-route filter would be one SDK upgrade away from leaving one
+// uncovered. A branch covers whatever the SDK maps, today and after.
+//
+// It runs BEFORE the transport, so a bad token never reaches a tool and never
+// opens a stream.
+app.UseWhen(
+    ctx => ctx.Request.Path.StartsWithSegments("/mcp"),
+    branch => branch.UseMiddleware<Tamp.Findings.Api.Authentication.McpAuthMiddleware>());
+
 app.UseAntiforgery();
 app.MapOpenApi().AllowAnonymous();
 
@@ -342,6 +381,15 @@ app.MapAuth();
 
 // Ingest-token CRUD — SPA-facing, behind the cookie-auth fallback.
 app.MapIngestTokens();
+
+// TFND-12: the agent surface.
+//
+// AllowAnonymous at the ENDPOINT because this path carries its own bearer-token
+// auth (see McpAuthMiddleware, branched onto /mcp above). Without it the host's
+// cookie fallback policy would answer an agent with a sign-in redirect it
+// cannot follow, and the failure would look like a broken server rather than a
+// bad token.
+app.MapMcp("/mcp").AllowAnonymous();
 
 // Ingest endpoints — anonymous. Build script + future CI runners post to
 // these from outside a browser; bearer-token auth for them is TFND-4

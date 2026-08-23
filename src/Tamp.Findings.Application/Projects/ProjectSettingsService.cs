@@ -139,6 +139,20 @@ public sealed class ProjectSettingsService
             .SingleOrDefaultAsync(ct);
 
     /// <summary>
+    /// Whether this instance serves the MCP endpoint at all (TFND-12).
+    ///
+    /// Read on the project settings screen so minting an agent token can say,
+    /// at the moment of minting, that the token will not work yet. Finding that
+    /// out when the agent fails instead is a worse discovery path than one
+    /// sentence.
+    /// </summary>
+    public async Task<bool> McpEnabledAsync(CancellationToken ct = default) =>
+        await _db.InstanceSettings.AsNoTracking()
+            .Where(s => s.Id == InstanceSettings.SingletonId)
+            .Select(s => s.McpEnabled)
+            .SingleOrDefaultAsync(ct);
+
+    /// <summary>
     /// Map this project to a repository, or unmap it.
     ///
     /// Per project rather than derived from the commit, because a commit sha
