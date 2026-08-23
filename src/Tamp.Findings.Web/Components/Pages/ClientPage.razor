@@ -15,6 +15,7 @@
 @inject NavigationManager Nav
 @inject ClientQuery Clients
 @inject PolicyService Policies
+@inject McpTokenService AgentTokens
 @inject CurrentUser Me
 
 <PageTitle>@Client — tamp.findings</PageTitle>
@@ -151,6 +152,110 @@ else
                 </ScrollBox>
             }
         </Card>
+
+        @* TFND-12 (F11.2). The CLIENT tier of agent access.
+           Two things only this screen can do: mint a token that reads the whole
+           tree under this client, and show every agent token beneath it at once
+           — a project screen sees its own and nothing above, so a client-wide
+           grant would be invisible from every project it covers. *@
+        <Card Padded="false">
+            <div class="card-body row row--between">
+                <div>
+                    <h2>Agent access</h2>
+                    <p class="field__help">
+                        Every MCP token that can read anything under @_detail.Name, at whichever tier
+                        it was minted. Project- and component-scoped ones are managed on their own
+                        project's settings.
+                    </p>
+                </div>
+                <Button Variant="Button.ButtonVariant.Primary"
+                        Disabled="@(!_canMintAgent.Allowed)" DisabledReason="@_canMintAgent.Reason"
+                        OnClick="() => { _mintingAgent = true; _agentName = null; _agentError = null; }">
+                    Mint client-wide token
+                </Button>
+            </div>
+
+            @if (_mintedAgent is { } minted)
+            {
+                <div class="card-body">
+                    <SecretPanel Heading="COPY IT NOW — THIS VALUE IS NOT STORED AND WILL NOT BE SHOWN AGAIN"
+                                 Value="@minted" />
+                </div>
+            }
+
+            @if (_agentTokens.Count == 0)
+            {
+                <div class="card-body">
+                    <p class="muted">No agent tokens anywhere under this client.</p>
+                </div>
+            }
+            else
+            {
+                <ScrollBox Label="Agent tokens">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Name</th><th>Sees</th><th>Acts as</th><th>Minted by</th>
+                                <th>Last used</th><th>Expires</th><th>State</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var token in _agentTokens)
+                            {
+                                <tr class="@(token.Live ? null : "is-retired")">
+                                    <td>@token.Name</td>
+                                    <td>@token.Tier</td>
+                                    <td>@(token.Role?.ToString() ?? "Viewer")</td>
+                                    <td>@token.CreatedBy</td>
+                                    <td class="mono">
+                                        @if (token.LastUsedAt is { } used)
+                                        {
+                                            @used.ToString("yyyy-MM-dd")
+                                        }
+                                        else
+                                        {
+                                            <span class="muted">never</span>
+                                        }
+                                    </td>
+                                    <td class="mono">@(token.ExpiresAt?.ToString("yyyy-MM-dd") ?? "never")</td>
+                                    <td>
+                                        @if (token.RevokedAt is not null)
+                                        {
+                                            <Chip Label="REVOKED" Tone="var(--color-neutral-500)"
+                                                  Style="Chip.ChipStyle.Outlined" />
+                                        }
+                                        else if (!token.Live)
+                                        {
+                                            <Chip Label="EXPIRED" Tone="var(--color-neutral-500)"
+                                                  Style="Chip.ChipStyle.Outlined" />
+                                        }
+                                        else if (token.NeverUsed)
+                                        {
+                                            <Chip Label="NEVER USED" Tone="var(--color-high)"
+                                                  Style="Chip.ChipStyle.Outlined" />
+                                        }
+                                        else
+                                        {
+                                            <Chip Label="ACTIVE" Tone="var(--color-pass)"
+                                                  Style="Chip.ChipStyle.Outlined" />
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (token.RevokedAt is null)
+                                        {
+                                            <Button Variant="Button.ButtonVariant.Text" Class="btn--danger"
+                                                    Disabled="@(!_canMintAgent.Allowed)"
+                                                    DisabledReason="@_canMintAgent.Reason"
+                                                    OnClick="() => RevokeAgent(token)">revoke</Button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </ScrollBox>
+            }
+        </Card>
     </div>
 }
 
@@ -186,6 +291,27 @@ else
     </Footer>
 </Dialog>
 
+
+<Dialog Open="_mintingAgent" OpenChanged="v => _mintingAgent = v" Title="Mint client-wide agent token" Width="620">
+    <ChildContent>
+        <TextField Label="Label" @bind-Value="_agentName"
+                   Help="Which agent this is for. It is what makes a revoke decision possible six months from now." />
+        <p class="field__help">
+            This token reads EVERY project and component under this client, as a Viewer. It expires in
+            90 days and the value is shown once. If the agent only needs one project, mint it there
+            instead — scoped down is always the safer grant.
+        </p>
+        @if (_agentError is not null)
+        {
+            <p style="color: var(--color-critical)">@_agentError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="MintAgent">Mint</Button>
+        <Button OnClick="() => _mintingAgent = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
 @code {
     [Parameter] public string Client { get; set; } = "";
 
@@ -198,6 +324,14 @@ else
     private string? _editName, _editDescription;
     private Guid? _editPolicy;
 
+    private IReadOnlyList<McpTokenRow> _agentTokens = [];
+    private bool _mintingAgent;
+    private string? _agentName, _agentError, _mintedAgent;
+    private AuthorizationDecision _canMintAgent = AuthorizationDecision.Deny("Checking…");
+
+    private ScopeTarget Here =>
+        _detail is null ? ScopeTarget.Instance : ScopeTarget.Client(_detail.Id);
+
     protected override async Task OnParametersSetAsync()
     {
         Scope.SetClient(Client);
@@ -209,12 +343,42 @@ else
             if (_detail is null) return;
 
             _canEdit = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Client(_detail.Id));
+            _canMintAgent = await Me.CanAsync(Capability.AssignRoles, Here);
             _policies = await Policies.LibraryAsync();
+            _agentTokens = await AgentTokens.ListAsync(Here, DateTimeOffset.UtcNow);
         }
         catch (Exception ex)
         {
             _error = ex.GetType().Name;
         }
+    }
+
+    private async Task MintAgent()
+    {
+        if (_detail is null) return;
+        _agentError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _agentError = "You are not signed in."; return; }
+
+        // Viewer, always. A client-wide grant is already the widest thing this
+        // product mints — pairing it with a role as well should be a deliberate
+        // act at a narrower scope, not a dropdown on the broadest one.
+        var result = await AgentTokens.MintAsync(actor, Here, _agentName ?? "", null, 90);
+        if (!result.Success) { _agentError = result.Error; return; }
+
+        _mintedAgent = result.Value!.Plaintext;
+        _mintingAgent = false;
+        _agentTokens = await AgentTokens.ListAsync(Here, DateTimeOffset.UtcNow);
+    }
+
+    private async Task RevokeAgent(McpTokenRow token)
+    {
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) return;
+
+        await AgentTokens.RevokeAsync(actor, Here, token.Id);
+        _agentTokens = await AgentTokens.ListAsync(Here, DateTimeOffset.UtcNow);
     }
 
     private void GoToPortfolio() => Nav.NavigateTo(Routes.Portfolio);

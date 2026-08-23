@@ -375,6 +375,10 @@ public sealed class SystemAdminService
 
         var settings = await MutableSettingsAsync(ct);
         var sodChanged = settings.EnforceSeparationOfDuties != proposed.EnforceSeparationOfDuties;
+        // TFND-12. Opening or closing the agent endpoint changes what can read
+        // this instance without a browser, which is an access decision however
+        // it is worded on the screen.
+        var mcpChanged = settings.McpEnabled != proposed.McpEnabled;
 
         settings.InstanceUrl = Blank(proposed.InstanceUrl);
         settings.FindingRetentionDays = proposed.FindingRetentionDays;
@@ -387,6 +391,7 @@ public sealed class SystemAdminService
         settings.GitHubAppId = Blank(proposed.GitHubAppId);
         settings.GitHubCheckName = Blank(proposed.GitHubCheckName) ?? "tamp.findings";
         settings.GitHubChecksEnabled = proposed.GitHubChecksEnabled;
+        settings.McpEnabled = proposed.McpEnabled;
         // A blank key means "keep what is stored", the same rule the identity
         // provider registry follows: renaming a check should not require
         // re-pasting a private key the operator may no longer have.
@@ -398,15 +403,33 @@ public sealed class SystemAdminService
         // Turning SoD enforcement on or off changes who may hold which roles
         // across every tenant. That is an access decision, not housekeeping.
         _audit.Record(actor, "instance.settings_changed",
-            sodChanged ? AuditClass.Access : AuditClass.Other,
+            sodChanged || mcpChanged ? AuditClass.Access : AuditClass.Other,
             ScopeTarget.Instance,
             subjectKind: nameof(InstanceSettings),
-            detail: sodChanged
-                ? $"separation of duties {(proposed.EnforceSeparationOfDuties ? "ENFORCED" : "advisory")}"
-                : "instance settings updated");
+            detail: Describe(proposed, sodChanged, mcpChanged));
 
         await _db.SaveChangesAsync(ct);
         return Result<bool>.Ok(true);
+    }
+
+    /// <summary>
+    /// What the audit entry says happened.
+    ///
+    /// The access-class changes are NAMED. "Instance settings updated" against
+    /// a change that opened an agent endpoint is technically true and useless
+    /// to the person reading the log after an incident.
+    /// </summary>
+    private static string Describe(InstanceSettings proposed, bool sodChanged, bool mcpChanged)
+    {
+        var parts = new List<string>();
+
+        if (sodChanged)
+            parts.Add($"separation of duties {(proposed.EnforceSeparationOfDuties ? "ENFORCED" : "advisory")}");
+
+        if (mcpChanged)
+            parts.Add($"MCP endpoint {(proposed.McpEnabled ? "OPENED" : "CLOSED")}");
+
+        return parts.Count == 0 ? "instance settings updated" : string.Join("; ", parts);
     }
 
     // ---- Audit log (TFND-114) ---------------------------------------------

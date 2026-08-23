@@ -520,6 +520,17 @@ else
                         settings.
                     </p>
 
+                    <CheckField Label="Serve the MCP endpoint" @bind-Checked="_mcpEnabled"
+                                Disabled="@(!_canAdminister.Allowed)" />
+                    <p class="field__help">
+                        Off by default. On, agents holding a token can READ findings in their scope
+                        at <code class="mono">/mcp</code> — they can never write. This is the kill
+                        switch: turning it off closes the door in one action without revoking
+                        anything, so the instance comes back the way it was rather than forcing a
+                        re-issue to every agent. Tokens are minted per project under
+                        <strong>Agent access</strong> on that project's settings.
+                    </p>
+
                     <CheckField Label="Enforce separation of duties"
                                 Disabled="@(!_canAdminister.Allowed)"
                                 @bind-Checked="_enforceSod" />
@@ -762,6 +773,7 @@ else
     private string? _instanceUrl, _sessionHours, _findingRetention, _buildRetention, _smtpHost;
     private string? _githubAppId, _githubAppKey, _githubCheckName;
     private bool _githubEnabled;
+    private bool _mcpEnabled;
     private bool _enforceSod, _settingsSaved;
 
     private IReadOnlyList<ProviderRow> _providers = [];
@@ -827,6 +839,7 @@ else
                     _githubAppId = _settings.GitHubAppId;
                     _githubCheckName = _settings.GitHubCheckName;
                     _githubEnabled = _settings.GitHubChecksEnabled;
+                    _mcpEnabled = _settings.McpEnabled;
                     // Never populated. A field that is sometimes the real key
                     // and sometimes a placeholder is how one gets logged.
                     _githubAppKey = null;
@@ -952,6 +965,7 @@ else
                 ? "tamp.findings"
                 : _githubCheckName.Trim(),
             GitHubChecksEnabled = _githubEnabled,
+            McpEnabled = _mcpEnabled,
             // Protected here rather than in the service, so the plaintext never
             // travels further than the form that collected it. A blank field
             // keeps whatever is stored.
