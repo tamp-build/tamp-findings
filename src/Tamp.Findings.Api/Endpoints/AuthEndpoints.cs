@@ -15,7 +15,7 @@ public static class AuthEndpoints
         // Kick off the GitHub OAuth dance. SPA hits this directly; the
         // returnUrl flows through the OAuth challenge state and back into
         // the cookie handler, which redirects to it after sign-in.
-        group.MapGet("/login/github", (HttpContext ctx, string? returnUrl) =>
+        group.MapGet("/login/github", (HttpContext ctx, string? returnUrl, string? setupToken) =>
         {
             // Only allow same-origin redirects. Prevents an attacker-crafted
             // returnUrl from bouncing the user to an external page after
@@ -24,6 +24,19 @@ public static class AuthEndpoints
                 ? returnUrl
                 : "/";
             var props = new AuthenticationProperties { RedirectUri = safeReturn };
+
+            // The admin-claim token, carried through the OAuth round trip so
+            // it is available when the ticket is created — which is BEFORE any
+            // user row is written. Asking for it after the callback would mean
+            // creating the row we are trying not to create (TFND-126).
+            //
+            // AuthenticationProperties are protected by the data-protection
+            // stack, so this is not exposed in the redirect URL.
+            if (!string.IsNullOrWhiteSpace(setupToken))
+            {
+                props.Items[AuthExtensions.SetupTokenItem] = setupToken;
+            }
+
             return Results.Challenge(props, [AuthExtensions.GitHubScheme]);
         }).AllowAnonymous();
 

@@ -161,6 +161,31 @@ if (Environment.GetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE") != "true")
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<FindingsDbContext>();
     db.Database.Migrate();
+
+    // Arm the administrator claim token if nobody has signed in yet
+    // (TFND-126). Printed to the container log because whoever can read the
+    // log is the operator — that possession is what the token proves.
+    //
+    // Disarmed the moment any user exists, so restarting an in-use instance
+    // never prints a live claim token.
+    var setup = scope.ServiceProvider.GetRequiredService<Tamp.Findings.Application.Setup.SetupToken>();
+    setup.Arm(await db.Users.CountAsync());
+    if (setup.ValueForStartupLog is { } claimToken)
+    {
+        var banner = new string('=', 68);
+        Console.WriteLine();
+        Console.WriteLine(banner);
+        Console.WriteLine("  tamp.findings is UNCLAIMED — no administrator exists yet.");
+        Console.WriteLine();
+        Console.WriteLine("  Sign in and enter this setup token to claim the admin seat:");
+        Console.WriteLine();
+        Console.WriteLine($"      {claimToken}");
+        Console.WriteLine();
+        Console.WriteLine("  It is shown only while the instance is unclaimed, and it is not");
+        Console.WriteLine("  stored anywhere. A wrong token creates no account.");
+        Console.WriteLine(banner);
+        Console.WriteLine();
+    }
     // Ensure exactly one system-default RiskPolicy exists. Seeded from
     // RiskPolicyDefaults so the v1 weights stay in one place; admins can
     // edit the seed row in place after first run.

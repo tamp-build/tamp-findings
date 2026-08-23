@@ -25,6 +25,11 @@ public static class ApplicationServiceCollectionExtensions
         // the point of ADR 0002: Api, Web and Mcp cannot end up with different
         // authorization rules because there is only one registration.
         services.AddSingleton<Authorization.CapabilityEvaluator>();
+
+        // Singleton and in-memory: the setup token is armed once at startup
+        // and must not survive into the database, where it would become a
+        // standing credential rather than a one-time claim.
+        services.AddSingleton<Setup.SetupToken>();
         services.AddSingleton<Authorization.ScopeResolver>();
 
         // Scoped: it reads the DbContext, and the admin flag is read from the

@@ -19,6 +19,16 @@ public static class AuthExtensions
     // Claim names for fields we stash on the principal beyond the standard
     // ClaimTypes set. Used by /auth/me and any future authorization handlers.
     public const string TampUserIdClaim = "urn:tamp.findings:userId";
+
+    /// <summary>
+    /// Key the setup token travels under in the authentication properties.
+    ///
+    /// It has to survive the OAuth round trip because with OAuth the visitor is
+    /// already authenticated by the time the callback runs — asking for the
+    /// token afterwards would mean either stashing an identity we have decided
+    /// not to trust yet, or creating the very row we are trying not to create.
+    /// </summary>
+    public const string SetupTokenItem = "tamp.setupToken";
     public const string TampIsAdminClaim = "urn:tamp.findings:isAdmin";
 
     public static IServiceCollection AddTampFindingsAuth(this IServiceCollection services, IConfiguration config)
@@ -199,20 +209,55 @@ public static class AuthExtensions
 
         var user = await db.Users.FirstOrDefaultAsync(u => u.GitHubUserId == githubId, ctx.HttpContext.RequestAborted);
 
-        // FIRST RUN: the first person to sign in on an empty instance becomes
-        // the administrator (TFND-126).
+        // FIRST RUN: claiming the administrator seat (TFND-126).
         //
-        // This is the bootstrap for the entire RBAC model. Without it a fresh
-        // deployment has no admin, so nobody can approve anyone, grant a role,
-        // or create a client — and the only way in is editing the database by
-        // hand. GITHUB_BOOTSTRAP_ADMIN_LOGIN still works and is now a RECOVERY
-        // path rather than the only door.
+        // The bootstrap for the entire RBAC model. Without it a fresh
+        // deployment has no admin, so nobody can approve anyone, grant a role
+        // or create a client, and the only way in is editing the database by
+        // hand.
         //
-        // The check is "no users at all", not "no admins": once anyone exists,
-        // the instance is in use, and promoting the next arrival would be a
+        // "First to sign in wins" would be simpler and has a race: between
+        // deploying and the operator signing in, the instance is reachable
+        // with an unclaimed admin seat. So the claim requires the setup token
+        // printed to the container log at startup — possession of the log is
+        // what proves you are the operator.
+        //
+        // The check is "no users at all", not "no admins": once anyone exists
+        // the instance is in use, and promoting the next arrival would be
         // privilege escalation dressed as convenience.
-        var isFirstUser = user is null
+        var setup = ctx.HttpContext.RequestServices
+            .GetRequiredService<Tamp.Findings.Application.Setup.SetupToken>();
+
+        var isUnclaimed = user is null
             && !await db.Users.AnyAsync(ctx.HttpContext.RequestAborted);
+
+        if (isUnclaimed)
+        {
+            // Entered on the sign-in page and carried through the challenge,
+            // so it is available here — BEFORE any row is written.
+            ctx.Properties.Items.TryGetValue(SetupTokenItem, out var presented);
+
+            if (!setup.Validate(presented))
+            {
+                // THE LOAD-BEARING BRANCH. Fail without creating anything.
+                //
+                // Writing a user row here — even an unapproved one — would
+                // consume the "no users exist" condition and permanently break
+                // the bootstrap, leaving an instance nobody can administer.
+                // That is the difference between a setup token and a speed
+                // bump, so this returns before the upsert rather than after.
+                ctx.HttpContext.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("Tamp.Findings.Setup")
+                    .LogWarning(
+                        "Rejected an admin claim for {Login}: setup token missing or wrong. No account created.",
+                        login);
+                ctx.Fail("setup_token");
+                return;
+            }
+        }
+
+        var isFirstUser = isUnclaimed;
 
         if (user is null)
         {
@@ -245,6 +290,11 @@ public static class AuthExtensions
         }
         user.LastLoginAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ctx.HttpContext.RequestAborted);
+
+        // The seat is claimed. Disarm immediately so the token stops working
+        // and stops being printed on the next restart — a claim token that
+        // outlives the claim is just a standing credential.
+        if (isFirstUser) setup.Claim();
 
         if (!user.IsApproved)
         {
