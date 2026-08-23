@@ -67,6 +67,11 @@ public static class ApplicationServiceCollectionExtensions
         // about evidence, not a transport concern — and because the expiry has
         // to hold whether or not anyone is running the web host.
         services.AddScoped<Suppressions.SuppressionExpiryService>();
+
+        // TFND-13 (F12.4): enforcing the retention window. The settings existed
+        // and nothing read them, which is worse than not having them — a screen
+        // saying "keep 90 days" over a database keeping everything forever.
+        services.AddScoped<Retention.RetentionService>();
         services.AddScoped<Poam.PoamQuery>();
         services.AddScoped<Poam.PoamService>();
         services.AddScoped<Vex.VexQuery>();
