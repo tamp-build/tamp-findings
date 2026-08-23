@@ -1,0 +1,107 @@
+@* "One app appearing as two hosts" — problem 7 on the brief's list.
+
+   Findings are attributed to HOW THE SCANNER CONNECTED, not to the
+   application. Scanning app.internal and app.example.com produces two hosts
+   with two sets of findings for one deployment, which inflates counts and
+   splits the evidence a reader needs to see together.
+
+   A suggestion, never automatic: whether two addresses are one deployment is a
+   fact about someone's infrastructure that this product cannot know. *@
+
+@inject HostAliasService Aliases
+@inject CurrentUser Me
+
+@foreach (var suspicion in Suspicions)
+{
+    <div class="dup-host">
+        <div class="row">
+            <Chip Label="Duplicate host" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+            <span class="mono">@suspicion.HostA</span>
+            <span class="muted">and</span>
+            <span class="mono">@suspicion.HostB</span>
+        </div>
+        <p class="field__help">
+            @suspicion.Reason. Findings are attributed to how the scanner connected, not to the
+            application — if these are one deployment, its findings are currently split in two and
+            counted twice.
+        </p>
+        <Button Variant="Button.ButtonVariant.Text"
+                Disabled="@(!_canMerge.Allowed)" DisabledReason="@_canMerge.Reason"
+                OnClick="() => Open(suspicion)">
+            Merge hosts
+        </Button>
+    </div>
+}
+
+<Dialog Open="_target is not null" OpenChanged="v => { if (!v) _target = null; }"
+        Title="Merge hosts" Width="620">
+    <ChildContent>
+        @if (_target is { } target)
+        {
+            <p>
+                Treat <code class="mono">@_alias</code> as
+                <code class="mono">@_canonical</code>.
+            </p>
+            <Button Variant="Button.ButtonVariant.Text" OnClick="Swap">Swap direction</Button>
+
+            <TextField Label="Why are these the same application?" Multiline="true" @bind-Value="_reason"
+                       Help="Required. Someone reading this in a year cannot tell from the hostnames alone." />
+
+            <p class="field__help">
+                Forward-only: future scans group together, and builds already scored and attested keep
+                the numbers they were signed with. Re-deriving old scores from a mapping made today
+                would make an attestation say something different than when it was signed.
+            </p>
+
+            @if (_error is not null)
+            {
+                <p style="color: var(--color-critical)">@_error</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Merge">Merge</Button>
+        <Button OnClick="() => _target = null">Cancel</Button>
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DuplicateHostSuspicion> Suspicions { get; set; } = [];
+    [Parameter, EditorRequired] public ProjectRef Project { get; set; } = default!;
+    [Parameter] public EventCallback OnMerged { get; set; }
+
+    private DuplicateHostSuspicion? _target;
+    private string _alias = "", _canonical = "";
+    private string? _reason, _error;
+    private AuthorizationDecision _canMerge = AuthorizationDecision.Deny("Checking…");
+
+    private ScopeTarget Scope => ScopeTarget.Project(Project.ClientId, Project.ProjectId);
+
+    protected override async Task OnParametersSetAsync() =>
+        _canMerge = await Me.CanAsync(Capability.AuthorSuppression, Scope);
+
+    private void Open(DuplicateHostSuspicion suspicion)
+    {
+        _target = suspicion;
+        _alias = suspicion.HostA;
+        _canonical = suspicion.HostB;
+        _reason = _error = null;
+    }
+
+    // Which host is canonical is the operator's call, not ours — guessing
+    // would bury findings under whichever name we happened to pick.
+    private void Swap() => (_alias, _canonical) = (_canonical, _alias);
+
+    private async Task Merge()
+    {
+        _error = null;
+        var actor = await Me.AtAsync(Scope);
+        if (actor is null) { _error = "You are not signed in."; return; }
+
+        var result = await Aliases.MergeAsync(actor, Scope, Project.ProjectId, _alias, _canonical, _reason ?? "");
+        if (!result.Success) { _error = result.Error; return; }
+
+        _target = null;
+        await OnMerged.InvokeAsync();
+    }
+}
