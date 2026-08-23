@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Tamp.Findings.Data;
@@ -14,9 +15,11 @@ using Tamp.Findings.Domain.Risk;
 namespace Tamp.Findings.Data.Migrations
 {
     [DbContext(typeof(FindingsDbContext))]
-    partial class FindingsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260823152534_Tfnd111_ExternalIdentity")]
+    partial class Tfnd111_ExternalIdentity
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

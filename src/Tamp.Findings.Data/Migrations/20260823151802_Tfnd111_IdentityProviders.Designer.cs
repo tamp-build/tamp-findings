@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Tamp.Findings.Data;
@@ -14,9 +15,11 @@ using Tamp.Findings.Domain.Risk;
 namespace Tamp.Findings.Data.Migrations
 {
     [DbContext(typeof(FindingsDbContext))]
-    partial class FindingsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260823151802_Tfnd111_IdentityProviders")]
+    partial class Tfnd111_IdentityProviders
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1423,14 +1426,6 @@ namespace Tamp.Findings.Data.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("character varying(320)");
 
-                    b.Property<string>("ExternalScheme")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ExternalSubject")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
                     b.Property<long?>("GitHubUserId")
                         .HasColumnType("bigint");
 
@@ -1456,10 +1451,6 @@ namespace Tamp.Findings.Data.Migrations
 
                     b.HasIndex("Login")
                         .IsUnique();
-
-                    b.HasIndex("ExternalScheme", "ExternalSubject")
-                        .IsUnique()
-                        .HasFilter("\"ExternalSubject\" IS NOT NULL");
 
                     b.ToTable("Users");
                 });

@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Tamp.Findings.Domain.Entities;
 
 namespace Tamp.Findings.Data;
 
-public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> options) : DbContext(options)
+public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> options)
+    : DbContext(options), IDataProtectionKeyContext
 {
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<Project> Projects => Set<Project>();
@@ -42,6 +44,17 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<PoamItem> PoamItems => Set<PoamItem>();
     public DbSet<AttestationSnapshot> AttestationSnapshots => Set<AttestationSnapshot>();
     public DbSet<PendingApproval> PendingApprovals => Set<PendingApproval>();
+    public DbSet<IdentityProvider> IdentityProviders => Set<IdentityProvider>();
+
+    /// <summary>
+    /// ASP.NET Data Protection key ring (TFND-111).
+    ///
+    /// In the database rather than on disk because the default store is the
+    /// filesystem or the registry — and in a container that means a restart
+    /// orphans every encrypted identity-provider secret on the instance. The
+    /// operator would only discover it at the moment sign-in stopped working.
+    /// </summary>
+    public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -147,6 +160,17 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // GitHub's numeric id is the durable identity (login can be
             // renamed); sparse-unique so pre-OIDC rows with NULL don't collide.
             e.HasIndex(x => x.GitHubUserId).IsUnique().HasFilter("\"GitHubUserId\" IS NOT NULL");
+
+            // TFND-111: identity from a registry-configured provider. The PAIR
+            // is unique, not the subject alone — a subject is only unique
+            // within an issuer, and two OIDC providers can both hand out "1"
+            // and mean different people. Sparse, so GitHub rows with NULLs do
+            // not all collide with each other.
+            e.Property(x => x.ExternalScheme).HasMaxLength(64);
+            e.Property(x => x.ExternalSubject).HasMaxLength(256);
+            e.HasIndex(x => new { x.ExternalScheme, x.ExternalSubject })
+                .IsUnique()
+                .HasFilter("\"ExternalSubject\" IS NOT NULL");
         });
 
         b.Entity<HostAlias>(e =>
@@ -168,6 +192,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // by element, so a join table would be three tables of ceremony
             // for no gain.
             e.Property(x => x.ExpectedScanners).HasColumnType("text[]");
+            e.Property(x => x.AllowedEmailDomains).HasColumnType("text[]");
+            e.Property(x => x.MfaRequiredRoles).HasColumnType("text[]");
         });
 
         b.Entity<AuditEntry>(e =>
@@ -244,6 +270,21 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasOne(x => x.SbomComponent).WithMany(c => c.Vulnerabilities).HasForeignKey(x => x.SbomComponentId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.SbomComponentId, x.AdvisoryId }).IsUnique();
             e.HasIndex(x => x.Severity);
+        });
+
+        b.Entity<IdentityProvider>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Scheme).HasMaxLength(64).IsRequired();
+            e.Property(x => x.DisplayName).HasMaxLength(128).IsRequired();
+            e.Property(x => x.ClientId).HasMaxLength(512).IsRequired();
+            e.Property(x => x.ProtectedClientSecret).HasColumnType("text");
+            e.Property(x => x.Authority).HasMaxLength(512);
+            e.Property(x => x.Scopes).HasMaxLength(512);
+            // The scheme IS the identity. Two providers sharing one would make
+            // /auth/login/{scheme} ambiguous and the second registration would
+            // silently win.
+            e.HasIndex(x => x.Scheme).IsUnique();
         });
 
         b.Entity<PendingApproval>(e =>

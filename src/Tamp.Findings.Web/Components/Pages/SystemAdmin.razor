@@ -14,6 +14,7 @@
 @inject RouteScope Scope
 @inject NavigationManager Nav
 @inject SystemAdminService Admin
+@inject IdentityProviderService Providers
 @inject CurrentUser Me
 
 <PageTitle>System — tamp.findings</PageTitle>
@@ -239,25 +240,163 @@ else
                 break;
 
             case SystemPanels.Authentication:
+                <Card Padded="false">
+                    <div class="card-body row row--between">
+                        <div>
+                            <h2>Identity providers</h2>
+                            <p class="field__help">
+                                Adding or disabling one takes effect immediately — the rows are the
+                                source of truth and the running schemes are rebuilt from them, so
+                                turning a provider off at 2am does not need a redeploy.
+                            </p>
+                        </div>
+                        <Button Variant="Button.ButtonVariant.Primary"
+                                Disabled="@(!_canAdminister.Allowed)" DisabledReason="@_canAdminister.Reason"
+                                OnClick="StartNewProvider">Add provider</Button>
+                    </div>
+
+                    @if (_providers.Count == 0)
+                    {
+                        <div class="card-body">
+                            <p style="color: var(--color-high)">No identity provider is configured.</p>
+                            <p class="field__help">
+                                Nobody can sign in through the registry. If this instance is still
+                                running on the startup GitHub OAuth credentials, that path keeps
+                                working — but it cannot be changed without a redeploy, which is what
+                                this registry exists to fix.
+                            </p>
+                        </div>
+                    }
+                    else
+                    {
+                        <ScrollBox Label="Identity providers">
+                            <table class="table table--rows">
+                                <thead>
+                                    <tr>
+                                        <th>Provider</th><th>Kind</th><th>Scheme</th><th>State</th>
+                                        <th class="align-end">Users</th><th>Last sign-in</th><th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var provider in _providers)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <div>@provider.DisplayName</div>
+                                                <div class="mono muted" style="font-size: var(--text-secondary)">
+                                                    @provider.ClientId
+                                                </div>
+                                            </td>
+                                            <td>@KindLabel(provider.Kind)</td>
+                                            <td class="mono">@provider.Scheme</td>
+                                            <td>
+                                                <span class="row" style="gap: var(--space-1)">
+                                                    @if (provider.Incomplete)
+                                                    {
+                                                        @* Worse than being off: the sign-in button is
+                                                           there and the round-trip fails at the far
+                                                           end, where the error is somebody else's. *@
+                                                        <Chip Label="INCOMPLETE" Tone="var(--color-critical)"
+                                                              Style="Chip.ChipStyle.Solid" />
+                                                    }
+                                                    else if (provider.Enabled)
+                                                    {
+                                                        <Chip Label="ENABLED" Tone="var(--color-pass)"
+                                                              Style="Chip.ChipStyle.Outlined" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <Chip Label="DISABLED" Tone="var(--color-neutral-500)"
+                                                              Style="Chip.ChipStyle.Outlined" />
+                                                    }
+                                                    @if (provider.RequireMfa)
+                                                    {
+                                                        <Chip Label="MFA" Tone="var(--color-accent)"
+                                                              Style="Chip.ChipStyle.Outlined" />
+                                                    }
+                                                </span>
+                                            </td>
+                                            <td class="num align-end">@provider.UserCount</td>
+                                            <td class="mono">
+                                                @if (provider.LastSignInAt is { } used)
+                                                {
+                                                    @used.ToString("yyyy-MM-dd")
+                                                }
+                                                else
+                                                {
+                                                    @* Redundant or broken, and both are worth seeing
+                                                       before deciding it is safe to remove. *@
+                                                    <span style="color: var(--color-high)">never</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                <Button Variant="Button.ButtonVariant.Text"
+                                                        Disabled="@(!_canAdminister.Allowed)"
+                                                        DisabledReason="@_canAdminister.Reason"
+                                                        OnClick="() => StartEditProvider(provider)">edit</Button>
+                                                <Button Variant="Button.ButtonVariant.Text" Class="btn--danger"
+                                                        Disabled="@(!_canAdminister.Allowed)"
+                                                        DisabledReason="@_canAdminister.Reason"
+                                                        OnClick="() => _deletingProvider = provider">remove</Button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </ScrollBox>
+                    }
+
+                    @if (_actionError is not null)
+                    {
+                        <div class="card-body"><p style="color: var(--color-critical)">@_actionError</p></div>
+                    }
+                </Card>
+
                 <Card>
-                    <h2>Authentication</h2>
-                    <p>
-                        This deployment authenticates through the provider configured at startup.
-                        Identity-provider registration, per-role MFA and allowed email domains are
-                        <strong>not implemented</strong>.
-                    </p>
-                    <p class="field__help">
-                        Stated rather than shown as an empty registry: a panel listing zero providers
-                        would read as "no provider is configured", which is the opposite of true —
-                        sign-in works. Tracked as TFND-111's remaining scope.
-                    </p>
-                    <dl class="stamp">
+                    <h2>Sign-in policy</h2>
+
+                    <TextField Label="Allowed email domains" Mono="true" @bind-Value="_allowedDomains"
+                               Disabled="@(!_canAdminister.Allowed)"
+                               Help="Space-separated bare domains. BLANK MEANS NO RESTRICTION, which is the honest default for a self-hosted instance behind a VPN. This gates REGISTRATION only — removing a domain never locks out someone who already has an account and roles." />
+
+                    <div class="field">
+                        <span class="field__label">Require MFA for</span>
+                        <div class="row" style="gap: var(--space-2); flex-wrap: wrap">
+                            @foreach (var role in MfaRoles)
+                            {
+                                <span @onclick="() => ToggleMfaRole(role)" style="cursor: pointer">
+                                    <Chip Label="@role" Tone="var(--color-accent)"
+                                          Style="@(_mfaRoles.Contains(role) ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                                </span>
+                            }
+                        </div>
+                        <span class="field__help">
+                            Enforced only where the provider can actually assert it — an OIDC issuer
+                            returns <code class="mono">amr</code>, GitHub OAuth returns nothing of the
+                            sort. A requirement a provider cannot satisfy would be a control that
+                            silently does nothing, so the registry refuses to mark such a provider as
+                            requiring MFA.
+                        </span>
+                    </div>
+
+                    <div class="row" style="gap: var(--space-2); margin-top: var(--space-3)">
+                        <Button Variant="Button.ButtonVariant.Primary"
+                                Disabled="@(!_canAdminister.Allowed)" DisabledReason="@_canAdminister.Reason"
+                                OnClick="SaveSignInPolicy">Save sign-in policy</Button>
+                    </div>
+
+                    @if (_policySaved)
+                    {
+                        <p style="color: var(--color-pass)">Saved.</p>
+                    }
+
+                    <dl class="stamp" style="margin-top: var(--space-4)">
                         <dt>New users default to</dt>
                         <dd>Viewer — read access, no role, pending approval</dd>
                         <dt>Session lifetime</dt>
-                        <dd class="mono">@_settings.SessionLifetimeHours h</dd>
+                        <dd class="mono">@_settings.SessionLifetimeHours h — set on Instance settings</dd>
                         <dt>First-run admin</dt>
-                        <dd>Claimed once, with the setup token printed at container start</dd>
+                        <dd>Claimed once, against the setup token printed at container start</dd>
                     </dl>
                 </Card>
                 break;
@@ -457,6 +596,109 @@ else
     </div>
 }
 
+<Dialog Open="_editingProvider" OpenChanged="v => _editingProvider = v"
+        Title="@(_providerId is null ? "Add identity provider" : "Edit identity provider")" Width="720">
+    <ChildContent>
+        <div class="field">
+            <span class="field__label">Kind</span>
+            <div class="row" style="gap: var(--space-2)">
+                @foreach (var kind in Enum.GetValues<IdentityProviderKind>())
+                {
+                    <span @onclick="() => SetKind(kind)" style="cursor: pointer">
+                        <Chip Label="@KindLabel(kind)" Tone="var(--color-accent)"
+                              Style="@(_draftKind == kind ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                    </span>
+                }
+            </div>
+            <span class="field__help">
+                Anything that is not GitHub should be OIDC — discovery means one handler covers Entra,
+                Okta, Keycloak and Auth0. OAuth 2.0 on its own says nothing about identity, so every
+                non-OIDC provider would need its own hand-written profile mapping.
+            </span>
+        </div>
+
+        <TextField Label="Display name" @bind-Value="_draftName"
+                   Help="What the sign-in button says." />
+
+        <TextField Label="Scheme" Mono="true" @bind-Value="_draftScheme"
+                   Disabled="@(_providerId is not null)"
+                   Help="URL-safe, and IMMUTABLE once saved — it is in the callback URL registered with the provider at the far end and in every bookmark." />
+
+        @if (_draftScheme is { Length: > 0 })
+        {
+            <p class="field__help mono">
+                Callback URL: @($"{_instanceOrigin}/auth/{_draftScheme}/callback")
+            </p>
+        }
+
+        @if (_draftKind == IdentityProviderKind.Oidc)
+        {
+            <TextField Label="Authority" Mono="true" @bind-Value="_draftAuthority"
+                       Help="The issuer URL. Discovery reads the endpoints from {authority}/.well-known/openid-configuration, and it must be https — discovery over http would expose the token endpoint to whoever is in between." />
+        }
+
+        <TextField Label="Client id" Mono="true" @bind-Value="_draftClientId" />
+
+        <TextField Label="Client secret" Type="password" Mono="true" @bind-Value="_draftSecret"
+                   Help="@SecretHelp" />
+
+        <TextField Label="Extra scopes" Mono="true" @bind-Value="_draftScopes"
+                   Help="Space-separated, on top of the defaults. OIDC always requests openid, profile and email." />
+
+        <CheckField Label="Enabled" @bind-Checked="_draftEnabled" />
+        <CheckField Label="Require an MFA assertion" @bind-Checked="_draftRequireMfa"
+                    Disabled="@(!IdentityProviderService.CanAssertMfa(_draftKind))" />
+        @if (!IdentityProviderService.CanAssertMfa(_draftKind))
+        {
+            <p class="field__help">
+                @KindLabel(_draftKind) cannot assert MFA, so requiring it here would be a control that
+                does nothing. Enforce it at the provider instead.
+            </p>
+        }
+
+        @if (_providerError is not null)
+        {
+            <p style="color: var(--color-critical)">@_providerError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="SaveProvider">Save provider</Button>
+        <Button OnClick="() => _editingProvider = false">Cancel</Button>
+        <span class="field__help">Writes an access-class audit entry.</span>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_deletingProvider is not null" OpenChanged="v => { if (!v) _deletingProvider = null; }"
+        Title="Remove identity provider" Width="620">
+    <ChildContent>
+        @if (_deletingProvider is { } target)
+        {
+            <p>Remove <strong>@target.DisplayName</strong>?</p>
+            <p class="field__help">
+                Anyone who signs in through it loses their way in immediately. If the goal is a pause
+                rather than a removal, DISABLE it instead — a disabled provider keeps its
+                configuration, so turning it back on does not mean re-entering a client secret.
+            </p>
+            @if (target.UserCount > 0)
+            {
+                <p style="color: var(--color-high)">
+                    @target.UserCount user@(target.UserCount == 1 ? "" : "s") currently sign in through
+                    this provider. Their accounts and roles survive; their ability to authenticate does
+                    not.
+                </p>
+            }
+            @if (_actionError is not null)
+            {
+                <p style="color: var(--color-critical)">@_actionError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Danger" OnClick="DeleteProvider">Remove permanently</Button>
+        <Button OnClick="() => _deletingProvider = null">Cancel</Button>
+    </Footer>
+</Dialog>
+
 @code {
     [Parameter] public string? Panel { get; set; }
 
@@ -486,6 +728,24 @@ else
     private InstanceSettings _settings = new();
     private string? _instanceUrl, _sessionHours, _findingRetention, _buildRetention, _smtpHost;
     private bool _enforceSod, _settingsSaved;
+
+    private IReadOnlyList<ProviderRow> _providers = [];
+    private ProviderRow? _deletingProvider;
+    private bool _editingProvider, _policySaved;
+    private Guid? _providerId;
+    private string? _draftName, _draftScheme, _draftClientId, _draftSecret, _draftAuthority,
+                    _draftScopes, _providerError;
+    private IdentityProviderKind _draftKind = IdentityProviderKind.Oidc;
+    private bool _draftEnabled = true, _draftRequireMfa;
+    private string _instanceOrigin = "";
+
+    private string? _allowedDomains;
+    private readonly HashSet<string> _mfaRoles = new(StringComparer.OrdinalIgnoreCase);
+
+    // "Admin" is the instance flag, not a ProjectRole — the same distinction
+    // the RBAC panel makes, and the reason it is a literal here.
+    private static readonly string[] MfaRoles =
+        ["Admin", .. Enum.GetNames<ProjectRole>()];
 
     private IReadOnlyList<AuditRow> _audit = [];
     private AuditClass? _auditFilter;
@@ -529,6 +789,15 @@ else
                     _buildRetention = _settings.BuildRetentionDays?.ToString();
                     _smtpHost = _settings.SmtpHost;
                     _enforceSod = _settings.EnforceSeparationOfDuties;
+                    break;
+
+                case SystemPanels.Authentication:
+                    _providers = await Providers.ListAsync();
+                    _instanceOrigin = _settings.InstanceUrl?.TrimEnd('/')
+                        ?? new Uri(Nav.BaseUri).GetLeftPart(UriPartial.Authority);
+                    _allowedDomains = string.Join(' ', _settings.AllowedEmailDomains);
+                    _mfaRoles.Clear();
+                    foreach (var role in _settings.MfaRequiredRoles) _mfaRoles.Add(role);
                     break;
 
                 case SystemPanels.Audit:
@@ -648,6 +917,112 @@ else
     {
         _auditFilter = @class;
         _audit = await Admin.AuditAsync(@class);
+    }
+
+    private static string KindLabel(IdentityProviderKind kind) =>
+        kind == IdentityProviderKind.GitHubOAuth ? "GitHub OAuth" : "OIDC";
+
+    private string SecretHelp => _providerId is null
+        ? "Encrypted at rest and never shown again — not even back to this form."
+        : "Leave blank to keep the stored secret. Renaming a provider should not require re-typing a secret you may no longer have.";
+
+    private void SetKind(IdentityProviderKind kind)
+    {
+        _draftKind = kind;
+        // A kind that cannot assert MFA cannot carry the requirement, so clear
+        // it rather than leaving a checked box the save would refuse.
+        if (!IdentityProviderService.CanAssertMfa(kind)) _draftRequireMfa = false;
+    }
+
+    private void StartNewProvider()
+    {
+        _providerId = null;
+        _draftKind = IdentityProviderKind.Oidc;
+        _draftName = _draftScheme = _draftClientId = _draftSecret = _draftAuthority = _draftScopes = null;
+        _draftEnabled = true;
+        _draftRequireMfa = false;
+        _providerError = null;
+        _editingProvider = true;
+    }
+
+    private void StartEditProvider(ProviderRow provider)
+    {
+        _providerId = provider.Id;
+        _draftKind = provider.Kind;
+        _draftName = provider.DisplayName;
+        _draftScheme = provider.Scheme;
+        _draftClientId = provider.ClientId;
+        _draftAuthority = provider.Authority;
+        _draftScopes = provider.Scopes;
+        _draftEnabled = provider.Enabled;
+        _draftRequireMfa = provider.RequireMfa;
+        // Never populated, in any form. A field that is sometimes the real
+        // secret and sometimes a placeholder is how one gets logged.
+        _draftSecret = null;
+        _providerError = null;
+        _editingProvider = true;
+    }
+
+    private async Task SaveProvider()
+    {
+        _providerError = null;
+
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _providerError = "You are not signed in."; return; }
+
+        var draft = new ProviderDraft(
+            _draftKind, _draftScheme ?? "", _draftName ?? "", _draftClientId ?? "",
+            _draftSecret, _draftAuthority, _draftScopes, _draftEnabled, _draftRequireMfa);
+
+        var result = await Providers.SaveAsync(actor, _providerId, draft);
+        if (!result.Success) { _providerError = result.Error; return; }
+
+        _editingProvider = false;
+        _draftSecret = null;
+        _providers = await Providers.ListAsync();
+    }
+
+    private async Task DeleteProvider()
+    {
+        if (_deletingProvider is not { } target) return;
+        _actionError = null;
+
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _actionError = "You are not signed in."; return; }
+
+        var result = await Providers.DeleteAsync(actor, target.Id);
+        if (!result.Success) { _actionError = result.Error; return; }
+
+        _deletingProvider = null;
+        _providers = await Providers.ListAsync();
+    }
+
+    private void ToggleMfaRole(string role)
+    {
+        if (!_mfaRoles.Add(role)) _mfaRoles.Remove(role);
+    }
+
+    private async Task SaveSignInPolicy()
+    {
+        _actionError = null;
+        _policySaved = false;
+
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _actionError = "You are not signed in."; return; }
+
+        var settings = await Admin.SettingsAsync();
+        settings.AllowedEmailDomains = (_allowedDomains ?? "")
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(d => d.TrimStart('@').ToLowerInvariant())
+            .Distinct()
+            .ToList();
+        settings.MfaRequiredRoles = _mfaRoles.OrderBy(r => r, StringComparer.Ordinal).ToList();
+
+        var result = await Admin.SaveSettingsAsync(actor, settings);
+        if (!result.Success) { _actionError = result.Error; return; }
+
+        _policySaved = true;
+        _settings = await Admin.SettingsAsync();
     }
 
     private static string AuditTone(AuditClass? @class) => @class switch

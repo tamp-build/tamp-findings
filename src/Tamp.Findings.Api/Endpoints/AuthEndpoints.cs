@@ -40,6 +40,46 @@ public static class AuthEndpoints
             return Results.Challenge(props, [AuthExtensions.GitHubScheme]);
         }).AllowAnonymous();
 
+        // The registry's providers (TFND-111).
+        //
+        // One endpoint for every configured scheme rather than one endpoint per
+        // provider kind: the scheme name IS the route segment, so adding a
+        // provider adds a working sign-in URL with no code change — which is
+        // what "takes effect without a redeploy" has to mean at the HTTP layer
+        // as well as in the DI container.
+        group.MapGet("/login/provider/{scheme}", async (
+            HttpContext ctx,
+            IAuthenticationSchemeProvider schemes,
+            string scheme,
+            string? returnUrl,
+            string? setupToken) =>
+        {
+            // An unregistered scheme is a stale link or a disabled provider,
+            // not a server error. Challenging an unknown scheme throws, and a
+            // 500 tells the visitor nothing they can act on.
+            if (await schemes.GetSchemeAsync(scheme) is null)
+                return Results.Redirect("/signin?error=unknown_provider");
+
+            var safeReturn = !string.IsNullOrEmpty(returnUrl) && returnUrl.StartsWith('/')
+                ? returnUrl
+                : "/";
+            var props = new AuthenticationProperties { RedirectUri = safeReturn };
+
+            if (!string.IsNullOrWhiteSpace(setupToken))
+                props.Items[AuthExtensions.SetupTokenItem] = setupToken;
+
+            return Results.Challenge(props, [scheme]);
+        }).AllowAnonymous();
+
+        // What the sign-in page offers.
+        //
+        // Names and schemes only. Nothing here reveals a client id, let alone a
+        // secret — an anonymous endpoint that listed provider configuration
+        // would be a reconnaissance gift.
+        group.MapGet("/providers", (DynamicProviderStore store) =>
+            Results.Ok(store.All.Select(p => new { scheme = p.Scheme, name = p.DisplayName })))
+            .AllowAnonymous();
+
         // Identity probe. SPA calls this on mount; 401 means "show sign-in
         // screen", 200 means "render the dashboard with this user". Reads
         // from the DB by user id (the cookie's only durable claim) so that

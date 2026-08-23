@@ -55,6 +55,30 @@ public sealed class InstanceSettings
     // silently re-point an expectation at a different scanner.
     public List<string> ExpectedScanners { get; set; } = new();
 
+    // ---- Sign-in policy (TFND-111) ----------------------------------------
+
+    // Email domains allowed to register, as bare domains ("example.com").
+    //
+    // EMPTY MEANS NO RESTRICTION, and that is the honest default: a
+    // self-hosted instance behind a VPN often has no need for one, and a
+    // restriction nobody chose is a support call the first time a contractor
+    // signs in.
+    //
+    // It gates REGISTRATION, not sign-in for existing users. Removing a domain
+    // must not lock out people who already have accounts and roles — that is
+    // what suspending a user is for, and doing it as a side effect of a policy
+    // edit would be an access change nobody recorded as one.
+    public List<string> AllowedEmailDomains { get; set; } = new();
+
+    // Roles that must have signed in through a provider asserting MFA.
+    //
+    // Stored as ProjectRole names plus the literal "Admin" for the instance
+    // flag, which is not a ProjectRole. Enforcement depends on the provider
+    // being ABLE to assert it: an OIDC issuer returns `amr`, GitHub OAuth does
+    // not. A requirement against a provider that cannot assert MFA would be a
+    // control that silently does nothing.
+    public List<string> MfaRequiredRoles { get; set; } = new();
+
     // Telemetry is OFF and there is no switch. Self-hosted means self-hosted;
     // a compliance tool that phoned home would be reporting its customers'
     // security posture to a third party. The System panel states this as a

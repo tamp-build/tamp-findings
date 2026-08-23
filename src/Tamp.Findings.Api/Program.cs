@@ -9,6 +9,10 @@ using Tamp.Findings.Api.Endpoints;
 using Tamp.Findings.Api.Services;
 using Tamp.Findings.Application.Risk;
 using Tamp.Findings.Data;
+using Microsoft.AspNetCore.Authentication.OAuth;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Options;
 using Tamp.Findings.Workflows;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -112,6 +116,22 @@ builder.Services.AddCors(options =>
 
 // TFND-4 OIDC sign-in. Cookie session + GitHub OAuth challenge.
 builder.Services.AddTampFindingsAuth(builder.Configuration);
+
+// TFND-111: identity providers configured in the DATABASE, registered at
+// runtime rather than at startup. This is what makes adding or disabling one
+// take effect without a redeploy — the rows are the source of truth and the
+// running schemes are derived from them.
+//
+// The HOST's data protection is deliberately left alone. Provider secrets get
+// their own database-backed key ring (ProviderSecretProtector) because they must
+// survive a restart; putting the host's on the database too would make Blazor's
+// render-mode payload and the auth cookie depend on it, and a database outage
+// would become a 500 on every URL instead of a screen that says "Unavailable".
+builder.Services.AddSingleton<DynamicProviderStore>();
+builder.Services.AddSingleton<DynamicSchemeRegistry>();
+builder.Services.AddSingleton<IConfigureOptions<OAuthOptions>, DynamicOAuthOptions>();
+builder.Services.AddSingleton<IConfigureOptions<OpenIdConnectOptions>, DynamicOidcOptions>();
+builder.Services.AddHostedService<IdentityProviderStartup>();
 
 // Lets /_framework through the authorization gate so an anonymous visitor can
 // boot the circuit that renders the sign-in page. See the type for the two
