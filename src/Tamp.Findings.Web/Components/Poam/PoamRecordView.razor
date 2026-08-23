@@ -1,0 +1,179 @@
+@* The full federal-template record for one item (TFND-96).
+
+   Two-column grid of the template fields, then the findings the item cites.
+   A POA&M that names no evidence is a claim; one that links findings is a
+   record — which is why the links are part of the record rather than a
+   collapsed extra. *@
+
+@inject NavigationManager Nav
+
+<Card Padded="false">
+    <div class="card-body row row--between">
+        <div>
+            <div class="kicker">POA&amp;M item</div>
+            <h2>@Record.Title</h2>
+        </div>
+        <div class="row" style="gap: var(--space-2)">
+            <SeverityBadge Severity="Record.Severity" ShowName="true" />
+            <PoamStatusChip Status="Record.Status" PastDue="Record.PastDue" />
+        </div>
+    </div>
+
+    <div class="card-body poam-grid">
+        <div>
+            <div class="kicker">Weakness description</div>
+            <p>@Record.WeaknessDescription</p>
+        </div>
+        <div>
+            <div class="kicker">Mitigation plan</div>
+            @if (Record.MitigationPlan is { Length: > 0 } plan)
+            {
+                <p>@plan</p>
+            }
+            else
+            {
+                @* Amber, not grey. The federal template requires this field;
+                   an empty one is an unfinished record, not a neutral blank. *@
+                <p style="color: var(--color-high)">Not yet written — the federal template requires it.</p>
+            }
+        </div>
+        <div>
+            <div class="kicker">Resources required</div>
+            <p>@(Record.ResourcesRequired is { Length: > 0 } r ? r : "—")</p>
+        </div>
+        <div>
+            <div class="kicker">Scheduled completion</div>
+            <p class="mono">
+                @if (Record.ScheduledCompletionDate is { } due)
+                {
+                    <span style="@(Record.PastDue ? "color: var(--color-critical)" : null)">
+                        @due.ToString("yyyy-MM-dd")
+                    </span>
+                }
+                else
+                {
+                    @* The gate's own blind spot, stated rather than hidden. *@
+                    <span style="color: var(--color-high)">unscheduled — the past-due gate skips this item</span>
+                }
+            </p>
+        </div>
+        <div>
+            <div class="kicker">Completed</div>
+            <p class="mono">@(Record.ActualCompletionDate?.ToString("yyyy-MM-dd") ?? "—")</p>
+        </div>
+        <div>
+            <div class="kicker">Opened by</div>
+            <p>@Record.Owner <span class="muted mono">@Record.CreatedAt.ToString("yyyy-MM-dd")</span></p>
+        </div>
+        <div>
+            <div class="kicker">Reference</div>
+            <p>
+                @if (Record.ReferenceUrl is { Length: > 0 } url)
+                {
+                    <a href="@url" target="_blank" rel="noopener noreferrer" class="mono">@url</a>
+                }
+                else
+                {
+                    <span class="muted">—</span>
+                }
+            </p>
+        </div>
+    </div>
+
+    <div class="card-body row" style="gap: var(--space-2)">
+        <Button Disabled="@(!CanEdit.Allowed)" DisabledReason="@CanEdit.Reason"
+                OnClick="() => OnEdit.InvokeAsync()">Edit</Button>
+        <Button Disabled="@(!CanComplete.Allowed || Record.Status == PoamStatus.Completed)"
+                DisabledReason="@CanComplete.Reason"
+                OnClick="() => OnTransition.InvokeAsync(PoamStatus.Completed)">Mark completed</Button>
+        <Button Disabled="@(!CanAccept.Allowed || Record.Status == PoamStatus.RiskAccepted)"
+                DisabledReason="@CanAccept.Reason"
+                OnClick="() => OnTransition.InvokeAsync(PoamStatus.RiskAccepted)">Risk accepted</Button>
+        <Button Disabled="@(!CanEdit.Allowed)" DisabledReason="@CanEdit.Reason"
+                OnClick="() => OnExtend.InvokeAsync()">Request AO extension</Button>
+    </div>
+
+    @if (!CanAccept.Allowed)
+    {
+        <div class="card-body">
+            <p class="field__help">
+                Risk acceptance is an Authorizing Official decision, not a systems privilege — which is
+                why an instance administrator does not hold it either.
+            </p>
+        </div>
+    }
+</Card>
+
+<Card Padded="false">
+    <div class="card-body">
+        <h3>Linked findings</h3>
+        @if (Record.UnresolvedLinkCount > 0)
+        {
+            @* An item citing evidence that no longer resolves still looks
+               complete unless the screen says otherwise. *@
+            <p style="color: var(--color-high)">
+                @Record.UnresolvedLinkCount linked finding@(Record.UnresolvedLinkCount == 1 ? "" : "s")
+                no longer resolve@(Record.UnresolvedLinkCount == 1 ? "s" : "") on this project.
+            </p>
+        }
+    </div>
+
+    @if (Record.LinkedFindings.Count == 0)
+    {
+        <div class="card-body">
+            <p class="muted">No findings linked.</p>
+            <p class="field__help">
+                An item can stand alone — an architectural weakness found during an assessment that no
+                scanner caught is still a POA&amp;M. But an item opened against a scan result should
+                name it.
+            </p>
+        </div>
+    }
+    else
+    {
+        <ScrollBox Label="Linked findings">
+            <table class="table table--rows">
+                <thead>
+                    <tr><th>Severity</th><th>Rule</th><th>Finding</th><th>Where</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var link in Record.LinkedFindings)
+                    {
+                        <tr>
+                            <td><SeverityBadge Severity="link.Severity" /></td>
+                            <td class="mono">@link.RuleId</td>
+                            <td>@link.Title</td>
+                            <td class="mono muted">@(link.FilePath ?? "—")</td>
+                            <td>
+                                <Button Variant="Button.ButtonVariant.Text" OnClick="() => Open(link)">
+                                    open →
+                                </Button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </ScrollBox>
+    }
+</Card>
+
+@code {
+    [Parameter, EditorRequired] public PoamRecord Record { get; set; } = default!;
+    [Parameter, EditorRequired] public ProjectRef Project { get; set; } = default!;
+    [Parameter] public AuthorizationDecision CanEdit { get; set; } = AuthorizationDecision.Deny("Checking…");
+    [Parameter] public AuthorizationDecision CanComplete { get; set; } = AuthorizationDecision.Deny("Checking…");
+    [Parameter] public AuthorizationDecision CanAccept { get; set; } = AuthorizationDecision.Deny("Checking…");
+    [Parameter] public EventCallback OnEdit { get; set; }
+    [Parameter] public EventCallback OnExtend { get; set; }
+    [Parameter] public EventCallback<PoamStatus> OnTransition { get; set; }
+
+    private void Open(PoamLink link)
+    {
+        // The build the finding was seen on, not "latest": a POA&M cites the
+        // evidence AS IT WAS, and a later build may no longer carry it.
+        var sha = link.CommitSha is { Length: > 0 } commit ? commit : Routes.LatestBuild;
+        var spine = ScannerKinds.Dast.Contains(link.Scanner) ? Spines.Dast : Spines.Sast;
+        Nav.NavigateTo(Routes.Explorer(
+            Project.ClientName, Project.ProjectName, sha, spine, link.FilePath));
+    }
+}

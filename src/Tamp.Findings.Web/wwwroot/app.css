@@ -847,3 +847,49 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
   padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
+
+/* ---------------------------------------------------------------------------
+   POA&M (TFND-95 … TFND-98)
+   --------------------------------------------------------------------------- */
+
+/* Stats strip: 26px numerals over 10px uppercase labels, laid out so a reader
+   compares the numbers rather than reading them as a sentence.
+
+   auto-fit rather than a fixed column count: the strip has five entries today
+   and the screen still has to work at the 1180px density floor and below. */
+.poam-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--space-4);
+}
+.stat__value {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 26px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.stat__label {
+  margin-top: var(--space-1);
+  font-size: var(--text-kicker);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-neutral-500);
+}
+
+/* The federal-template fields as a two-column grid. Collapses to one column
+   below the density floor: these are prose fields, not a data table, so they
+   reflow rather than claiming the 1.4.10 exception. */
+.poam-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+.poam-grid p { margin-top: var(--space-1); }
+
+/* The selected row in a selectable table. Left tick plus a tint, so the
+   selection survives a monochrome print. */
+.table--rows tbody tr.is-selected {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}

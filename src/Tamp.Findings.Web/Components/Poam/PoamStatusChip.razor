@@ -1,0 +1,41 @@
+@* One POA&M status, coloured by what it means to an Authorizing Official.
+
+   The three terminal states are NOT interchangeable and must not read alike:
+
+   - Completed is the only one where the weakness was actually remediated.
+   - Risk accepted means the weakness is still there and someone signed for it.
+     It is green in the sense of "resolved process", but it is not a fix, so it
+     takes the accent rather than the pass colour.
+   - Cancelled means the item should never have existed.
+
+   Past due overrides everything: an item whose committed date has passed is the
+   first thing an AO looks for, and it has to be visible on the row itself
+   rather than inferred from a date column. *@
+
+<Chip Label="@Label" Tone="@Tone" Style="@(PastDue ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+
+@code {
+    [Parameter, EditorRequired] public PoamStatus Status { get; set; }
+    [Parameter] public bool PastDue { get; set; }
+
+    private string Label => PastDue ? $"{Name} · PAST DUE" : Name;
+
+    private string Name => Status switch
+    {
+        PoamStatus.Open => "OPEN",
+        PoamStatus.InProgress => "IN PROGRESS",
+        PoamStatus.Completed => "COMPLETED",
+        PoamStatus.RiskAccepted => "RISK ACCEPTED",
+        _ => "CANCELLED",
+    };
+
+    private string Tone => PastDue ? "var(--color-critical)" : Status switch
+    {
+        PoamStatus.Completed => "var(--color-pass)",
+        // Accepted, not fixed. The distinction is the whole point of the state.
+        PoamStatus.RiskAccepted => "var(--color-accent)",
+        PoamStatus.InProgress => "var(--color-medium)",
+        PoamStatus.Cancelled => "var(--color-neutral-500)",
+        _ => "var(--color-high)",
+    };
+}
