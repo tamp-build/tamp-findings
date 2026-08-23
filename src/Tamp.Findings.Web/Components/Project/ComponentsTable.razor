@@ -1,0 +1,163 @@
+@* Components: one deployable unit each, with the flavors a single commit can
+   produce (net10, web, deployed).
+
+   Gated actions are DISABLED WITH A REASON rather than hidden. A hidden button
+   teaches nothing — the reader cannot tell whether the feature is missing or
+   whether they simply lack the role, and the second is worth knowing. *@
+
+@inject ComponentService Components
+@inject CurrentUser Me
+@inject NavigationManager Nav
+
+<Card Padded="false">
+    <div class="card-body row row--between">
+        <h2>Components</h2>
+        <Button Variant="Button.ButtonVariant.Primary"
+                Disabled="@(!_canCreate.Allowed)"
+                DisabledReason="@_canCreate.Reason"
+                OnClick="() => _creating = true">
+            New component
+        </Button>
+    </div>
+
+    @if (_rows.Count == 0)
+    {
+        <div class="card-body">
+            <p class="muted">No components yet.</p>
+            <p class="field__help">
+                A component is one deployable unit. The same commit can produce several builds
+                distinguished by flavor — net10, web, deployed.
+            </p>
+        </div>
+    }
+    else
+    {
+        <ScrollBox Label="Components">
+            <table class="table table--rows">
+                <thead>
+                    <tr>
+                        <th>Component</th><th>Flavors</th><th class="align-end">Builds</th>
+                        <th>Last</th><th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _rows)
+                    {
+                        <tr @onclick="() => Open(row)">
+                            <td>@row.Name</td>
+                            <td class="mono">@(row.Flavors.Count == 0 ? "—" : string.Join(" · ", row.Flavors))</td>
+                            <td class="num align-end">@row.Builds</td>
+                            <td class="mono">@(row.LastBuild?.ToString("yyyy-MM-dd") ?? "—")</td>
+                            <td>
+                                @* stopPropagation: the row itself navigates. *@
+                                <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
+                                        Class="btn--danger"
+                                        Disabled="@(!_canCreate.Allowed)"
+                                        DisabledReason="@_canCreate.Reason"
+                                        OnClick="() => _deleting = row">
+                                    delete
+                                </Button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </ScrollBox>
+    }
+</Card>
+
+<Dialog Open="_creating" OpenChanged="v => _creating = v" Title="New component" Width="560">
+    <ChildContent>
+        <TextField Label="Name" @bind-Value="_newName"
+                   Help="One deployable unit. Flavors of the same commit are recorded per build, not per component." />
+        <TextField Label="Kind" @bind-Value="_newKind"
+                   Help="Optional — service, library, solution. Free text." />
+        @if (_error is not null)
+        {
+            <p style="color: var(--color-critical)">@_error</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Create">Create component</Button>
+        <Button OnClick="() => _creating = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_deleting is not null" OpenChanged="v => { if (!v) _deleting = null; }"
+        Title="Delete component" Width="620">
+    <ChildContent>
+        @if (_deleting is { } target)
+        {
+            <p>
+                Delete <strong>@target.Name</strong>?
+            </p>
+            <p class="field__help">
+                A component with ingested builds cannot be deleted — those builds are the evidence
+                behind any attestation that cited them. If this component is no longer built, stop
+                ingesting to it rather than removing its history.
+            </p>
+            @if (_error is not null)
+            {
+                <p style="color: var(--color-critical)">@_error</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Danger" OnClick="Delete">Delete permanently</Button>
+        <Button OnClick="() => _deleting = null">Cancel</Button>
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter, EditorRequired] public ProjectRef Project { get; set; } = default!;
+    [Parameter] public string? Sha { get; set; }
+
+    private IReadOnlyList<ComponentRow> _rows = [];
+    private AuthorizationDecision _canCreate = AuthorizationDecision.Deny("Checking…");
+    private bool _creating;
+    private ComponentRow? _deleting;
+    private string? _newName, _newKind, _error;
+
+    private ScopeTarget Scope => ScopeTarget.Project(Project.ClientId, Project.ProjectId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _rows = await Components.ListAsync(Project.ProjectId);
+        _canCreate = await Me.CanAsync(Capability.CreateComponent, Scope);
+    }
+
+    private void Open(ComponentRow row)
+    {
+        if (Sha is null) return;
+        Nav.NavigateTo(Routes.Explorer(Project.ClientName, Project.ProjectName, Sha, Spines.Sast, row.Name));
+    }
+
+    private async Task Create()
+    {
+        _error = null;
+        var actor = await Me.AtAsync(Scope);
+        if (actor is null) { _error = "You are not signed in."; return; }
+
+        var result = await Components.CreateAsync(actor, Scope, Project.ProjectId, _newName ?? "", _newKind);
+        if (!result.Success) { _error = result.Error; return; }
+
+        _creating = false;
+        _newName = _newKind = null;
+        _rows = await Components.ListAsync(Project.ProjectId);
+    }
+
+    private async Task Delete()
+    {
+        if (_deleting is not { } target) return;
+        _error = null;
+
+        var actor = await Me.AtAsync(Scope);
+        if (actor is null) { _error = "You are not signed in."; return; }
+
+        var result = await Components.DeleteAsync(actor, Scope, target.Id);
+        if (!result.Success) { _error = result.Error; return; }
+
+        _deleting = null;
+        _rows = await Components.ListAsync(Project.ProjectId);
+    }
+}
