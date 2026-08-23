@@ -67,6 +67,9 @@ public static class GateKeys
     public const string VerifiedSecrets = "verifiedSecrets";
     // Any denied-license component.
     public const string DeniedLicenses = "deniedLicenses";
+
+    // TFND-134. How old the base image was when the build ran, in days.
+    public const string BaseImageAge = "baseImageAge";
     // Any failed test in the latest TestRunReport.
     public const string TestFailures = "testFailures";
     // Coverage dropped from prior canonical build by more than Threshold

@@ -82,7 +82,7 @@ There is no separate front-end dev server. The UI is Blazor Server, served by th
 
 The full egress contract is published as the **`tamp-ingest-v1`** spec via the [inter-agent](https://github.com/BrewingCoder/claude.interAgentComs) server so any Tamp ecosystem consumer can target it.
 
-Seven endpoints, all bearer-token gated:
+Eight endpoints, all bearer-token gated:
 
 | Endpoint | Source |
 |---|---|
@@ -93,6 +93,7 @@ Seven endpoints, all bearer-token gated:
 | `POST /ingest/test-results` | TRX · vitest junit |
 | `POST /ingest/scan-runs` | Per-scanner receipts (ran clean vs never ran) |
 | `POST /sbom-vulnerabilities/upsert` | OSV-Scanner CVE rows |
+| `POST /ingest/container-image` | Image + base-image metadata (Tamp.Trivy `InspectImage`) |
 
 A `cli_*` token authorizes ingest under any project beneath one client; a `prj_*` token is locked to one project. Mint on the project's Ingest tokens tab (Settings > Ingest tokens); store in repo-root `.env` as `TAMP_FINDINGS_INGEST_TOKEN=cli_...` (gitignored). The Nuke build picks it up automatically.
 
@@ -124,6 +125,20 @@ Three properties worth stating, because they are the design:
 - **Same authorization as a person.** A token carries a `ProjectRole` and every read goes through the same `CapabilityEvaluator` a human's does — the tools do not have their own rules to get wrong. `InfoSecOfficer` cannot be minted, because it carries `AcceptRisk` and an agent must not be a route around an Authorizing Official's signature.
 
 Tokens expire (90 days by default), the plaintext is shown once, and minting and revoking are both recorded as access-class audit entries.
+
+## Base-image age
+
+A base image is usually the largest single source of inherited CVEs in a deployed artefact — and unlike a package it is one line in a Dockerfile, which makes it the highest leverage per fix available.
+
+`POST /ingest/container-image` records what a build produced and what it was built on. The producer is `Tamp.Trivy`'s `InspectImage` (TAM-282), which reads an image's config with `--scanners ""` — no vulnerability database, no scan, just the metadata.
+
+The age feeds a `baseImageAge` risk category (federal policy) and a `baseImageAge` gate, and shows on the project hub next to the scan receipts.
+
+**Name your base image explicitly.** The OCI annotation that identifies it (`org.opencontainers.image.base.name`) is usually absent — neither the official .NET images nor Alpine carry it — so pass `baseImageReference` from your build and inspect that reference too, for its publish date. It is the string already in your `FROM` line.
+
+It is never guessed from layer history. A guessed base image would arrive on this dashboard as a fact, and the gate reads **Unknown** instead — distinguishing "no image was inspected" (add the step) from "an image was inspected but its base could not be identified" (name it), because those call for different fixes.
+
+Age is measured **at the build**, not against today, so the number does not drift upward every time the page is opened.
 
 ## Costs & licences
 

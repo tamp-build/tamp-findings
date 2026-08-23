@@ -86,6 +86,11 @@ else
 
         <ScanReceipts Inputs="_data.Inputs" Sha="@ShortSha" />
 
+        @* TFND-134. Below the receipts on purpose: it answers the same
+           question they do — what do we actually know about this build — and
+           "no image inspected" belongs next to the other never-ran states. *@
+        <BaseImageCard Images="_data.Images" />
+
         @if (_data.History.Count > 0)
         {
             <BuildHistory Rows="_data.History" />
