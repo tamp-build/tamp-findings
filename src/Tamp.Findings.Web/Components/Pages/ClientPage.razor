@@ -1,0 +1,262 @@
+@* The client tier (TFND-127).
+
+   The Client > Project > Component tree is load-bearing — an ingest that picks
+   the wrong level lands findings somewhere nobody looks — and until this page
+   existed the middle tier was a gap between the portfolio and a project rather
+   than a place you could stand.
+
+   Its other job is the one a project screen cannot do: showing which projects
+   INHERIT this client's risk policy. An inherited default is invisible from the
+   thing it applies to. *@
+@page "/c/{Client}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject RouteScope Scope
+@inject NavigationManager Nav
+@inject ClientQuery Clients
+@inject PolicyService Policies
+@inject CurrentUser Me
+
+<PageTitle>@Client — tamp.findings</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>@Client</h1>
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not load this client.</span>
+            </div>
+            <p class="field__help">
+                An empty project list would read as "this client ships nothing", which is a claim this
+                screen cannot currently make. @_error
+            </p>
+        </Card>
+    </div>
+}
+else if (_detail is null)
+{
+    <div class="stack">
+        <h1>Client not found</h1>
+        <Card>
+            <p>No client matches <code class="mono">@Client</code>.</p>
+            <Button Variant="Button.ButtonVariant.Primary" OnClick="GoToPortfolio">
+                Back to the portfolio
+            </Button>
+        </Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <div class="row row--between">
+            <div>
+                <div class="kicker">Client</div>
+                <h1>@_detail.Name</h1>
+                @if (_detail.Description is { Length: > 0 } description)
+                {
+                    <p class="field__help">@description</p>
+                }
+            </div>
+            <Button Disabled="@(!_canEdit.Allowed)" DisabledReason="@_canEdit.Reason"
+                    OnClick="StartEdit">Client settings</Button>
+        </div>
+
+        <Card>
+            <dl class="stamp">
+                <dt>Default risk policy</dt>
+                <dd>
+                    @if (_detail.RiskPolicyName is { Length: > 0 } policy)
+                    {
+                        <span class="mono">@policy</span>
+                        <span class="muted"> — used by every project below that sets none of its own</span>
+                    }
+                    else
+                    {
+                        @* Not a blank. A client with no policy still scores its
+                           projects, through the instance default, and saying
+                           "none" would send someone looking for a broken
+                           setting. *@
+                        <span class="muted">none set — projects fall through to the instance default</span>
+                    }
+                </dd>
+                <dt>Projects</dt>
+                <dd class="num">@_detail.Projects.Count</dd>
+                <dt>Created</dt>
+                <dd class="mono">@_detail.CreatedAt.ToString("yyyy-MM-dd")</dd>
+            </dl>
+        </Card>
+
+        <Card Padded="false">
+            <div class="card-body">
+                <h2>Projects</h2>
+            </div>
+
+            @if (_detail.Projects.Count == 0)
+            {
+                <div class="card-body">
+                    <p class="muted">No projects under this client.</p>
+                    <p class="field__help">
+                        A client with no projects is a name with nothing behind it. Create one from the
+                        portfolio.
+                    </p>
+                </div>
+            }
+            else
+            {
+                <ScrollBox Label="Projects">
+                    <table class="table table--rows">
+                        <thead>
+                            <tr>
+                                <th>Project</th><th class="align-end">Components</th>
+                                <th>Last build</th><th>Risk policy</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var project in _detail.Projects)
+                            {
+                                <tr @onclick="() => Open(project)">
+                                    <td>@project.Name</td>
+                                    <td class="num align-end">@project.Components</td>
+                                    <td class="mono">
+                                        @if (project.LastBuild is { } built)
+                                        {
+                                            @built.ToString("yyyy-MM-dd")
+                                        }
+                                        else
+                                        {
+                                            @* The one thing on this screen that
+                                               needs doing, and why these rows
+                                               sort first. *@
+                                            <span style="color: var(--color-high)">never ingested</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (project.InheritsPolicy)
+                                        {
+                                            <span class="muted">
+                                                inherited@(_detail.RiskPolicyName is { Length: > 0 } p ? $" — {p}" : "")
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="mono">@project.RiskPolicyName</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </ScrollBox>
+            }
+        </Card>
+    </div>
+}
+
+<Dialog Open="_editing" OpenChanged="v => _editing = v" Title="Client settings" Width="620">
+    <ChildContent>
+        <TextField Label="Name" @bind-Value="_editName"
+                   Help="Renaming breaks every bookmarked link that used the old name — the URL carries it." />
+        <TextField Label="Description" Multiline="true" Rows="2" @bind-Value="_editDescription"
+                   Help="Optional. Shown at the top of this page." />
+
+        <div class="field">
+            <span class="field__label">Default risk policy</span>
+            <select class="input" @onchange="e => _editPolicy = Guid.TryParse(e.Value?.ToString(), out var g) ? g : null">
+                <option value="">— fall through to the instance default —</option>
+                @foreach (var policy in _policies)
+                {
+                    <option value="@policy.Id" selected="@(policy.Id == _editPolicy)">@policy.Name</option>
+                }
+            </select>
+            <span class="field__help">
+                Changing this rescores every project below that sets none of its own.
+            </span>
+        </div>
+
+        @if (_editError is not null)
+        {
+            <p style="color: var(--color-critical)">@_editError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Save">Save client</Button>
+        <Button OnClick="() => _editing = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+
+    private ClientDetail? _detail;
+    private IReadOnlyList<PolicyCard> _policies = [];
+    private string? _error, _editError;
+    private AuthorizationDecision _canEdit = AuthorizationDecision.Deny("Checking…");
+
+    private bool _editing;
+    private string? _editName, _editDescription;
+    private Guid? _editPolicy;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetClient(Client);
+        _error = null;
+
+        try
+        {
+            _detail = await Clients.LoadAsync(Client);
+            if (_detail is null) return;
+
+            _canEdit = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Client(_detail.Id));
+            _policies = await Policies.LibraryAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetType().Name;
+        }
+    }
+
+    private void GoToPortfolio() => Nav.NavigateTo(Routes.Portfolio);
+
+    private void Open(ClientProjectRow project) =>
+        Nav.NavigateTo(Routes.ProjectHub(Client, project.Name));
+
+    private void StartEdit()
+    {
+        if (_detail is null) return;
+
+        _editName = _detail.Name;
+        _editDescription = _detail.Description;
+        _editPolicy = _policies.FirstOrDefault(p => p.Name == _detail.RiskPolicyName)?.Id;
+        _editError = null;
+        _editing = true;
+    }
+
+    private async Task Save()
+    {
+        if (_detail is null) return;
+        _editError = null;
+
+        var actor = await Me.AtAsync(ScopeTarget.Client(_detail.Id));
+        if (actor is null) { _editError = "You are not signed in."; return; }
+
+        var result = await Clients.SaveAsync(
+            actor, _detail.Id, _editName ?? "", _editDescription, _editPolicy);
+
+        if (!result.Success) { _editError = result.Error; return; }
+
+        _editing = false;
+
+        // The name is in the URL, so a rename has to navigate rather than
+        // re-render — otherwise the address bar and the page disagree.
+        var renamed = _editName!.Trim();
+        if (!string.Equals(renamed, _detail.Name, StringComparison.Ordinal))
+        {
+            Nav.NavigateTo(Routes.Client(renamed));
+            return;
+        }
+
+        await OnParametersSetAsync();
+    }
+}

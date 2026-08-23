@@ -1,12 +1,9 @@
 @* Route table for the Blazor UI.
 
-   During the port the React SPA still owns "/" and everything it serves via
-   MapFallbackToFile. Blazor claims only the routes its components declare, and
-   an explicit route always beats a fallback — so the two frontends coexist on
-   one origin with no path prefix and nothing to unwind at cutover (TFND-128).
-
-   Consequence: do NOT claim "/" from a Blazor page until the SPA is retired.
-   The real URL scheme (/c/{client}/p/{project}/...) arrives with TFND-63. *@
+   TFND-128 landed: Blazor is the only front end. There is no SPA fallback
+   behind this router any more, which means an unmatched URL now reaches
+   NotFound below rather than being answered with index.html — a typo used to
+   look like a working page that failed to load. *@
 @* Authorization is enforced per COMPONENT here, not at the endpoint.
 
    The host applies a FallbackPolicy of RequireAuthenticatedUser to every
@@ -21,14 +18,11 @@
    — a page that forgets [Authorize] renders a shell and still cannot read
    anything, because authorization is decided beneath it, not here.
 
-   KNOWN GAP for TFND-126: /_framework/blazor.web.js is served by a framework
-   endpoint that is NOT in the static-asset manifest, so AllowAnonymous on the
-   components builder does not reach it and the FallbackPolicy still returns
-   401 for an anonymous request. Authenticated users are unaffected (the cookie
-   goes with the request), so this only bites when there is a sign-in page to
-   render — which is exactly TFND-126. Fix it there, either by narrowing the
-   host FallbackPolicy to exclude /_framework or by mapping the script endpoint
-   explicitly. Do not paper over it by opening the FallbackPolicy globally. *@
+   That gap was closed in TFND-126 by FrameworkAssetAuthorization, an
+   IAuthorizationMiddlewareResultHandler that lets /_framework and /_content
+   through AFTER endpoint selection. It was NOT closed by opening the
+   FallbackPolicy globally, which would have removed the default that makes a
+   forgotten [Authorize] on an API endpoint harmless. *@
 @inject NavigationManager Nav
 
 <Router AppAssembly="@typeof(Routes).Assembly">
@@ -50,9 +44,34 @@
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
+    <NotFound>
+        @* Inside the layout, deliberately. A bare 404 page strands the reader
+           with no navigation, and the most common cause of one here is a
+           mistyped or stale deep link — someone who still has somewhere to
+           go. *@
+        <LayoutView Layout="@typeof(MainLayout)">
+            <div class="stack">
+                <h1>Nothing at this address</h1>
+                <Card>
+                    <p><code class="mono">@CurrentPath</code> does not match any screen.</p>
+                    <p class="field__help">
+                        If this was a bookmark, the client or project in the URL may have been renamed
+                        — the name is part of the address, so a rename moves the page.
+                    </p>
+                    <a class="btn btn--primary" href="@PortfolioHref">Back to the portfolio</a>
+                </Card>
+            </div>
+        </LayoutView>
+    </NotFound>
 </Router>
 
 @code {
+    private string CurrentPath => "/" + Nav.ToBaseRelativePath(Nav.Uri);
+
+    // Fully qualified: this component IS called Routes, so the bare name binds
+    // to the component rather than to the URL scheme.
+    private static string PortfolioHref => Tamp.Findings.Web.Routing.Routes.Portfolio;
+
     private string SignInHref =>
         $"/signin?returnUrl={Uri.EscapeDataString("/" + Nav.ToBaseRelativePath(Nav.Uri))}";
 }
