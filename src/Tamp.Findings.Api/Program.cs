@@ -110,6 +110,9 @@ builder.Services.TryAddSingleton(TimeProvider.System);
 // not the date of the next build that happens to touch the finding.
 builder.Services.AddHostedService<Tamp.Findings.Api.Services.SuppressionExpiryWorker>();
 
+// TFND-13 (F12.4): the retention window is enforced, not just recorded.
+builder.Services.AddHostedService<Tamp.Findings.Api.Services.RetentionWorker>();
+
 builder.Services.AddScoped<Tamp.Findings.Api.Services.KevFeedSyncService>();
 builder.Services.AddHostedService<Tamp.Findings.Api.Services.KevFeedSyncWorker>();
 
@@ -372,9 +375,55 @@ app.UseWhen(
 app.UseAntiforgery();
 app.MapOpenApi().AllowAnonymous();
 
+// LIVENESS. Deliberately unconditional: it answers "is this process alive",
+// and nothing else.
+//
+// It must NOT check the database. A failing liveness probe restarts the
+// container, and restarting an application because Postgres is down turns a
+// database outage into a crash loop that takes longer to recover from and
+// destroys the logs that would explain it. Readiness is the probe that cares
+// about dependencies — see /ready below.
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "tamp.findings.api" }))
    .WithName("Health")
-   .WithSummary("Liveness probe")
+   .WithSummary("Liveness probe — is the process alive. Does not check the database.")
+   .AllowAnonymous();
+
+// READINESS (TFND-13 / F12.1). Can this instance actually serve a request?
+//
+// 503 when the database is unreachable, so an orchestrator pulls it out of the
+// load balancer rather than sending traffic that will 500. The distinction from
+// liveness is the whole point of having two: readiness says "not now",
+// liveness says "restart me", and a database outage is the first, never the
+// second.
+app.MapGet("/ready", async (FindingsDbContext db, CancellationToken ct) =>
+    {
+        try
+        {
+            // A short, cheap round trip. CanConnectAsync opens a connection and
+            // nothing more — a probe that ran a real query would fail on a
+            // slow database that is serving perfectly well.
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+
+            return await db.Database.CanConnectAsync(timeout.Token)
+                ? Results.Ok(new { status = "ready", service = "tamp.findings.api" })
+                : Results.Json(
+                    new { status = "not-ready", reason = "database unreachable" },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (Exception ex)
+        {
+            // The REASON is in the body, because a bare 503 from a readiness
+            // probe is the least actionable thing an operator can be handed at
+            // three in the morning. The type only — a connection-string
+            // exception message can carry a host and a username.
+            return Results.Json(
+                new { status = "not-ready", reason = ex.GetType().Name },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+   .WithName("Ready")
+   .WithSummary("Readiness probe — can this instance serve requests. Checks the database.")
    .AllowAnonymous();
 
 app.MapGet("/version", () => Results.Ok(new
