@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.Ingest;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
@@ -18,7 +19,9 @@ public static class SbomIngestEndpoints
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(SbomIngestRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(
+        SbomIngestRequest req, HttpContext ctx, FindingsDbContext db,
+        CveReconciler reconciler, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project is required");
@@ -123,12 +126,20 @@ public static class SbomIngestEndpoints
         }
         await db.SaveChangesAsync(ct);
 
+        // TFND-16: this SBOM may be what a previously-orphaned OsvScanner or
+        // Trivy CVE finding was waiting for. Reconciling on this side too is
+        // what makes ingest order not matter.
+        var reconciled = await reconciler.ReconcileAsync([version.Id], ct);
+
         return Results.Ok(new SbomIngestResponse(
             version.Id,
             snapshot.Id,
             purlToId.Count,
             depsAdded,
-            totalVulns));
+            // Vulnerabilities from the SBOM payload PLUS any advisory findings
+            // this pass attached. The number is "how many CVEs this build now
+            // knows about", which is what a caller is asking.
+            totalVulns + reconciled.Attached));
     }
 
     // Resolves the client/project (token-scoped via IngestScopeGuard) and

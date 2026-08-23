@@ -26,6 +26,22 @@ public sealed class Finding
     // here is null for scanners that don't sub-categorise.
     public string? SubCategory { get; set; }
 
+    // TFND-16: the package this finding is ABOUT, for scanners that report
+    // against a dependency rather than against source.
+    //
+    // OsvScanner and Trivy's vulnerability detector both find CVEs in
+    // dependencies, and both arrive as Finding rows — while Grype's arrive as
+    // Vulnerability rows through the SBOM path. Two parallel CVE paths, and
+    // only one of them fed the SBOM picture: the same CVE on the same package
+    // counted once or twice depending on which scanner happened to see it.
+    //
+    // The purl is what lets the reconciler attach one to the other, giving each
+    // (component, advisory) pair ONE source of truth. Null for everything that
+    // is not a dependency finding — and, importantly, also null when a scanner
+    // reports a CVE but does not say which package, which is a state the
+    // reconciler reports rather than guesses at.
+    public string? Purl { get; set; }
+
     public FindingStatus Status { get; set; } = FindingStatus.Open;
 
     public DateTimeOffset FirstSeen { get; set; } = DateTimeOffset.UtcNow;
