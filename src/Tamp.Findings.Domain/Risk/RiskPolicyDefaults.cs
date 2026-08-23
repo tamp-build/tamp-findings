@@ -65,6 +65,21 @@ public static class RiskPolicyDefaults
                 Enabled = true, Max = 2,
                 Weights = new(),
             },
+            // NO quality category here, deliberately (TFND-33 … TFND-37).
+            //
+            // This is a SchemaVersion 1 policy: Max is absolute points out of a
+            // fixed 100-point budget, and these weights already sum to exactly
+            // 100. Adding a category would either push the total past 100 —
+            // where the scorer's clamp makes effective maxima stop matching
+            // authored ones — or require taking points off cve, sast or
+            // coverage, which would silently rescore every project on the
+            // seeded policy.
+            //
+            // Neither is acceptable as a side effect of wiring five scanners.
+            // The federal v2 policy below carries the category, because
+            // relative weights REDISTRIBUTE rather than overflow; an admin who
+            // wants it on a v1 policy adds it in the editor, which shows
+            // exactly how the other ceilings move.
         },
     };
 
@@ -164,6 +179,20 @@ public static class RiskPolicyDefaults
             {
                 Enabled = true, Max = 2,
                 Weights = new() { ["medium"] = 0.002, ["low"] = 0.0005 },
+            },
+            // TFND-33 … TFND-37 — OpenAPI lint, breaking-change detection,
+            // mutation testing, architecture rules.
+            //
+            // ENABLED with a deliberately small weight. Enabled because a
+            // scanner whose findings score nothing is a scanner nobody looks
+            // at, and this repo already runs several of them. Small because
+            // none of these tools finds something that should stop a release:
+            // they find work, not danger, and weighting them like a CVE would
+            // teach people that the number is noise.
+            [RiskCategoryNames.Quality] = new()
+            {
+                Enabled = true, Max = 2,
+                Weights = new() { ["high"] = 0.01, ["medium"] = 0.004, ["low"] = 0.001 },
             },
         },
     };
