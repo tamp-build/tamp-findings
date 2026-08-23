@@ -61,6 +61,12 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Explorer.RuleBreakdownQuery>();
         services.AddScoped<Explorer.CostsAndLicensesQuery>();
         services.AddScoped<SystemAdmin.PaidComponentRegistry>();
+
+        // TFND-11 (F10.5): reopening findings whose suppression has lapsed. In
+        // Application rather than in the API host because it is a decision
+        // about evidence, not a transport concern — and because the expiry has
+        // to hold whether or not anyone is running the web host.
+        services.AddScoped<Suppressions.SuppressionExpiryService>();
         services.AddScoped<Poam.PoamQuery>();
         services.AddScoped<Poam.PoamService>();
         services.AddScoped<Vex.VexQuery>();
