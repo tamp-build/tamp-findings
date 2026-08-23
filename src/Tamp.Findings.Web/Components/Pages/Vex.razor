@@ -75,7 +75,7 @@ else
         <Card Padded="false">
             <div class="card-body row row--between">
                 <h2>Statements</h2>
-                <CheckField Label="Show retired" @bind-Value="_showRetired" />
+                <CheckField Label="Show retired" Checked="_showRetired" CheckedChanged="ShowRetired" />
             </div>
 
             @if (_rows.Count == 0)
@@ -360,6 +360,13 @@ else
         _draftReference = row.ResponseReferenceUrl;
         _dialogError = null;
         _editing = true;
+    }
+
+    private async Task ShowRetired(bool show)
+    {
+        _showRetired = show;
+        if (_project is null) return;
+        _rows = await Statements.ListAsync(_project.ProjectId, _showRetired);
     }
 
     private async Task Save()
