@@ -101,8 +101,59 @@ public sealed class ProjectHubQuery
         var gateConfig = project.GatesConfig ?? new ProjectGatesConfig();
         var gates = GateEvaluator.Evaluate(gateConfig, inputs, result.Score, priorInputs, priorScore);
 
+        var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, ct);
+
         return new ProjectHubData(project, head.CommitSha, head.VersionString, head.CreatedAt,
-            policy.Name, result, gates, inputs);
+            policy.Name, result, gates, inputs, history);
+    }
+
+    /// <summary>
+    /// The last few canonical builds, each scored and gated.
+    ///
+    /// Capped at six on purpose. This is the one genuinely expensive part of
+    /// the hub — every row is a full RiskInputs build plus a scorer and gate
+    /// pass — and the design asks for six. Raising the cap makes the hub
+    /// quadratically slower on projects with long histories, which is exactly
+    /// the projects whose history is worth reading.
+    /// </summary>
+    private async Task<IReadOnlyList<BuildHistoryRow>> BuildHistoryAsync(
+        ProjectRef project,
+        RiskPolicyConfig config,
+        ProjectGatesConfig gateConfig,
+        IReadOnlyList<Domain.Entities.ComponentVersion> builds,
+        CancellationToken ct)
+    {
+        var shas = builds
+            .Select(b => b.CommitSha)
+            .Where(s => s is not null)
+            .Distinct()
+            .Take(6)
+            .ToArray();
+
+        var rows = new List<BuildHistoryRow>(shas.Length);
+        double? previousScore = null;
+
+        // Oldest first so each row's delta is against the build before it, then
+        // reversed for display — newest at the top is what a reader scans.
+        foreach (var sha in shas.Reverse())
+        {
+            var ids = builds.Where(b => b.CommitSha == sha).Select(b => b.Id).ToArray();
+            var inputs = await _inputs.BuildAsync(ids, config, project.ProjectId, ct);
+            var scored = RiskScorer.Compute(config, inputs);
+            var gates = GateEvaluator.Evaluate(gateConfig, inputs, scored.Score, prior: null, priorScore: previousScore);
+
+            var head = builds.First(b => b.CommitSha == sha);
+            rows.Add(new BuildHistoryRow(
+                sha!, head.BranchName, head.VersionString, head.CreatedAt,
+                scored.Score, previousScore is null ? null : scored.Score - previousScore,
+                inputs.CoverageMeasured ? inputs.SequenceCoveragePercent : null,
+                gates));
+
+            previousScore = scored.Score;
+        }
+
+        rows.Reverse();
+        return rows;
     }
 
     private async Task<(string Name, RiskPolicyConfig Config)> ResolvePolicyAsync(
@@ -148,4 +199,20 @@ public sealed record ProjectHubData(
     string PolicyName,
     RiskResult Risk,
     GateEvaluation Gates,
-    RiskInputs Inputs);
+    RiskInputs Inputs,
+    IReadOnlyList<BuildHistoryRow> History);
+
+/// <summary>
+/// One row of the build-history table. Carries the whole GateEvaluation rather
+/// than a pass/fail tally, because the tally has three parts now and
+/// reconstructing it from two would drop every Unknown.
+/// </summary>
+public sealed record BuildHistoryRow(
+    string CommitSha,
+    string? Branch,
+    string VersionString,
+    DateTimeOffset IngestedAt,
+    double Score,
+    double? Delta,
+    double? CoveragePercent,
+    GateEvaluation Gates);
