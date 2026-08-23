@@ -1,0 +1,44 @@
+@* A severity tally. Zeros are omitted rather than shown as "0 critical" —
+   a zero in a count row is noise, and the absence of the chip is the same
+   information more quietly.
+
+   This is NOT the same as omitting a never-scanned class: there the absence of
+   data is the finding, and it gets its own explicit treatment. *@
+
+<span class="row" style="gap: var(--space-2); flex-wrap: wrap">
+    @foreach (var (severity, count) in Ordered)
+    {
+        <span class="row" style="gap: var(--space-1)">
+            <SeverityBadge Severity="severity" />
+            <span class="num">@count</span>
+        </span>
+    }
+    @if (Total == 0)
+    {
+        <span class="muted">none</span>
+    }
+</span>
+
+@code {
+    [Parameter] public int Critical { get; set; }
+    [Parameter] public int High { get; set; }
+    [Parameter] public int Medium { get; set; }
+    [Parameter] public int Low { get; set; }
+    [Parameter] public int Info { get; set; }
+
+    private int Total => Critical + High + Medium + Low + Info;
+
+    // Worst first, always. A tally that led with Info would bury the thing the
+    // reader is looking for.
+    private IEnumerable<(Severity, int)> Ordered
+    {
+        get
+        {
+            if (Critical > 0) yield return (Severity.Critical, Critical);
+            if (High > 0) yield return (Severity.High, High);
+            if (Medium > 0) yield return (Severity.Medium, Medium);
+            if (Low > 0) yield return (Severity.Low, Low);
+            if (Info > 0) yield return (Severity.Info, Info);
+        }
+    }
+}

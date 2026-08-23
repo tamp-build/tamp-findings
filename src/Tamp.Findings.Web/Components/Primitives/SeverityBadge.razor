@@ -1,0 +1,61 @@
+@* Severity, with THREE redundant signals.
+
+   A five-step ladder glyph, a letter code, and colour. The ladder and letter
+   survive a monochrome print and a colour-blind reader; the colour makes it
+   scannable. The attestation has to be readable off a black-and-white printer,
+   so colour can never be the only carrier.
+
+   Problem 8 on the brief's list was that severity had no hierarchy beyond
+   colour — five hues a reader had to learn, with nothing telling them which
+   outranked which. A ladder is ordinal on sight. *@
+
+<span class="sev" style="color: @Tone" title="@Name">
+    <span class="sev__ladder" aria-hidden="true">@Ladder</span>
+    <span class="sev__letter" aria-hidden="true">@Letter</span>
+    @if (ShowName)
+    {
+        <span class="sev__name">@Name</span>
+    }
+    else
+    {
+        @* The written word still reaches assistive tech even when the visual
+           design has room only for the glyph and the letter. *@
+        <span class="visually-hidden">@Name</span>
+    }
+</span>
+
+@code {
+    [Parameter, EditorRequired] public Severity Severity { get; set; }
+    [Parameter] public bool ShowName { get; set; }
+
+    private string Name => Severity.ToString();
+
+    // Filled steps descend with severity. Info is one step rather than zero:
+    // a finding that exists is never "no bars", which would read as absent.
+    private string Ladder => Severity switch
+    {
+        Severity.Critical => "▰▰▰▰▰",
+        Severity.High => "▰▰▰▰▱",
+        Severity.Medium => "▰▰▰▱▱",
+        Severity.Low => "▰▰▱▱▱",
+        _ => "▰▱▱▱▱",
+    };
+
+    private string Letter => Severity switch
+    {
+        Severity.Critical => "C",
+        Severity.High => "H",
+        Severity.Medium => "M",
+        Severity.Low => "L",
+        _ => "I",
+    };
+
+    private string Tone => Severity switch
+    {
+        Severity.Critical => "var(--color-critical)",
+        Severity.High => "var(--color-high)",
+        Severity.Medium => "var(--color-medium)",
+        Severity.Low => "var(--color-low)",
+        _ => "var(--color-info)",
+    };
+}
