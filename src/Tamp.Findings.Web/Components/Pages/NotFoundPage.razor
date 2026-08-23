@@ -1,0 +1,35 @@
+@* Nothing at this address (TFND-128).
+
+   A CATCH-ALL page rather than the Router's <NotFound> fragment, because the
+   two cover different halves of the same problem. <NotFound> fires only for
+   client-side navigation inside a live circuit; a browser requesting an unknown
+   URL from cold hits the server, and with MapFallbackToFile retired there was
+   no endpoint to answer it — the reader got a bare ASP.NET 404 with no shell,
+   no navigation and nothing to click.
+
+   Catch-all routes lose to literal and constrained ones, so this cannot shadow
+   a real screen. *@
+@page "/{*Path}"
+@attribute [Authorize]
+@inject NavigationManager Nav
+
+<PageTitle>Not found — tamp.findings</PageTitle>
+
+<div class="stack">
+    <h1>Nothing at this address</h1>
+    <Card>
+        <p><code class="mono">@CurrentPath</code> does not match any screen.</p>
+        <p class="field__help">
+            If this was a bookmark, the client or project in the URL may have been renamed — the name
+            is part of the address, so a rename moves the page.
+        </p>
+        <a class="btn btn--primary" href="@Routes.Portfolio">Back to the portfolio</a>
+    </Card>
+</div>
+
+@code {
+    /// <summary>Whatever was asked for. Captured so the page can name it.</summary>
+    [Parameter] public string? Path { get; set; }
+
+    private string CurrentPath => "/" + (Path ?? Nav.ToBaseRelativePath(Nav.Uri));
+}

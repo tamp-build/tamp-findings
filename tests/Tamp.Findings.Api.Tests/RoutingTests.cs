@@ -104,16 +104,32 @@ public class RoutingTests : IClassFixture<TestApiFactory>
     }
 
     [Fact]
-    public async Task An_unrouted_path_is_not_swallowed_by_the_blazor_router()
+    public async Task An_unrouted_path_reaches_blazors_own_not_found()
     {
-        // The React SPA still owns everything MapFallbackToFile catches. If
-        // Blazor started matching unknown paths, it would shadow the SPA
-        // before TFND-128 retires it.
+        // This assertion is the INVERSE of what it was before TFND-128, and
+        // deliberately so. While the React SPA existed, Blazor had to leave
+        // unknown paths alone or it would shadow index.html. Now that the
+        // fallback is gone, an unmatched URL must reach the catch-all page —
+        // otherwise the reader gets a bare ASP.NET 404 with no shell and
+        // nowhere to click.
+        var client = _factory.CreateSignedIn();
+
+        var body = await client.GetStringAsync("/definitely-not-a-route");
+
+        Assert.Contains("Nothing at this address", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_catch_all_page_does_not_leak_the_shell_to_an_anonymous_visitor()
+    {
+        // A page that matches everything is the easiest place to accidentally
+        // publish the application chrome to someone who has not signed in.
         var client = _factory.CreateClient();
 
-        var resp = await client.GetAsync("/definitely-not-a-route");
+        var body = await client.GetStringAsync("/definitely-not-a-route");
 
-        Assert.NotEqual(HttpStatusCode.OK, resp.StatusCode);
+        Assert.DoesNotContain("Nothing at this address", body, StringComparison.Ordinal);
+        Assert.Contains("Not signed in", body, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -3,43 +3,21 @@
 # Multi-stage build for tamp.findings.
 #
 # Stages:
-#   1. web-build   — Node 22 alpine, pnpm install + vite build the SPA
-#   2. api-build   — .NET 10 SDK, copies the SPA dist into wwwroot, dotnet
-#                    publish the API
-#   3. runtime     — ASP.NET 10 alpine, copies the publish output
+#   1. api-build   — .NET 10 SDK, dotnet publish the API (Blazor RCL included)
+#   2. runtime     — ASP.NET 10 alpine, copies the publish output
 #
-# Final image serves SPA + API on a single :5080 listener (no nginx pod
+# TFND-128 retired the React SPA and with it the Node build stage. There is no
+# JS bundle in this image any more: the front end is a Blazor Server RCL that
+# publishes as part of the API, so the toolchain is one SDK rather than two.
+#
+# Final image serves the app + API on a single :5080 listener (no nginx pod
 # needed). Postgres is external — provided by the StatefulSet in the
 # tamp-findings namespace.
 #
-# Build context is the repo root. Produces ~150 MB image.
+# Build context is the repo root.
 
 # -----------------------------------------------------------------------------
-# Stage 1 — SPA build (Node 22 alpine + pnpm)
-# -----------------------------------------------------------------------------
-FROM node:22-alpine AS web-build
-
-WORKDIR /work/web
-
-# Match pnpm version the dev env uses (see web/package.json's packageManager
-# field if you ever pin it). Corepack ships with Node 22 and resolves the
-# right pnpm transparently.
-RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
-
-# Copy lockfiles first so installs cache across SPA source edits.
-COPY web/package.json web/pnpm-lock.yaml ./
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
-
-COPY web/ .
-
-# Vite emits to dist/ by default. tsconfig + vite.config.ts already in
-# place; no env vars needed at build time (API base is "/api", served
-# same-origin).
-RUN pnpm run build
-
-# -----------------------------------------------------------------------------
-# Stage 2 — API publish (.NET 10 SDK)
+# Stage 1 — API publish (.NET 10 SDK)
 # -----------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS api-build
 
@@ -51,6 +29,7 @@ COPY src/Tamp.Findings.Domain/Tamp.Findings.Domain.csproj   src/Tamp.Findings.Do
 COPY src/Tamp.Findings.Data/Tamp.Findings.Data.csproj       src/Tamp.Findings.Data/
 COPY src/Tamp.Findings.Application/Tamp.Findings.Application.csproj src/Tamp.Findings.Application/
 COPY src/Tamp.Findings.Web/Tamp.Findings.Web.csproj         src/Tamp.Findings.Web/
+COPY src/Tamp.Findings.Workflows/Tamp.Findings.Workflows.csproj src/Tamp.Findings.Workflows/
 COPY src/Tamp.Findings.Api/Tamp.Findings.Api.csproj         src/Tamp.Findings.Api/
 
 # Restore only what the API needs — Domain + Data + Api transitively. Skip
@@ -61,9 +40,6 @@ RUN dotnet restore src/Tamp.Findings.Api/Tamp.Findings.Api.csproj
 # layer cached across pure-source edits.
 COPY src/ src/
 
-# Pull in the SPA dist as wwwroot so UseStaticFiles serves it.
-COPY --from=web-build /work/web/dist/ src/Tamp.Findings.Api/wwwroot/
-
 RUN dotnet publish src/Tamp.Findings.Api/Tamp.Findings.Api.csproj \
     -c Release \
     -o /app/publish \
@@ -71,7 +47,7 @@ RUN dotnet publish src/Tamp.Findings.Api/Tamp.Findings.Api.csproj \
     /p:UseAppHost=false
 
 # -----------------------------------------------------------------------------
-# Stage 3 — runtime (ASP.NET 10 alpine)
+# Stage 2 — runtime (ASP.NET 10 alpine)
 # -----------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 
