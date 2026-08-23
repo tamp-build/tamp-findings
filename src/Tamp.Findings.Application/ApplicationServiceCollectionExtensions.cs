@@ -64,6 +64,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Attestation.SsdfAttestationBuilder>();
         services.AddScoped<Attestation.AttestationExporter>();
         services.AddScoped<Attestation.AttestationSnapshotService>();
+        services.AddScoped<Policy.PolicyService>();
+        services.AddScoped<Policy.GateService>();
         services.AddScoped<Ingest.IngestTokenService>();
         services.AddScoped<Projects.ProjectKeyService>();
 
