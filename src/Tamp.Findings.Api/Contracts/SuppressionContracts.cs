@@ -18,7 +18,12 @@ public sealed record SuppressionCreateRequest(
     Guid? ComponentId,
     string? FilePath,
     string Reason,
-    DateTimeOffset? ExpiresAt);
+    DateTimeOffset? ExpiresAt,
+    // TFND-132. Required for the rule-scoped kinds, which carry no other
+    // anchor — without one the row silences a rule for every client on the
+    // instance. Derived from the subject for the anchored kinds, so callers
+    // authoring those may leave it null.
+    Guid? ProjectId = null);
 
 public sealed record SuppressionResponse(
     Guid Id,

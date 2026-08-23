@@ -135,33 +135,84 @@ public static class SuppressionAuthorization
     private static async Task<ScopeTarget> TargetForAsync(
         FindingsDbContext db, SuppressionCreateRequest req, CancellationToken ct)
     {
-        if (req.ComponentId is { } componentId)
+        // Switch on the SCOPE, not on whichever fields happen to be populated
+        // (TFND-132).
+        //
+        // The previous version took the first id it found — ComponentId, then
+        // FindingId — regardless of scope. That is an escalation, because
+        // SuppressionMatcher does not read those fields for the unanchored
+        // scopes: a Lead Dev could send RuleEverywhere WITH the component id
+        // they hold, pass the check at that component, and store a row that
+        // silences the rule for every client on the instance. The field bought
+        // the authorization and then constrained nothing.
+        //
+        // So each scope resolves to the tier its own MATCHING predicate is
+        // bounded by, and nothing else on the request can move it.
+        return req.Scope switch
         {
-            var viaComponent = await TargetForComponentAsync(db, componentId, ct);
-            if (viaComponent is { } t) return t;
-        }
+            // Anchored to the finding, which is anchored to a component. A
+            // ComponentId sent alongside is ignored — otherwise the same trick
+            // works one tier down.
+            SuppressionScope.SingleFinding =>
+                await TargetForFindingAsync(db, req.FindingId, ct),
 
-        if (req.FindingId is { } findingId)
-        {
-            var componentIdForFinding = await (
-                from f in db.Findings.AsNoTracking()
-                join cv in db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
-                where f.Id == findingId
-                select (Guid?)cv.ComponentId).FirstOrDefaultAsync(ct);
+            // Anchored to the named component, and only that one.
+            SuppressionScope.RuleOnComponent =>
+                await TargetForComponentAsync(db, req.ComponentId, ct) ?? ScopeTarget.Instance,
 
-            if (componentIdForFinding is { } cid)
-            {
-                var viaFinding = await TargetForComponentAsync(db, cid, ct);
-                if (viaFinding is { } t) return t;
-            }
-        }
+            // Bounded by the PROJECT the author named, and by nothing else on
+            // the request (TFND-132). ProjectId is what the row is stored with
+            // and what the matcher checks, so it is the only field that may
+            // decide the authorization — a ComponentId sent alongside buys
+            // nothing, which is the escalation this closes.
+            //
+            // Absent, it is INSTANCE, which no ProjectRoleAssignment reaches.
+            // A rule-scoped suppression with no project would silence that rule
+            // everywhere, and only an instance admin should be able to ask for
+            // that. Validation refuses it before this point; this is the
+            // second door on the same room.
+            SuppressionScope.RuleOnFile or SuppressionScope.RuleEverywhere =>
+                await TargetForProjectAsync(db, req.ProjectId, ct),
 
-        return ScopeTarget.Instance;
+            // An unknown scope authorizes at the instance rather than falling
+            // through to something permissive. A scope added later that nobody
+            // mapped here should be hard to author, not easy.
+            _ => ScopeTarget.Instance,
+        };
+    }
+
+    private static async Task<ScopeTarget> TargetForProjectAsync(
+        FindingsDbContext db, Guid? projectId, CancellationToken ct)
+    {
+        if (projectId is not { } id) return ScopeTarget.Instance;
+
+        var row = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == id)
+            .Select(p => new { p.Id, p.ClientId })
+            .FirstOrDefaultAsync(ct);
+
+        return row is null ? ScopeTarget.Instance : ScopeTarget.Project(row.ClientId, row.Id);
+    }
+
+    private static async Task<ScopeTarget> TargetForFindingAsync(
+        FindingsDbContext db, Guid? findingId, CancellationToken ct)
+    {
+        if (findingId is not { } id) return ScopeTarget.Instance;
+
+        var componentId = await (
+            from f in db.Findings.AsNoTracking()
+            join cv in db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
+            where f.Id == id
+            select (Guid?)cv.ComponentId).FirstOrDefaultAsync(ct);
+
+        return await TargetForComponentAsync(db, componentId, ct) ?? ScopeTarget.Instance;
     }
 
     private static async Task<ScopeTarget?> TargetForComponentAsync(
-        FindingsDbContext db, Guid componentId, CancellationToken ct)
+        FindingsDbContext db, Guid? componentId, CancellationToken ct)
     {
+        if (componentId is null) return null;
+
         var row = await (
             from c in db.Components.AsNoTracking()
             join p in db.Projects.AsNoTracking() on c.ProjectId equals p.Id

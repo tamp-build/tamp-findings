@@ -79,6 +79,12 @@ public static class SuppressionsEndpoints
             RuleId = req.RuleId,
             ComponentId = req.ComponentId,
             FilePath = req.FilePath,
+            // From the RESOLVED target, not from the request (TFND-132). The
+            // target is what the capability check ran against, so binding the
+            // row to it means a suppression can never reach further than the
+            // authorization that permitted it.
+            ClientId = acting.Target.ClientId,
+            ProjectId = acting.Target.ProjectId,
             CreatedByUserId = user.Id,
             CreatedByRole = role,
             Reason = req.Reason,
@@ -109,13 +115,25 @@ public static class SuppressionsEndpoints
         CancellationToken ct,
         bool activeOnly = true,
         Guid? componentId = null,
-        string? ruleId = null)
+        string? ruleId = null,
+        Guid? projectId = null)
     {
         var now = DateTimeOffset.UtcNow;
         var q = db.Suppressions.AsNoTracking();
         if (activeOnly) q = q.Where(s => s.ExpiresAt == null || s.ExpiresAt > now);
         if (componentId is { } cid) q = q.Where(s => s.ComponentId == cid);
         if (!string.IsNullOrWhiteSpace(ruleId)) q = q.Where(s => s.RuleId == ruleId);
+
+        // TFND-132: everything that can silence a finding in this project —
+        // its own rows, its client's, and the legacy instance-wide ones that
+        // still apply. Filtering to `ProjectId == pid` alone would hide exactly
+        // the rows that used to be invisible, which is the defect.
+        if (projectId is { } pid)
+        {
+            q = q.Where(s => s.ProjectId == pid || (s.ProjectId == null && s.ClientId == null)
+                             || (s.ProjectId == null && s.ClientId != null
+                                 && db.Projects.Any(p => p.Id == pid && p.ClientId == s.ClientId)));
+        }
 
         // Join to user for the response — manual because we don't have a
         // navigation on Suppression (intentionally — keeps the entity flat).
@@ -150,6 +168,16 @@ public static class SuppressionsEndpoints
         SuppressionScope.RuleOnComponent when string.IsNullOrWhiteSpace(req.RuleId) => "RuleOnComponent scope requires ruleId",
         SuppressionScope.RuleOnComponent when req.ComponentId is null => "RuleOnComponent scope requires componentId",
         SuppressionScope.RuleEverywhere when string.IsNullOrWhiteSpace(req.RuleId) => "RuleEverywhere scope requires ruleId",
+
+        // TFND-132. The rule-scoped kinds carry no anchor of their own, so the
+        // project is the only thing bounding them. Refusing here rather than
+        // defaulting to instance-wide: a suppression whose blast radius was
+        // never stated should not silently get the largest one.
+        SuppressionScope.RuleOnFile when req.ProjectId is null =>
+            "RuleOnFile scope requires projectId — without it the rule would be silenced for every client",
+        SuppressionScope.RuleEverywhere when req.ProjectId is null =>
+            "RuleEverywhere scope requires projectId — without it the rule would be silenced for every client",
+
         _ => null,
     };
 
