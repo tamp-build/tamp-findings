@@ -893,3 +893,10 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
   box-shadow: inset 3px 0 0 var(--color-accent);
 }
+
+/* A retired VEX statement: still listed, visibly no longer the answer of
+   record. Dimmed rather than struck through — a strikethrough on a table row
+   reads as "wrong", and a retired statement was not wrong, it stopped
+   applying. */
+.table--rows tbody tr.is-retired { opacity: 0.55; cursor: default; }
+.table--rows tbody tr.is-retired:hover { background: transparent; }
