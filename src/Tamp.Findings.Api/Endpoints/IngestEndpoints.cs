@@ -24,7 +24,8 @@ public static class IngestEndpoints
 
     private static async Task<IResult> IngestAsync(
         IngestRequest req, HttpContext ctx, FindingsDbContext db,
-        CveReconciler reconciler, CancellationToken ct)
+        CveReconciler reconciler, Tamp.Findings.Api.Services.CheckPublishQueue checks,
+        CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project is required");
@@ -239,8 +240,30 @@ public static class IngestEndpoints
         // batch may arrive before the SBOM that gives it something to attach to.
         var reconciled = await reconciler.ReconcileAsync([version.Id], ct);
 
+        // TFND-23: tell GitHub what this build's gates say. Queued rather than
+        // awaited — the findings are stored, and an ingest must not fail
+        // because api.github.com was slow.
+        if (version.CommitSha is { Length: > 0 } sha)
+        {
+            checks.Enqueue(await ProjectIdForAsync(db, version.Id, ct), sha);
+        }
+
         return Results.Ok(new IngestResponse(
             version.Id, inserted, updated, reopened, closed, suppressed,
             reconciled.Attached, reconciled.Unattached));
     }
+
+    /// <summary>
+    /// Which project a component version belongs to (TFND-23).
+    ///
+    /// The check publisher needs the project because a project is what carries
+    /// the GitHub repository mapping — a commit sha says nothing about which
+    /// repository it came from, and the same sha exists in every fork.
+    /// </summary>
+    private static async Task<Guid> ProjectIdForAsync(
+        FindingsDbContext db, Guid componentVersionId, CancellationToken ct) =>
+        await db.ComponentVersions.AsNoTracking()
+            .Where(v => v.Id == componentVersionId)
+            .Select(v => v.Component!.ProjectId)
+            .SingleAsync(ct);
 }
