@@ -9,6 +9,7 @@ using Tamp.Findings.Api.Endpoints;
 using Tamp.Findings.Api.Services;
 using Tamp.Findings.Application.Risk;
 using Tamp.Findings.Data;
+using Tamp.Findings.Workflows;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -63,6 +64,22 @@ var connectionString =
     ?? "Host=localhost;Port=5544;Database=tamp_findings;Username=tamp;Password=tamp";
 
 builder.Services.AddFindingsDb(connectionString);
+
+// TFND-115: the workflow engine, off by default.
+//
+// Off because nothing in the product REQUIRES it. Approvals are rows enforced
+// by ApprovalService, and they have to keep working with the engine stopped —
+// a pending decision that vanishes when a worker is down is worse than having
+// no workflow at all. What Elsa adds is the time-driven half: expiring an
+// unanswered request, and the daily due-date sweep.
+//
+// It also owns its own tables in its own DbContext, so enabling it is a schema
+// change to a schema this repo does not author. Making that opt-in keeps a
+// deployment that does not want it free of it entirely.
+if (builder.Configuration.GetValue("Workflows:Enabled", false))
+{
+    builder.Services.AddTampWorkflows(connectionString);
+}
 
 // IHttpClientFactory powers the SBOM registry enrichment service. A
 // single named client is registered so the factory can pool sockets

@@ -1045,3 +1045,21 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
    tokens off the first screen. */
 .curl { margin-top: var(--space-3); }
 .curl summary { cursor: pointer; font-size: var(--text-secondary); color: var(--color-accent-700); }
+
+/* ---------------------------------------------------------------------------
+   Pending states (TFND-116)
+
+   A qualifier beside the status chip, not a replacement for it. Amber, because
+   an undecided thing is the same kind of fact as an unanswered gate — and a
+   glyph, because the distinction has to survive a monochrome print like every
+   other status in this product.
+   --------------------------------------------------------------------------- */
+.pending {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-high);
+  font-size: var(--text-secondary);
+  white-space: nowrap;
+}
+.pending__dot { font-size: var(--text-emphasis); line-height: 1; }
