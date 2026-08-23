@@ -696,6 +696,13 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 .signin__card { width: 100%; max-width: 420px; }
 .signin__card .btn { margin-top: var(--space-3); }
 
+.claim {
+  border: 1px dashed var(--color-medium);
+  background: color-mix(in srgb, var(--color-medium) 8%, transparent);
+  padding: var(--space-3);
+  margin: var(--space-3) 0;
+}
+
 /* ── Explorer ───────────────────────────────────────────────────────────
    320px tree, detail fills the rest — above the dense breakpoint.
 

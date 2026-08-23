@@ -11,6 +11,8 @@
 @attribute [AllowAnonymous]
 @layout SignInLayout
 @inject NavigationManager Nav
+@inject SetupToken Setup
+@rendermode InteractiveServer
 
 <PageTitle>Sign in — tamp.findings</PageTitle>
 
@@ -31,9 +33,29 @@
             </div>
         }
 
-        <p class="muted">
-            tamp.findings uses your identity provider. It never stores a password.
-        </p>
+        @if (Setup.IsRequired)
+        {
+            @* Only while nobody has claimed the instance. Once an admin
+               exists this disappears and the token stops working. *@
+            <div class="claim">
+                <div class="row">
+                    <Chip Label="Unclaimed" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+                    <span>No administrator exists on this instance yet.</span>
+                </div>
+                <TextField Label="Setup token" Mono="true" @bind-Value="_setupToken"
+                           Help="Printed in this instance's startup log. Whoever can read that log is the operator — that is what the token proves." />
+                <p class="field__help">
+                    Enter it to claim the administrator seat. A wrong token creates no account, so
+                    the instance stays claimable.
+                </p>
+            </div>
+        }
+        else
+        {
+            <p class="muted">
+                tamp.findings uses your identity provider. It never stores a password.
+            </p>
+        }
 
         @* A plain link, not a Blazor navigation: this leaves the app entirely
            and hands off to the OAuth handler, which has to be a full request. *@
@@ -56,6 +78,8 @@
     /// <summary>Where to return after signing in. Defaults to the portfolio.</summary>
     [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
 
+    private string? _setupToken;
+
     private string LoginHref
     {
         get
@@ -68,7 +92,17 @@
                 ? r
                 : Routes.Portfolio;
 
-            return $"/auth/login/github?returnUrl={Uri.EscapeDataString(target)}";
+            var href = $"/auth/login/github?returnUrl={Uri.EscapeDataString(target)}";
+
+            // Only sent while the instance is unclaimed. Appending it once an
+            // admin exists would put a useless secret-shaped value in browser
+            // history and proxy logs for no reason.
+            if (Setup.IsRequired && !string.IsNullOrWhiteSpace(_setupToken))
+            {
+                href += $"&setupToken={Uri.EscapeDataString(_setupToken)}";
+            }
+
+            return href;
         }
     }
 
@@ -78,6 +112,9 @@
             "This account is not approved on this instance yet. An administrator has to approve it.",
         "no_email" =>
             "Your identity provider did not share an email address, which this instance requires.",
+        "setup_token" =>
+            "That setup token was wrong, so no account was created. The instance is still unclaimed — "
+            + "check the startup log and try again.",
         _ => "Sign-in did not complete. Try again, or ask an administrator to check the logs.",
     };
 }
