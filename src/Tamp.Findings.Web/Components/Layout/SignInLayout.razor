@@ -1,0 +1,11 @@
+@inherits LayoutComponentBase
+
+@* No sidebar, no header, no scope card.
+
+   Sign-in is the one screen with nothing to navigate to — showing a nav to
+   someone who cannot reach any of it is noise at best, and at worst implies
+   the app is broken rather than that they are signed out. *@
+
+<main class="shell">
+    @Body
+</main>

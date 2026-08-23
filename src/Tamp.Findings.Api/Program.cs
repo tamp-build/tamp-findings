@@ -96,6 +96,13 @@ builder.Services.AddCors(options =>
 // TFND-4 OIDC sign-in. Cookie session + GitHub OAuth challenge.
 builder.Services.AddTampFindingsAuth(builder.Configuration);
 
+// Lets /_framework through the authorization gate so an anonymous visitor can
+// boot the circuit that renders the sign-in page. See the type for the two
+// approaches that do NOT work (TFND-126).
+builder.Services.AddSingleton<
+    Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler,
+    Tamp.Findings.Api.Authentication.FrameworkAssetAuthorizationHandler>();
+
 // TFND-40 / ADR 0002. The Blazor UI lives in Tamp.Findings.Web (a Razor Class
 // Library) and is hosted here — one process, one port, one cookie, so the
 // single-image deployment (TFND-4) holds. Interactivity is declared per
@@ -318,6 +325,17 @@ app.MapHierarchyCreate();
 //
 // Consequence while both are live: no Blazor page may claim "/" until the SPA
 // is retired, or it shadows index.html.
+// Serves the Blazor framework script. It ships in the
+// microsoft.aspnetcore.app.internal.assets package as a static web asset and
+// is reachable ONLY through this — UseStaticFiles cannot find it, which is why
+// /_framework/blazor.web.js 404'd without it and no circuit ever booted.
+//
+// It registers ENDPOINTS, so these paths inherit the host's fallback policy —
+// that is what FrameworkAssetAuthorizationHandler exists for. Do NOT add
+// .AllowAnonymous() here: that produced 200 responses with EMPTY BODIES for
+// every asset, which looks exactly like a working app with no styling.
+app.MapStaticAssets();
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()
     // AllowAnonymous at the ENDPOINT, [Authorize] at the COMPONENT. The host's
