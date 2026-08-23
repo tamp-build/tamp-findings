@@ -1,20 +1,90 @@
 @page "/c/{Client}/p/{Project}/build/{Sha}"
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject RouteScope Scope
+@inject ProjectHubQuery Hub
 
 <PageTitle>@Project — tamp.findings</PageTitle>
 
-<Placeholder Title="Project hub" Ticket="TFND-77 … TFND-83"
-             Description="Can this ship, and how are we trending. Score and gates side by side, components, scan receipts, build history."
-             Scope="Params" />
+@if (_loading)
+{
+    <p class="muted">Loading…</p>
+}
+else if (_project is null)
+{
+    <div class="stack">
+        <h1>Project not found</h1>
+        <Card>
+            <p>No project matches <code class="mono">@Client / @Project</code>.</p>
+        </Card>
+    </div>
+}
+else if (_data is null)
+{
+    @* A registered-but-never-scanned project is a real and common state, and
+       it must NOT render as a zero score. "A project with a green score and no
+       recent scan is not healthy" — and a zero score would be worse still,
+       implying something was measured. *@
+    <div class="stack">
+        <div>
+            <h1>@_project.ProjectName</h1>
+            <p class="muted">@_project.ClientName</p>
+        </div>
+        <Card>
+            <div class="row">
+                <Chip Label="No scan" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+                <span>This project has no canonical build yet.</span>
+            </div>
+            <p class="field__help">
+                Nothing has been ingested, so there is no score and no gate to evaluate.
+                A missing scan is not a clean scan.
+            </p>
+        </Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <div class="hubhead" style="border-left: 4px solid @BandColour">
+            <div>
+                <h1>@_data.Project.ProjectName</h1>
+                <p class="muted">
+                    @_data.Project.ClientName · policy @_data.PolicyName
+                </p>
+            </div>
+        </div>
+
+        <div class="hubrow">
+            <ScoreCard Data="_data" />
+            <GateRail Gates="_data.Gates" />
+        </div>
+    </div>
+}
 
 @code {
     [Parameter] public string Client { get; set; } = "";
     [Parameter] public string Project { get; set; } = "";
     [Parameter] public string Sha { get; set; } = "";
 
-    private List<KeyValuePair<string, string?>> Params =>
-        [new("client", Client), new("project", Project), new("build", Sha)];
+    private ProjectRef? _project;
+    private ProjectHubData? _data;
+    private bool _loading = true;
 
-    protected override void OnParametersSet() => Scope.SetProject(Client, Project, Sha);
+    private string BandColour => _data?.Risk.Band switch
+    {
+        "green" => "var(--color-band-green)",
+        "yellow" => "var(--color-band-yellow)",
+        "orange" => "var(--color-band-orange)",
+        _ => "var(--color-band-red)",
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project, Sha);
+
+        _loading = true;
+        _project = await Hub.ResolveAsync(Client, Project);
+        _data = _project is null ? null : await Hub.LoadAsync(_project, Sha);
+        _loading = false;
+    }
 }

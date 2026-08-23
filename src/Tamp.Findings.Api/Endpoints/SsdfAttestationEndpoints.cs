@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Services;
+using Tamp.Findings.Application.Risk;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Risk;
