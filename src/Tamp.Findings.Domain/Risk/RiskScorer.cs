@@ -51,7 +51,16 @@ public sealed record RiskInputs(
     // team learns to turn that gate off. No Critical bucket, because none of
     // these five tools finds something that stops a release on its own.
     int QualityHigh = 0, int QualityMedium = 0, int QualityLow = 0,
-    bool RanQuality = false);
+    bool RanQuality = false,
+    // TFND-27 — Section 508 / WCAG 2.1 AA.
+    //
+    // Split at axe's own line rather than at ours: axe grades violations
+    // critical / serious / moderate / minor, and a "critical" there means a
+    // control that cannot be operated at all by someone using a screen reader.
+    // That is a blocker for federal acceptance, so it maps to the severe bucket
+    // and is weighted accordingly.
+    int A11ySevere = 0, int A11yModerate = 0, int A11yMinor = 0,
+    bool RanAccessibility = false);
 
 public sealed record RiskCategoryBreakdown(
     string Key,
@@ -233,6 +242,11 @@ public static class RiskScorer
                      + i.QualityMedium * Get("medium")
                      + i.QualityLow    * Get("low");
 
+            case RiskCategoryNames.Accessibility:
+                return i.A11ySevere   * Get("severe")
+                     + i.A11yModerate * Get("moderate")
+                     + i.A11yMinor    * Get("minor");
+
             case RiskCategoryNames.IacSevere:
                 return i.IacCritical * Get("critical")
                      + i.IacHigh     * Get("high");
@@ -313,6 +327,7 @@ public static class RiskScorer
             (ExpectedScannerKeys.Sbom,     i.RanSbom),
             (ExpectedScannerKeys.Coverage, i.RanCoverage),
             (ExpectedScannerKeys.Dast,     i.RanDast),
+            (ExpectedScannerKeys.Accessibility, i.RanAccessibility),
         ];
 
         double Weight(string k) => w.TryGetValue(k, out var v) ? v : 0;
@@ -329,9 +344,14 @@ public static class RiskScorer
             // Legacy fallback reproduces the v1 five-class denominator
             // exactly: every class weighted 1 except dast, which v1 had
             // no concept of.
+            // The legacy fallback reproduces the v1 five-class denominator
+            // exactly: every class weighted 1 except dast and accessibility,
+            // which v1 had no concept of. Adding either to the fallback would
+            // retroactively penalise every project on a pre-existing policy for
+            // not running a scanner nobody had asked them to run.
             var weight = configured
                 ? Weight(key)
-                : (key == ExpectedScannerKeys.Dast ? 0 : 1);
+                : (key is ExpectedScannerKeys.Dast or ExpectedScannerKeys.Accessibility ? 0 : 1);
 
             if (weight <= 0) continue;
             expected += weight;
@@ -361,4 +381,8 @@ public static class ExpectedScannerKeys
     public const string Sbom = "sbom";
     public const string Coverage = "coverage";
     public const string Dast = "dast";
+    // TFND-27. Absent from the legacy fallback below, so no policy authored
+    // before accessibility existed suddenly starts penalising a project for not
+    // running a scanner it has never heard of.
+    public const string Accessibility = "accessibility";
 }
