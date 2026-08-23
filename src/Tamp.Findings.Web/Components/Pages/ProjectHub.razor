@@ -10,6 +10,25 @@
 {
     <p class="muted">Loading…</p>
 }
+else if (_error is not null)
+{
+    @* The database is unreachable. Say so LOUDLY rather than rendering an
+       empty hub — a screen whose job is to report posture must never imply a
+       clean one it could not measure. This is the same principle as "a missing
+       scan is not a clean scan", applied to the reader's own connection. *@
+    <div class="stack">
+        <h1>@Project</h1>
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not load this project's posture.</span>
+            </div>
+            <p class="field__help">
+                The score and gates are unknown, not clean. @_error
+            </p>
+        </Card>
+    </div>
+}
 else if (_project is null)
 {
     <div class="stack">
@@ -69,6 +88,7 @@ else
     private ProjectRef? _project;
     private ProjectHubData? _data;
     private bool _loading = true;
+    private string? _error;
 
     private string BandColour => _data?.Risk.Band switch
     {
@@ -83,8 +103,22 @@ else
         Scope.SetProject(Client, Project, Sha);
 
         _loading = true;
-        _project = await Hub.ResolveAsync(Client, Project);
-        _data = _project is null ? null : await Hub.LoadAsync(_project, Sha);
+        _error = null;
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project);
+            _data = _project is null ? null : await Hub.LoadAsync(_project, Sha);
+        }
+        catch (Exception ex)
+        {
+            // Deliberately broad: any failure to reach the data — connection
+            // refused, timeout, a migration mid-flight — has the same meaning
+            // for the reader, and an unhandled one would 500 the whole shell
+            // including the navigation they need to get somewhere else.
+            _project = null;
+            _data = null;
+            _error = ex.GetType().Name;
+        }
         _loading = false;
     }
 }

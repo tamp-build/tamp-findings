@@ -25,6 +25,27 @@ public class ProjectHubRenderTests : IClassFixture<TestApiFactory>
     }
 
     [Fact]
+    public async Task An_unreachable_database_says_unavailable_rather_than_rendering_an_empty_hub()
+    {
+        // This suite runs without Postgres, so every hub request here IS the
+        // database-down case — which makes it the honest place to assert the
+        // behaviour.
+        //
+        // A screen whose job is to report posture must never imply a clean one
+        // it could not measure. Same principle as "a missing scan is not a
+        // clean scan", applied to the reader's own connection.
+        var client = _factory.CreateSignedIn();
+
+        var body = await client.GetStringAsync("/c/BrewingCoder/p/tamp/build/179fe8b");
+
+        Assert.Contains("Unavailable", body, StringComparison.Ordinal);
+        Assert.Contains("not clean", body, StringComparison.Ordinal);
+        // And emphatically not a score.
+        Assert.DoesNotContain("score__value", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Clear to ship", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_project_with_no_build_never_renders_as_a_zero_score()
     {
         // The failure mode this guards: rendering 0.0 for a project nobody has
