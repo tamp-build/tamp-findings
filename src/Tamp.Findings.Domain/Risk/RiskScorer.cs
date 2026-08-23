@@ -105,6 +105,46 @@ public static class RiskScorer
     // Divergence is confined to configs that were already miscalibrated.
     public const int MaxSupportedSchemaVersion = 2;
 
+    /// <summary>
+    /// What each category's ceiling actually is under this policy, with no
+    /// findings involved.
+    ///
+    /// The policy editor needs this to show effective maxima that move as
+    /// weights change and categories are toggled — which is the whole point of
+    /// that screen: A CATEGORY'S CEILING IS NOT A FIXED NUMBER. Extracted here
+    /// rather than reimplemented in the editor, because a second implementation
+    /// would eventually disagree with the scorer and the editor would then be
+    /// demonstrating a normalisation that does not happen.
+    /// </summary>
+    public static IReadOnlyDictionary<string, double> EffectiveMaxima(RiskPolicyConfig policy)
+    {
+        var basis = WeightBasis(policy);
+        var denominator = policy.SchemaVersion >= 2 ? basis : 100.0;
+
+        var maxima = new Dictionary<string, double>(policy.Categories.Count);
+        foreach (var (key, cat) in policy.Categories)
+        {
+            maxima[key] = !cat.Enabled || cat.Max <= 0 || denominator <= 0
+                ? 0
+                : 100.0 * cat.Max / denominator;
+        }
+        return maxima;
+    }
+
+    /// <summary>
+    /// Sum of Max across ENABLED categories. This is what makes disabling a
+    /// category redistribute its share rather than deflate the whole score.
+    /// </summary>
+    public static double WeightBasis(RiskPolicyConfig policy)
+    {
+        var basis = 0.0;
+        foreach (var (_, cat) in policy.Categories)
+        {
+            if (cat.Enabled && cat.Max > 0) basis += cat.Max;
+        }
+        return basis;
+    }
+
     public static RiskResult Compute(RiskPolicyConfig policy, RiskInputs i)
     {
         if (policy.SchemaVersion is < 1 or > MaxSupportedSchemaVersion)
@@ -113,11 +153,7 @@ public static class RiskScorer
 
         // Weight basis over enabled categories only — this is what makes
         // disabling a category redistribute rather than deflate.
-        var basis = 0.0;
-        foreach (var (_, cat) in policy.Categories)
-        {
-            if (cat.Enabled && cat.Max > 0) basis += cat.Max;
-        }
+        var basis = WeightBasis(policy);
 
         // The entire behavioural difference between the two schema
         // versions is this denominator.

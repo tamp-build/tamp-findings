@@ -86,8 +86,13 @@ public static class GateEvaluator
         return new GateEvaluation(currentScore, priorScore, deltaPoints, results);
     }
 
-    // Order is presentation order on the SPA — keep stable.
-    private static readonly string[] WellKnownGateKeys =
+    // Order is presentation order on every screen — keep stable.
+    //
+    // Public because the gates editor has to offer EVERY gate, including the
+    // ones a project has never configured. Deriving the list from a project's
+    // stored config instead would mean a gate nobody has enabled yet is a gate
+    // nobody can enable.
+    public static readonly string[] WellKnownGateKeys =
     [
         GateKeys.RiskScoreRegression,
         GateKeys.KevExposure,
@@ -105,6 +110,68 @@ public static class GateEvaluator
         GateKeys.CoverageRegression,
         GateKeys.PoamPastDue,
     ];
+
+    /// <summary>
+    /// The human label for a gate key.
+    ///
+    /// Here rather than in a component: the gate rail, the gates editor and the
+    /// attestation all name the same gates, and three switch statements would
+    /// eventually disagree about what one of them is called.
+    /// </summary>
+    public static string Label(string key) => key switch
+    {
+        GateKeys.RiskScoreRegression => "Risk score regression",
+        GateKeys.KevExposure => "KEV exposure",
+        GateKeys.AnyCves => "Any CVEs",
+        GateKeys.CriticalCves => "Critical CVEs",
+        GateKeys.HighCves => "High CVEs",
+        GateKeys.CriticalSast => "Critical SAST",
+        GateKeys.HighSast => "High SAST",
+        GateKeys.CriticalDast => "Critical DAST",
+        GateKeys.HighDast => "High DAST",
+        GateKeys.CriticalIac => "Critical IaC",
+        GateKeys.VerifiedSecrets => "Verified secrets",
+        GateKeys.DeniedLicenses => "Denied licences",
+        GateKeys.TestFailures => "Test failures",
+        GateKeys.CoverageRegression => "Coverage regression",
+        GateKeys.PoamPastDue => "POA&M past due",
+        _ => key,
+    };
+
+    /// <summary>
+    /// Plain language for someone deciding whether to turn a gate on — what it
+    /// blocks, and what makes it unanswerable.
+    /// </summary>
+    public static string Describe(string key) => key switch
+    {
+        GateKeys.RiskScoreRegression =>
+            "Blocks when this build scores worse than the previous canonical build by more than the "
+            + "threshold. The first build on a project has nothing to compare against and passes.",
+        GateKeys.KevExposure =>
+            "Blocks when any dependency carries a CVE on the CISA Known Exploited Vulnerabilities "
+            + "list. Unanswerable without an SBOM ingest.",
+        GateKeys.AnyCves => "Blocks on any open CVE at all. Unanswerable without an SBOM ingest.",
+        GateKeys.CriticalCves => "Blocks on critical CVEs above the threshold. Needs an SBOM.",
+        GateKeys.HighCves => "Blocks on high CVEs above the threshold. Needs an SBOM.",
+        GateKeys.CriticalSast => "Blocks on critical static-analysis findings. Needs a SAST scan.",
+        GateKeys.HighSast => "Blocks on high static-analysis findings. Needs a SAST scan.",
+        GateKeys.CriticalDast =>
+            "Blocks on critical findings against a running deployment. Needs a DAST scan — and a "
+            + "project with no DAST receipt is unassessed, not clean.",
+        GateKeys.HighDast => "Blocks on high dynamic findings. Needs a DAST scan.",
+        GateKeys.CriticalIac => "Blocks on critical infrastructure misconfiguration. Needs an IaC scan.",
+        GateKeys.VerifiedSecrets =>
+            "Blocks on secrets a scanner verified as live. Needs a secret scan.",
+        GateKeys.DeniedLicenses => "Blocks on dependencies under a denied licence tier. Needs an SBOM.",
+        GateKeys.TestFailures => "Blocks on failing tests. Needs an ingested test run.",
+        GateKeys.CoverageRegression =>
+            "Blocks when coverage drops more than the threshold against the previous build. A project "
+            + "with no prior measurement has nothing to regress from and passes.",
+        GateKeys.PoamPastDue =>
+            "Blocks on POA&M items past their committed date. UNSCHEDULED items have no date to be "
+            + "past, so this gate cannot see them.",
+        _ => "No description registered for this gate.",
+    };
 
     private static GateResult EvaluateOne(
         string key, GateConfig cfg,
