@@ -27,16 +27,26 @@ public sealed class DastExplorerQuery
         _aliases = aliases;
     }
 
+    /// <summary>
+    /// <paramref name="scanners"/> defaults to the DAST set. TFND-27 passes the
+    /// accessibility set instead: axe also reports against a URL, so the
+    /// grouping and the evidence panels are already right — what differs is the
+    /// audience, which is why accessibility is its own spine rather than a
+    /// filter on this one.
+    /// </summary>
     public async Task<DastTree> TreeAsync(
-        Guid projectId, string? commitSha, CancellationToken ct = default)
+        Guid projectId, string? commitSha, IReadOnlySet<ScannerKind>? scanners = null,
+        CancellationToken ct = default)
     {
+        scanners ??= ScannerKinds.Dast;
+
         var rows = await (
             from f in _db.Findings.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
             join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
             where c.ProjectId == projectId
                   && (commitSha == null || cv.CommitSha == commitSha)
-                  && ScannerKinds.Dast.Contains(f.Scanner)
+                  && scanners.Contains(f.Scanner)
                   && f.Status == FindingStatus.Open
             select new { f.Id, f.FilePath, f.Severity, f.RuleId, f.Title, f.Scanner })
             .ToArrayAsync(ct);
@@ -79,15 +89,18 @@ public sealed class DastExplorerQuery
     /// and "here is the proof".
     /// </summary>
     public async Task<IReadOnlyList<DastFinding>> DetailAsync(
-        Guid projectId, string? commitSha, string route, CancellationToken ct = default)
+        Guid projectId, string? commitSha, string route,
+        IReadOnlySet<ScannerKind>? scanners = null, CancellationToken ct = default)
     {
+        scanners ??= ScannerKinds.Dast;
+
         var rows = await (
             from f in _db.Findings.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
             join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
             where c.ProjectId == projectId
                   && (commitSha == null || cv.CommitSha == commitSha)
-                  && ScannerKinds.Dast.Contains(f.Scanner)
+                  && scanners.Contains(f.Scanner)
                   && f.Status == FindingStatus.Open
             select new { f.Id, f.FilePath, f.Severity, f.RuleId, f.Title, f.Description, f.Snippet, f.Scanner })
             .ToArrayAsync(ct);

@@ -1,4 +1,4 @@
-@* One shell, five spines.
+@* One shell, one body per spine.
 
    Replaces FindingsView, DastView, ComponentsView, CoverageView and TestsView —
    four near-identical two-pane screens with no shared shell, plus the SBOM
@@ -19,12 +19,18 @@
     </div>
 
     <div class="row" style="flex-wrap: wrap">
+        @* Anchors, not buttons. The whole point of the redesign is that
+           everything is addressable, and a button cannot be middle-clicked,
+           copied or opened in a new tab — which is exactly what somebody does
+           when they want to compare two spines side by side.
+
+           Changing spine drops the selection: a file path means nothing to the
+           SBOM spine, and carrying it across would deep-link to something that
+           does not exist there. *@
         @foreach (var spine in Spines.All)
         {
-            <button type="button" class="spine @(spine == ActiveSpine ? "spine--active" : null)"
-                    @onclick="() => Go(spine)">
-                @spine
-            </button>
+            <a class="spine @(spine == ActiveSpine ? "spine--active" : null)"
+               href="@Routes.Explorer(Client, Project, Sha, spine)">@spine</a>
         }
     </div>
 
@@ -64,7 +70,7 @@
     </div>
 
     <p class="field__help">
-        One shell, five spines — same navigation, same detail grammar, different evidence.
+        One shell per spine — same navigation, same detail grammar, different evidence.
     </p>
 </div>
 
@@ -83,14 +89,6 @@
     [Parameter] public RenderFragment? Tree { get; set; }
     [Parameter] public RenderFragment? Detail { get; set; }
     [Parameter] public bool HasSelection { get; set; }
-
-    private void Go(string spine)
-    {
-        // Changing spine drops the selection: a file path means nothing to the
-        // SBOM spine, and carrying it across would deep-link to something that
-        // does not exist.
-        Nav.NavigateTo(Routes.Explorer(Client, Project, Sha, spine));
-    }
 
     private void Back() => Nav.NavigateTo(Routes.Explorer(Client, Project, Sha, ActiveSpine));
 }

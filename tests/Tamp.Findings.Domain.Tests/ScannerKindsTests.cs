@@ -33,7 +33,6 @@ public class ScannerKindsTests
     [Theory]
     [InlineData(ScannerKind.Trivy)]       // IaC + secrets, own buckets
     [InlineData(ScannerKind.TruffleHog)]  // secrets
-    [InlineData(ScannerKind.AxeCore)]     // dynamic, but accessibility not security
     [InlineData(ScannerKind.OsvScanner)]  // SCA
     [InlineData(ScannerKind.Unknown)]
     public void Scanners_in_neither_bucket_stay_out_of_both(ScannerKind scanner)
@@ -41,6 +40,24 @@ public class ScannerKindsTests
         Assert.False(ScannerKinds.IsDynamic(scanner));
         Assert.DoesNotContain(scanner, ScannerKinds.Sast);
         Assert.DoesNotContain(scanner, ScannerKinds.Dast);
+    }
+
+    [Fact]
+    public void Accessibility_is_dynamic_but_is_neither_sast_nor_dast()
+    {
+        // Dynamic because axe reports a URL and a CSS selector, not a file and
+        // a line — the file/line hasher would build a hash from two nulls and
+        // collapse every violation on a page into one finding.
+        //
+        // Neither SAST nor DAST because the AUDIENCE is different: an
+        // accessibility defect is read by UX and by compliance, not by whoever
+        // triages CVEs. It used to sit in the "neither bucket" theory above
+        // with a comment saying exactly that; TFND-27 gave it the bucket it was
+        // waiting for.
+        Assert.True(ScannerKinds.IsDynamic(ScannerKind.AxeCore));
+        Assert.Contains(ScannerKind.AxeCore, ScannerKinds.Accessibility);
+        Assert.DoesNotContain(ScannerKind.AxeCore, ScannerKinds.Sast);
+        Assert.DoesNotContain(ScannerKind.AxeCore, ScannerKinds.Dast);
     }
 
     [Fact]

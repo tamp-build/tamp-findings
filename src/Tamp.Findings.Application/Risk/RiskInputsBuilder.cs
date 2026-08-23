@@ -27,6 +27,7 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
     // /aggregates path (which has its own VEX integration) doesn't
     // need to use this overload yet but it's available.
     private static readonly IReadOnlySet<ScannerKind> QualitySet = ScannerKinds.Quality;
+    private static readonly IReadOnlySet<ScannerKind> A11ySet = ScannerKinds.Accessibility;
 
     public async Task<RiskInputs> BuildAsync(IReadOnlyList<Guid> cvIds, RiskPolicyConfig policy, Guid? projectId, CancellationToken ct)
     {
@@ -70,6 +71,15 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
                                            && x.Severity is Severity.Critical or Severity.High).Sum(x => x.Count);
         var qualityMed  = findings.Where(x => QualitySet.Contains(x.Scanner) && x.Severity == Severity.Medium).Sum(x => x.Count);
         var qualityLow  = findings.Where(x => QualitySet.Contains(x.Scanner) && x.Severity == Severity.Low).Sum(x => x.Count);
+
+        // TFND-27 — Section 508 / WCAG 2.1 AA. Split at axe's own line: a
+        // "critical" there means a control that cannot be operated at all by
+        // someone using a screen reader, which is a blocker for federal
+        // acceptance rather than a nit.
+        var a11ySevere   = findings.Where(x => A11ySet.Contains(x.Scanner)
+                                            && x.Severity is Severity.Critical or Severity.High).Sum(x => x.Count);
+        var a11yModerate = findings.Where(x => A11ySet.Contains(x.Scanner) && x.Severity == Severity.Medium).Sum(x => x.Count);
+        var a11yMinor    = findings.Where(x => A11ySet.Contains(x.Scanner) && x.Severity == Severity.Low).Sum(x => x.Count);
 
         // Trivy splits across IaC vs secret vs vuln via SubCategory.
         bool IsIac(ScannerKind s, string? sub) => s == ScannerKind.Trivy && (sub is null || sub == "misconfiguration");
@@ -185,6 +195,7 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         // other Ran* flag: a zero from a scanner that never ran is not a clean
         // result, it is an unanswered question.
         var ranQuality = QualitySet.Any(s => receiptSet.Contains(s));
+        var ranAccessibility = A11ySet.Any(s => receiptSet.Contains(s));
 
         // TFND-30: POA&M past-due count drives the poamPastDue gate.
         // Project-scoped (matches VEX scoping); the /aggregates path
@@ -220,7 +231,9 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             DastCritical: dastCrit, DastHigh: dastHigh, DastMedium: dastMed, DastLow: dastLow,
             RanDast: ranDast,
             QualityHigh: qualityHigh, QualityMedium: qualityMed, QualityLow: qualityLow,
-            RanQuality: ranQuality);
+            RanQuality: ranQuality,
+            A11ySevere: a11ySevere, A11yModerate: a11yModerate, A11yMinor: a11yMinor,
+            RanAccessibility: ranAccessibility);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the
