@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.Ingest;
 using Tamp.Findings.Application;
 using Tamp.Findings.Web.Components;
 using System.Text.Json.Serialization;
@@ -142,7 +143,6 @@ builder.Services.AddFindingsApplication();
 // Bearer-token auth for /ingest/*. Each request brings a cli_/prj_
 // token; the filter validates + stashes the row, the endpoints
 // scope-check resolved Client/Project against it.
-builder.Services.AddScoped<Tamp.Findings.Api.Authentication.IngestTokenService>();
 builder.Services.AddScoped<Tamp.Findings.Api.Authentication.IngestAuthFilter>();
 
 var app = builder.Build();
