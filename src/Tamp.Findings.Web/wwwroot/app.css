@@ -673,6 +673,13 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 
 .buildrow-gates { display: inline-flex; gap: var(--space-2); }
 
+/* ── Portfolio ──────────────────────────────────────────────────────── */
+
+/* Blocking reasons are prose and can be long. They wrap rather than truncate:
+   the reason IS the value of the column, and an ellipsis would hide the part
+   that tells the reader what to do. */
+.portfolio__blocking { max-width: 42ch; white-space: normal; }
+
 /* ── Utility ────────────────────────────────────────────────────────── */
 
 .hr { height: 1px; border: 0; background: var(--color-divider); margin: var(--space-4) 0; }

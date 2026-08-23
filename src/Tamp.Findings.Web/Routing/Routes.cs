@@ -17,8 +17,18 @@ public static class Routes
     // alongside its current route and this constant becomes "/".
     public const string Portfolio = "/portfolio";
 
-    public static string ProjectHub(string client, string project, string sha) =>
-        $"/c/{E(client)}/p/{E(project)}/build/{E(sha)}";
+    /// <summary>
+    /// Stands in for a commit sha when the caller means "whatever is newest".
+    ///
+    /// A link into a project from the portfolio cannot know a sha, and
+    /// omitting the segment would need a second route shape. A sentinel keeps
+    /// one route — but it MUST be translated to null before it reaches the
+    /// query, or it gets treated as a commit prefix and matches nothing.
+    /// </summary>
+    public const string LatestBuild = "latest";
+
+    public static string ProjectHub(string client, string project, string? sha = null) =>
+        $"/c/{E(client)}/p/{E(project)}/build/{E(sha ?? LatestBuild)}";
 
     /// <param name="spine">sast | dast | sbom | coverage | tests</param>
     /// <param name="selection">
