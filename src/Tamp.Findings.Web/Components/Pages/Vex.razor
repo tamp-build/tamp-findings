@@ -1,19 +1,433 @@
+@* VEX statements (TFND-99).
+
+   A VEX statement is the official answer to "why didn't you patch this CVE?".
+   Federal assessors treat it as the answer of record, which sets the bar: a
+   statement that does not actually relieve the CVE must never look like one
+   that does.
+
+   Reached from any CVE row in the SBOM spine, which hands over the purl and
+   advisory as query parameters so the author never has to find their own row
+   again. *@
 @page "/c/{Client}/p/{Project}/vex"
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject RouteScope Scope
+@inject NavigationManager Nav
+@inject ProjectHubQuery Hub
+@inject VexQuery Statements
+@inject CurrentUser Me
 
 <PageTitle>VEX — @Project</PageTitle>
 
-<Placeholder Title="VEX statements" Ticket="TFND-99"
-             Description="Reachable from any CVE row in the SBOM spine. Lead Dev drafts, InfoSec publishes — that transition is a workflow, not a permission check."
-             Scope="Params" />
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>VEX statements</h1>
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not load the statements.</span>
+            </div>
+            <p class="field__help">
+                An empty list here would read as "no CVE has been explained away", which is a claim
+                this screen cannot currently make. @_error
+            </p>
+        </Card>
+    </div>
+}
+else if (_project is null)
+{
+    <div class="stack">
+        <h1>Project not found</h1>
+        <Card><p>No project matches <code class="mono">@Client / @Project</code>.</p></Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <div class="row row--between">
+            <div>
+                <div class="kicker">CycloneDX-VEX · vulnerability exploitability exchange</div>
+                <h1>@_project.ProjectName</h1>
+            </div>
+            <Button Variant="Button.ButtonVariant.Primary"
+                    Disabled="@(!_canAuthor.Allowed)" DisabledReason="@_canAuthor.Reason"
+                    OnClick="() => StartNew(null, null)">New statement</Button>
+        </div>
+
+        @if (_rows.Count(r => !r.Suppresses && r.RetiredAt is null) is > 0 and var unfinished)
+        {
+            @* The failure this screen exists to prevent: someone writes half a
+               statement, sees it in the list, and believes the CVE is handled. *@
+            <Card>
+                <div class="row" style="gap: var(--space-3)">
+                    <Chip Label="NOT YET RELIEVING" Tone="var(--color-high)" Style="Chip.ChipStyle.Outlined" />
+                    <span>
+                        @unfinished statement@(unfinished == 1 ? "" : "s")
+                        do@(unfinished == 1 ? "es" : "") not take @(unfinished == 1 ? "its" : "their")
+                        CVE out of the count — either the triage has not concluded, the project is
+                        affected, or a <code class="mono">not_affected</code> is missing its justification.
+                    </span>
+                </div>
+            </Card>
+        }
+
+        <Card Padded="false">
+            <div class="card-body row row--between">
+                <h2>Statements</h2>
+                <CheckField Label="Show retired" @bind-Value="_showRetired" />
+            </div>
+
+            @if (_rows.Count == 0)
+            {
+                <div class="card-body">
+                    <p class="muted">No VEX statements on this project.</p>
+                    <p class="field__help">
+                        Every CVE the SBOM spine shows is currently counting against this project.
+                        A statement is how a team says "present but not exploitable, because …" — and
+                        it is what an assessor asks for when a CVE stays open.
+                    </p>
+                </div>
+            }
+            else
+            {
+                <ScrollBox Label="VEX statements">
+                    <table class="table table--rows">
+                        <thead>
+                            <tr>
+                                <th>Advisory</th><th>Component</th><th>Status</th>
+                                <th>Justification</th><th>Rationale</th><th>Author</th>
+                                <th>Dated</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _rows)
+                            {
+                                <tr class="@(row.RetiredAt is not null ? "is-retired" : null)"
+                                    @onclick="() => StartEdit(row)">
+                                    <td class="mono">@row.AdvisoryId</td>
+                                    <td class="mono">
+                                        @row.Purl
+                                        @if (row.ComponentVersion is { Length: > 0 } version)
+                                        {
+                                            <span class="muted"> @@@version</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="muted" title="Applies to every version this project ships"> (all versions)</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <Chip Label="@StatusLabel(row.Status)" Tone="@StatusTone(row)"
+                                              Style="Chip.ChipStyle.Outlined" />
+                                    </td>
+                                    <td class="mono" style="font-size: var(--text-secondary)">
+                                        @* The OpenVEX enum value verbatim: it is the thing an
+                                           assessor matches against the standard, so a friendly
+                                           paraphrase would be the wrong kindness. *@
+                                        @(row.Justification is { } j and not VexJustification.None
+                                            ? Snake(j.ToString())
+                                            : "—")
+                                    </td>
+                                    <td>@(row.ImpactStatement is { Length: > 0 } s ? s : "—")</td>
+                                    <td>@row.Author</td>
+                                    <td class="mono">@row.CreatedAt.ToString("yyyy-MM-dd")</td>
+                                    <td>
+                                        @if (row.RetiredAt is { } retired)
+                                        {
+                                            <span class="muted mono">retired @retired.ToString("yyyy-MM-dd")</span>
+                                        }
+                                        else
+                                        {
+                                            <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
+                                                    Class="btn--danger"
+                                                    Disabled="@(!_canPublish.Allowed)" DisabledReason="@_canPublish.Reason"
+                                                    OnClick="() => _retiring = row">retire</Button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </ScrollBox>
+            }
+        </Card>
+    </div>
+}
+
+<Dialog Open="_editing" OpenChanged="v => _editing = v"
+        Title="@(_editingId is null ? "New VEX statement" : "Edit VEX statement")" Width="780">
+    <ChildContent>
+        <TextField Label="Advisory" Mono="true" @bind-Value="_draftAdvisory"
+                   Help="CVE-2024-12345 or GHSA-xxxx-xxxx-xxxx, exactly as the scanner reports it — this is what the statement joins on." />
+        <TextField Label="Package URL" Mono="true" @bind-Value="_draftPurl"
+                   Help="The bare purl, e.g. pkg:nuget/Log4Net. The version goes in its own field below." />
+        <TextField Label="Component version" Mono="true" @bind-Value="_draftVersion"
+                   Help="Blank means the statement applies to every version this project ships. Set it when the reasoning is version-specific." />
+
+        <div class="field">
+            <span class="field__label">Status</span>
+            <div class="row" style="gap: var(--space-2)">
+                @foreach (var status in Enum.GetValues<VexStatementStatus>())
+                {
+                    <span @onclick="() => _draftStatus = status" style="cursor: pointer">
+                        <Chip Label="@StatusLabel(status)" Tone="@StatusToneFor(status)"
+                              Style="@(_draftStatus == status ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                    </span>
+                }
+            </div>
+            <span class="field__help">
+                Only <code class="mono">not_affected</code> (with a justification) and
+                <code class="mono">fixed</code> take the CVE out of the count. The other two document
+                the position without relieving it.
+            </span>
+        </div>
+
+        @if (_draftStatus == VexStatementStatus.NotAffected)
+        {
+            <div class="field">
+                <span class="field__label">Justification</span>
+                <div class="row" style="gap: var(--space-2); flex-wrap: wrap">
+                    @foreach (var justification in Enum.GetValues<VexJustification>().Where(j => j != VexJustification.None))
+                    {
+                        <span @onclick="() => _draftJustification = justification" style="cursor: pointer">
+                            <Chip Label="@Snake(justification.ToString())" Tone="var(--color-accent)"
+                                  Style="@(_draftJustification == justification ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                        </span>
+                    }
+                </div>
+                <span class="field__help">
+                    Required. A <code class="mono">not_affected</code> with no justification does not
+                    relieve the CVE — federal expectation is that it always carries a why.
+                </span>
+            </div>
+        }
+
+        <TextField Label="Rationale" Multiline="true" Rows="4" @bind-Value="_draftImpact"
+                   Help="The prose an assessor reads. The justification says which standard clause applies; this says why it applies here." />
+        <TextField Label="Reference URL" Mono="true" @bind-Value="_draftReference"
+                   Help="Vendor advisory, issue, or write-up. Optional." />
+
+        @if (_dialogError is not null)
+        {
+            <p style="color: var(--color-critical)">@_dialogError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Save">Save statement</Button>
+        <Button OnClick="() => _editing = false">Cancel</Button>
+        <span class="field__help">Publishing a relieving statement writes a risk-class audit entry.</span>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_retiring is not null" OpenChanged="v => { if (!v) _retiring = null; }"
+        Title="Retire statement" Width="620">
+    <ChildContent>
+        @if (_retiring is { } target)
+        {
+            <p>
+                Retire the statement for <code class="mono">@target.AdvisoryId</code> on
+                <code class="mono">@target.Purl</code>?
+            </p>
+            <p class="field__help">
+                Retiring is a soft close — the row stays so "why did this CVE stop counting in May?"
+                still has an answer years from now.
+                @if (target.Suppresses)
+                {
+                    <text>
+                        This statement is currently relieving the CVE, so retiring it puts the CVE
+                        back into the count and may change the gate verdict.
+                    </text>
+                }
+            </p>
+            @if (_dialogError is not null)
+            {
+                <p style="color: var(--color-critical)">@_dialogError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Danger" OnClick="Retire">Retire statement</Button>
+        <Button OnClick="() => _retiring = null">Cancel</Button>
+    </Footer>
+</Dialog>
 
 @code {
     [Parameter] public string Client { get; set; } = "";
     [Parameter] public string Project { get; set; } = "";
 
-    private List<KeyValuePair<string, string?>> Params =>
-        [new("client", Client), new("project", Project)];
+    /// <summary>
+    /// From the SBOM spine's VEX cell. When present, the dialog opens
+    /// pre-filled — the whole point of that cell being a workflow rather than a
+    /// status readout.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "purl")] public string? PurlParam { get; set; }
+    [SupplyParameterFromQuery(Name = "advisory")] public string? AdvisoryParam { get; set; }
 
-    protected override void OnParametersSet() => Scope.SetProject(Client, Project);
+    private ProjectRef? _project;
+    private IReadOnlyList<VexRow> _rows = [];
+    private string? _error, _dialogError;
+    private bool _showRetired;
+
+    private AuthorizationDecision _canAuthor = AuthorizationDecision.Deny("Checking…");
+    private AuthorizationDecision _canPublish = AuthorizationDecision.Deny("Checking…");
+
+    private bool _editing;
+    private Guid? _editingId;
+    private VexRow? _retiring;
+
+    private string? _draftAdvisory, _draftPurl, _draftVersion, _draftImpact, _draftReference;
+    private VexStatementStatus _draftStatus = VexStatementStatus.UnderInvestigation;
+    private VexJustification? _draftJustification;
+
+    private ScopeTarget Here =>
+        _project is null
+            ? ScopeTarget.Instance
+            : ScopeTarget.Project(_project.ClientId, _project.ProjectId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project);
+        _error = null;
+
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project);
+            if (_project is null) return;
+
+            _rows = await Statements.ListAsync(_project.ProjectId, _showRetired);
+            _canAuthor = await Me.CanAsync(Capability.AuthorVex, Here);
+            _canPublish = await Me.CanAsync(Capability.PublishVex, Here);
+
+            // Arriving from the SBOM spine with a CVE in hand. Only open the
+            // dialog when no statement exists yet — if one does, the row is
+            // already in the list and opening a blank form over it would invite
+            // a duplicate answer of record.
+            if (!_editing && PurlParam is { Length: > 0 } && AdvisoryParam is { Length: > 0 })
+            {
+                var existing = _rows.FirstOrDefault(
+                    r => r.AdvisoryId == AdvisoryParam && SamePackage(r.Purl, PurlParam));
+
+                if (existing is not null) StartEdit(existing);
+                else StartNew(PurlParam, AdvisoryParam);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetType().Name;
+        }
+    }
+
+    // The SBOM spine knows the FULL purl (pkg:nuget/Foo@1.2.3); a statement
+    // stores the bare one. Comparing them directly would miss every match and
+    // offer to write a duplicate.
+    private static bool SamePackage(string statementPurl, string incoming) =>
+        Strip(statementPurl) == Strip(incoming);
+
+    private static string Strip(string purl)
+    {
+        var at = purl.LastIndexOf('@');
+        return at < 4 ? purl : purl[..at];
+    }
+
+    private void StartNew(string? purl, string? advisory)
+    {
+        _editingId = null;
+        _draftAdvisory = advisory;
+        _draftPurl = purl is null ? null : Strip(purl);
+        _draftVersion = null;
+        _draftImpact = _draftReference = null;
+        // Under investigation is the honest default for a statement someone has
+        // only just opened. Defaulting to not_affected would put a relieving
+        // answer one careless click away.
+        _draftStatus = VexStatementStatus.UnderInvestigation;
+        _draftJustification = null;
+        _dialogError = null;
+        _editing = true;
+    }
+
+    private void StartEdit(VexRow row)
+    {
+        if (row.RetiredAt is not null) return;
+
+        _editingId = row.Id;
+        _draftAdvisory = row.AdvisoryId;
+        _draftPurl = row.Purl;
+        _draftVersion = row.ComponentVersion;
+        _draftStatus = row.Status;
+        _draftJustification = row.Justification;
+        _draftImpact = row.ImpactStatement;
+        _draftReference = row.ResponseReferenceUrl;
+        _dialogError = null;
+        _editing = true;
+    }
+
+    private async Task Save()
+    {
+        if (_project is null) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var draft = new VexDraft(
+            _draftAdvisory ?? "",
+            _draftPurl ?? "",
+            _draftVersion,
+            _draftStatus,
+            _draftStatus == VexStatementStatus.NotAffected ? _draftJustification : null,
+            _draftImpact,
+            _draftReference);
+
+        var result = await Statements.SaveAsync(actor, Here, _project.ProjectId, _editingId, draft);
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _editing = false;
+        // Clear the query parameters so a reload does not reopen the dialog on
+        // a statement that now exists.
+        Nav.NavigateTo(Routes.Vex(Client, Project));
+    }
+
+    private async Task Retire()
+    {
+        if (_project is null || _retiring is not { } target) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Statements.RetireAsync(actor, Here, _project.ProjectId, target.Id);
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _retiring = null;
+        _rows = await Statements.ListAsync(_project.ProjectId, _showRetired);
+    }
+
+    // The OpenVEX wire vocabulary, not a paraphrase: it is what an assessor
+    // matches against the standard.
+    private static string StatusLabel(VexStatementStatus status) => status switch
+    {
+        VexStatementStatus.UnderInvestigation => "under_investigation",
+        VexStatementStatus.Affected => "affected",
+        VexStatementStatus.NotAffected => "not_affected",
+        _ => "fixed",
+    };
+
+    private static string StatusTone(VexRow row) =>
+        row.RetiredAt is not null ? "var(--color-neutral-500)"
+        : row.Suppresses ? "var(--color-pass)"
+        : "var(--color-high)";
+
+    private static string StatusToneFor(VexStatementStatus status) => status switch
+    {
+        VexStatementStatus.Fixed => "var(--color-pass)",
+        VexStatementStatus.NotAffected => "var(--color-pass)",
+        VexStatementStatus.Affected => "var(--color-critical)",
+        _ => "var(--color-high)",
+    };
+
+    // VulnerableCodeNotInExecutePath → vulnerable_code_not_in_execute_path.
+    private static string Snake(string pascal) =>
+        string.Concat(pascal.Select((c, i) =>
+            char.IsUpper(c) && i > 0 ? "_" + char.ToLowerInvariant(c) : char.ToLowerInvariant(c).ToString()));
 }
