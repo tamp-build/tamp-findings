@@ -8,6 +8,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- IDataProtectionProvider. Identity-provider secrets are encrypted at
+         rest by the Application layer rather than by a transport, so the
+         protector lives where the write happens (TFND-111). -->
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The OSCAL and PDF writers are internal because nothing outside the
          exporter should build one, and their OUTPUT SHAPE is what a FedRAMP
          assessor's tooling consumes — so it has to be asserted. -->

@@ -68,6 +68,10 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Policy.GateService>();
         services.AddScoped<Projects.ProjectSettingsService>();
         services.AddScoped<SystemAdmin.SystemAdminService>();
+        services.AddScoped<SystemAdmin.IdentityProviderService>();
+        // Singleton: it owns a key ring, and building one per request would
+        // re-read the key table on every provider save.
+        services.AddSingleton<SystemAdmin.ProviderSecretProtector>();
         services.AddScoped<Approvals.ApprovalService>();
         services.AddScoped<Projects.ClientQuery>();
         services.AddScoped<Ingest.IngestTokenService>();
