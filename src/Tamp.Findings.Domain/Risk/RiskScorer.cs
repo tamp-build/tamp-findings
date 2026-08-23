@@ -52,6 +52,17 @@ public sealed record RiskInputs(
     // these five tools finds something that stops a release on its own.
     int QualityHigh = 0, int QualityMedium = 0, int QualityLow = 0,
     bool RanQuality = false,
+    // TFND-134 — how old the base image was when this build ran.
+    //
+    // Two flags rather than one, and the distinction is the whole point.
+    // RanImageInspect says an image was inspected at all; BaseImageAgeDays is
+    // null when it was, but the BASE image behind it could not be identified —
+    // which is the common case, since the OCI annotation that names it is
+    // usually absent. "We looked and the base is 400 days old" and "we looked
+    // and cannot tell what the base is" are different answers, and neither is
+    // "it is fine".
+    int? BaseImageAgeDays = null,
+    bool RanImageInspect = false,
     // TFND-27 — Section 508 / WCAG 2.1 AA.
     //
     // Split at axe's own line rather than at ours: axe grades violations
@@ -266,6 +277,37 @@ public static class RiskScorer
                 var stalePct    = (double)i.SbomStale    / i.SbomComponents;
                 return outdatedPct * Get("outdated")
                      + stalePct    * Get("stale");
+            }
+
+            case RiskCategoryNames.BaseImageAge:
+            {
+                // Unknown scores ZERO here, deliberately — the gate is where
+                // "nobody looked" becomes visible, not the score. A score that
+                // penalised an unmeasured base image would make every project
+                // without container builds look worse than it is, and the
+                // majority of projects on an instance have no image at all.
+                if (i.BaseImageAgeDays is not { } age) return 0;
+
+                // A SATURATION FRACTION in 0..1, like every other category
+                // here — the category's Max carries the weight, not this.
+                // Returning points instead would clamp at 1.0 and make every
+                // base image past a few months score identically, which is
+                // exactly the bug the ramp exists to avoid.
+                var grace = Get("graceDays", 90);
+                var ceiling = Get("ceilingDays", 365);
+
+                if (age <= grace) return 0;
+
+                // A ceiling at or below the grace period is a malformed policy.
+                // Treating it as fully saturated is the safe reading: the
+                // author asked for anything past grace to be as bad as it gets.
+                if (ceiling <= grace) return 1;
+
+                // Linear from grace to ceiling, then flat. Past the ceiling the
+                // answer is already "replace this", and letting it keep
+                // climbing would let one ancient base image swamp every other
+                // category in the score.
+                return Math.Min(1.0, (age - grace) / (ceiling - grace));
             }
 
             case RiskCategoryNames.Tests:

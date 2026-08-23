@@ -459,6 +459,8 @@ app.MapIngest();
 app.MapSbomIngest();
 app.MapCoverageIngest();
 app.MapScanRunIngest();
+// TFND-134: the image a build produced, and the base image behind it.
+app.MapContainerImageIngest();
 app.MapSbomEnrich();
 app.MapSbomVulnerabilities();
 

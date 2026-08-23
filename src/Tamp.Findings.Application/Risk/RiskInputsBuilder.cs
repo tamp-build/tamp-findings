@@ -216,6 +216,28 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
                               && p.ScheduledCompletionDate < nowUtc, ct)
             : 0;
 
+        // TFND-134. The base image behind these builds, newest inspect wins.
+        //
+        // Age is measured at the BUILD rather than against today, so the number
+        // does not drift upward every time somebody opens the page. "The base
+        // image was 400 days old when we shipped this" is a fact about the
+        // release; "it is 400 days old now" is a fact about the calendar.
+        var images = await db.ContainerImages.AsNoTracking()
+            .Where(i => cvIds.Contains(i.ComponentVersionId))
+            .Select(i => new { i.InspectedAt, i.BaseImageCreatedAt })
+            .ToArrayAsync(ct);
+
+        var ranImageInspect = images.Length > 0;
+
+        // WORST across the versions in scope, not an average. One component
+        // shipping on a two-year-old base is a fact an average would dissolve,
+        // and it is the one somebody has to act on.
+        var baseImageAgeDays = images
+            .Where(i => i.BaseImageCreatedAt is not null)
+            .Select(i => (int?)Math.Max(0, (int)(i.InspectedAt - i.BaseImageCreatedAt!.Value).TotalDays))
+            .DefaultIfEmpty(null)
+            .Max();
+
         return new RiskInputs(
             CveCritical: cveBySev.GetValueOrDefault(Severity.Critical, 0),
             CveHigh:     cveBySev.GetValueOrDefault(Severity.High, 0),
@@ -237,7 +259,9 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             QualityHigh: qualityHigh, QualityMedium: qualityMed, QualityLow: qualityLow,
             RanQuality: ranQuality,
             A11ySevere: a11ySevere, A11yModerate: a11yModerate, A11yMinor: a11yMinor,
-            RanAccessibility: ranAccessibility);
+            RanAccessibility: ranAccessibility,
+            BaseImageAgeDays: baseImageAgeDays,
+            RanImageInspect: ranImageInspect);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the

@@ -143,6 +143,25 @@ public static class RiskPolicyDefaults
                 Enabled = true, Max = 10,
                 Weights = new() { ["outdated"] = 0.5, ["stale"] = 2.0 },
             },
+            // TFND-134. Deliberately in the FEDERAL policy only: the schema-1
+            // standard policy has a fixed 100-point budget, and adding a
+            // category there would overflow it rather than redistribute. A v2
+            // policy normalises, which is the point of it.
+            //
+            // Six points — below sbomStaleness at ten. A stale base image is a
+            // real signal but a narrower one: it is a proxy for CVEs that the
+            // cve category is already counting directly, and double-counting
+            // the same weakness would let one old base image dominate a score.
+            [RiskCategoryNames.BaseImageAge] = new()
+            {
+                Enabled = true, Max = 6,
+                // Ninety days of grace: base images are republished on their
+                // own cadence, and flagging one the week after a release would
+                // train teams to ignore the category. Full weight by a year.
+                // No third weight: the ramp runs 0 → 1 between these two, and
+                // Max above carries how much that is worth.
+                Weights = new() { ["graceDays"] = 90, ["ceilingDays"] = 365 },
+            },
             [RiskCategoryNames.Tests] = new()
             {
                 Enabled = true, Max = 5,

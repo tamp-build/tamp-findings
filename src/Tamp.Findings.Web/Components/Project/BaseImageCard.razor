@@ -1,0 +1,122 @@
+@* The image this build produced, and the base image behind it (TFND-134).
+
+   A base image is usually the single largest source of inherited CVEs in a
+   deployed artefact, and unlike a package it is one line in a Dockerfile — the
+   highest leverage per fix available.
+
+   The card leads with the BASE, not with the artefact. The artefact's own
+   identity is on every other screen; the base image is the thing nothing else
+   here can tell you. *@
+
+<Card Padded="false">
+    <div class="card-body">
+        <h2>Container image</h2>
+        <p class="field__help">
+            What this build produced, and what it was built on. A base image is
+            usually the largest single source of inherited CVEs — and the
+            cheapest to change.
+        </p>
+    </div>
+
+    @if (Images.Count == 0)
+    {
+        <div class="card-body">
+            <div class="row">
+                <Chip Label="NOT INSPECTED" Tone="var(--color-high)" Style="Chip.ChipStyle.Outlined" />
+                <span class="muted">No container image was inspected on this build.</span>
+            </div>
+            @* Same rule as every scan receipt: an absent measurement is not a
+               clean one. The gate reads Unknown rather than Pass, and this
+               says why in the place somebody would fix it. *@
+            <p class="field__help">
+                That is not "no container" — it is that nobody looked. Add an image inspect to the
+                pipeline (<code class="mono">Tamp.Trivy</code>'s <code class="mono">InspectImage</code>)
+                and post it to <code class="mono">/ingest/container-image</code>.
+            </p>
+        </div>
+    }
+    else
+    {
+        <ScrollBox Label="Container images">
+            <table class="table table--rows">
+                <thead>
+                    <tr>
+                        <th>Image</th><th>Base image</th>
+                        <th class="align-end">Base age at build</th><th>OS</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var image in Images)
+                    {
+                        <tr>
+                            <td>
+                                <div class="mono">@image.Reference</div>
+                                @if (image.CreatedAt is { } built)
+                                {
+                                    <div class="field__help">built @built.ToString("yyyy-MM-dd")</div>
+                                }
+                            </td>
+                            <td>
+                                @if (image.BaseImageReference is { Length: > 0 } baseRef)
+                                {
+                                    <span class="mono">@baseRef</span>
+                                }
+                                else
+                                {
+                                    @* The common case, and the message has to be
+                                       actionable rather than apologetic: the OCI
+                                       annotation is usually absent, and the fix is
+                                       one string in the build script. *@
+                                    <span class="muted">not identified</span>
+                                    <div class="field__help">
+                                        Most images do not carry the OCI annotation that names their
+                                        base. Pass <code class="mono">baseImageReference</code> from
+                                        your build — it is the string already in your
+                                        <code class="mono">FROM</code> line.
+                                    </div>
+                                }
+                            </td>
+                            <td class="num align-end">
+                                @if (image.BaseImageAgeInDays is { } age)
+                                {
+                                    <span style="@(age > 365 ? "color: var(--color-critical)"
+                                                 : age > 180 ? "color: var(--color-high)" : null)">
+                                        @age days
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="muted">—</span>
+                                }
+                            </td>
+                            <td>
+                                @if (image.OsFamily is { Length: > 0 })
+                                {
+                                    <span class="mono">@image.OsFamily @image.OsVersion</span>
+                                }
+                                else
+                                {
+                                    <span class="muted">—</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </ScrollBox>
+
+        <div class="card-body">
+            <p class="field__help">
+                @* Stated once, plainly, because a number that silently means
+                   something else is worse than no number. *@
+                Age is measured at the <strong>build</strong>, not against today — so it does not
+                drift upward every time this page is opened. "The base image was 400 days old when
+                we shipped this" is a fact about the release.
+            </p>
+        </div>
+    }
+</Card>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ContainerImageRow> Images { get; set; } = [];
+}

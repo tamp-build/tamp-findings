@@ -113,6 +113,27 @@ public sealed class ProjectHubQuery
         var inputs = await _inputs.BuildAsync(cvIds, policy.Config, project.ProjectId, ct);
         var result = RiskScorer.Compute(policy.Config, inputs);
 
+        // TFND-134. The images this commit produced, worst base first — the
+        // one somebody has to act on. Null when nothing was inspected, which
+        // the card renders as "not inspected" rather than as an empty list.
+        var images = (await _db.ContainerImages.AsNoTracking()
+                .Where(i => cvIds.Contains(i.ComponentVersionId))
+                .Select(i => new
+                {
+                    i.Reference, i.Digest, i.CreatedAt, i.OsFamily, i.OsVersion,
+                    i.BaseImageReference, i.BaseImageDigest, i.BaseImageCreatedAt, i.InspectedAt,
+                })
+                .ToArrayAsync(ct))
+            .Select(i => new ContainerImageRow(
+                i.Reference, i.Digest, i.CreatedAt, i.OsFamily, i.OsVersion,
+                i.BaseImageReference, i.BaseImageDigest, i.BaseImageCreatedAt,
+                i.BaseImageCreatedAt is { } baseCreated
+                    ? Math.Max(0, (int)(i.InspectedAt - baseCreated).TotalDays)
+                    : null))
+            .OrderByDescending(i => i.BaseImageAgeInDays ?? -1)
+            .ThenBy(i => i.Reference, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
         // Prior build, for the deltas the hub shows when they are switched on.
         var priorSha = builds.Select(b => b.CommitSha).Distinct()
             .SkipWhile(s => s == head.CommitSha).FirstOrDefault();
@@ -135,7 +156,7 @@ public sealed class ProjectHubQuery
         var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, ct);
 
         return new ProjectHubData(project, head.CommitSha, head.VersionString, head.CreatedAt,
-            policy.Name, result, gates, inputs, history);
+            policy.Name, result, gates, inputs, history, images);
     }
 
     /// <summary>
@@ -231,7 +252,27 @@ public sealed record ProjectHubData(
     RiskResult Risk,
     GateEvaluation Gates,
     RiskInputs Inputs,
-    IReadOnlyList<BuildHistoryRow> History);
+    IReadOnlyList<BuildHistoryRow> History,
+    /// <summary>Images this commit produced (TFND-134). Empty when none was inspected.</summary>
+    IReadOnlyList<ContainerImageRow> Images);
+
+/// <summary>
+/// One image a build produced, and the base image behind it (TFND-134).
+///
+/// Age is measured at the BUILD rather than against today, so the number does
+/// not drift upward every time somebody opens the page. "The base image was 400
+/// days old when we shipped this" is a fact about the release.
+/// </summary>
+public sealed record ContainerImageRow(
+    string Reference,
+    string? Digest,
+    DateTimeOffset? CreatedAt,
+    string? OsFamily,
+    string? OsVersion,
+    string? BaseImageReference,
+    string? BaseImageDigest,
+    DateTimeOffset? BaseImageCreatedAt,
+    int? BaseImageAgeInDays);
 
 /// <summary>
 /// One row of the build-history table. Carries the whole GateEvaluation rather
