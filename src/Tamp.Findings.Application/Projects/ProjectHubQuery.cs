@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Application.Risk;
+using Tamp.Findings.Application.Authorization;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Risk;
@@ -36,14 +37,44 @@ public sealed class ProjectHubQuery
     /// Slugs are what the URL carries, and they are matched case-insensitively
     /// because a link pasted from a chat window should not 404 on capitals.
     /// </summary>
-    public async Task<ProjectRef?> ResolveAsync(string clientSlug, string projectSlug, CancellationToken ct = default)
+    /// <summary>
+    /// Turn a client/project pair of names into a reference, if the reader may
+    /// see it (TFND-133).
+    ///
+    /// THE choke point for the whole UI: every project screen starts here, and
+    /// a null return makes the entire subtree unreachable by URL. That is why
+    /// the visible set is a required parameter rather than an optional one —
+    /// a caller that forgot to pass it would otherwise silently get everything,
+    /// which is precisely the defect this closes.
+    ///
+    /// Returns null rather than throwing for a project outside the boundary, so
+    /// the screen renders "no such project". Distinguishing "not yours" from
+    /// "does not exist" would confirm that another tenant has a project by that
+    /// name, which is the one bit worth withholding.
+    /// </summary>
+    public async Task<ProjectRef?> ResolveAsync(
+        string clientSlug, string projectSlug, VisibleSet visible, CancellationToken ct = default)
     {
-        return await (
+        var found = await (
             from p in _db.Projects.AsNoTracking()
             join c in _db.Clients.AsNoTracking() on p.ClientId equals c.Id
             where EF.Functions.ILike(c.Name, clientSlug) && EF.Functions.ILike(p.Name, projectSlug)
             select new ProjectRef(c.Id, c.Name, p.Id, p.Name, p.RiskPolicyId, p.GatesConfig))
             .FirstOrDefaultAsync(ct);
+
+        if (found is null) return null;
+
+        if (visible.CanSeeProject(found.ClientId, found.ProjectId)) return found;
+
+        // A component-level grant makes the project reachable as the container
+        // for that component, but no wider. Without this, somebody granted a
+        // role on one component could not open the project it lives in.
+        var componentIds = await _db.Components.AsNoTracking()
+            .Where(c => c.ProjectId == found.ProjectId)
+            .Select(c => c.Id)
+            .ToArrayAsync(ct);
+
+        return componentIds.Any(visible.Components.Contains) ? found : null;
     }
 
     /// <summary>

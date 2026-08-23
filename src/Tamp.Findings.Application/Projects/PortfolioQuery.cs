@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Application.Risk;
+using Tamp.Findings.Application.Authorization;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Risk;
@@ -33,14 +34,44 @@ public sealed class PortfolioQuery
         _inputs = inputs;
     }
 
-    public async Task<IReadOnlyList<PortfolioRow>> LoadAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Every project the reader may see, scored (TFND-133).
+    ///
+    /// The visible set is required rather than optional. An optional one
+    /// defaults to "no filter" when a caller forgets, and on the screen that
+    /// lists every project in the estate that is the whole defect.
+    /// </summary>
+    public async Task<IReadOnlyList<PortfolioRow>> LoadAsync(
+        VisibleSet visible, CancellationToken ct = default)
     {
-        var projects = await (
+        if (visible.IsEmpty) return [];
+
+        var candidates = await (
             from p in _db.Projects.AsNoTracking()
             join c in _db.Clients.AsNoTracking() on p.ClientId equals c.Id
             orderby c.Name, p.Name
-            select new { p.Id, p.Name, ClientName = c.Name, p.RiskPolicyId, p.GatesConfig })
+            select new
+            {
+                p.Id, p.Name, ClientName = c.Name, p.ClientId, p.RiskPolicyId, p.GatesConfig,
+            })
             .ToArrayAsync(ct);
+
+        // Component-tier grants make their project visible as a container, so
+        // the filter cannot be answered from the project row alone. Loaded once
+        // rather than per project.
+        var componentsByProject = visible.Unrestricted || visible.Components.Count == 0
+            ? []
+            : await _db.Components.AsNoTracking()
+                .Where(c => visible.Components.Contains(c.Id))
+                .Select(c => c.ProjectId)
+                .Distinct()
+                .ToArrayAsync(ct);
+
+        var reachableByComponent = componentsByProject.ToHashSet();
+
+        var projects = candidates
+            .Where(p => visible.CanSeeProject(p.ClientId, p.Id) || reachableByComponent.Contains(p.Id))
+            .ToArray();
 
         var defaultPolicy = await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
         var policies = await _db.RiskPolicies.AsNoTracking().ToDictionaryAsync(p => p.Id, ct);

@@ -219,7 +219,7 @@
         Scope.Clear();
         try
         {
-            _rows = await Query.LoadAsync();
+            _rows = await Query.LoadAsync(await Me.VisibleAsync());
         }
         catch (Exception ex)
         {
@@ -273,7 +273,7 @@
 
     private async Task Reload()
     {
-        try { _rows = await Query.LoadAsync(); }
+        try { _rows = await Query.LoadAsync(await Me.VisibleAsync()); }
         catch (Exception ex) { _error = ex.GetType().Name; }
     }
 }

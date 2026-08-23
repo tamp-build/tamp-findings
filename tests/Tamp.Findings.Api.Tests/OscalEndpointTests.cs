@@ -26,16 +26,27 @@ public class OscalEndpointTests : IClassFixture<TestApiFactory>
     }
 
     [Fact]
-    public async Task An_unknown_model_is_rejected_before_anything_is_built()
+    public async Task An_unknown_model_is_never_served()
     {
-        // Cheap validation first: building the document hits the database, and
-        // a typo in a query parameter should not.
+        // This used to assert a 400 with the valid model names in the body, and
+        // it asserted it against a host with no database — which worked because
+        // the endpoint validated the query parameter before touching anything.
+        //
+        // TFND-133 put the visibility boundary in front of that. The caller now
+        // has to be allowed to SEE the project before the endpoint gets a say
+        // about its query string, which is the correct order — you should not
+        // learn that a parameter is malformed for a resource you cannot see.
+        // With no database the boundary cannot be resolved, so this host
+        // answers 503.
+        //
+        // What is still assertable here is the part that matters: nothing is
+        // served. The precise 400 and its body moved to the integration suite,
+        // where a project exists and somebody can see it.
         var client = _factory.CreateSignedIn();
 
         var resp = await client.GetAsync($"/projects/{Guid.NewGuid()}/oscal?model=nonsense");
 
-        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
-        Assert.Contains("Bundle", await resp.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual(HttpStatusCode.OK, resp.StatusCode);
     }
 
     [Fact]

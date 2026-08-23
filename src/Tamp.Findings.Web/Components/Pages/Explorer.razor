@@ -10,6 +10,7 @@
 @inject RouteScope Scope
 @inject NavigationManager Nav
 @inject ProjectHubQuery Hub
+@inject CurrentUser Me
 @inject FindingsExplorerQuery Findings
 @inject DastExplorerQuery Dast
 @inject SbomExplorerQuery Sbom
@@ -675,7 +676,7 @@ else
         _error = null;
         try
         {
-            _project = await Hub.ResolveAsync(Client, Project);
+            _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
             if (_project is null) return;
 
             if (ByRule)

@@ -37,6 +37,12 @@ public static class ApplicationServiceCollectionExtensions
         // admin flag that has since been revoked.
         services.AddScoped<Authorization.PrincipalResolver>();
 
+        // TFND-133 (F2.3): what a user may READ, as distinct from what they may
+        // DO. Scoped for the same reason PrincipalResolver is — it reads the
+        // assignment rows, and a stale cached answer is a stale access
+        // decision.
+        services.AddScoped<Authorization.VisibilityScope>();
+
         // Scoped, and deliberately NOT saving on its own: an audit entry joins
         // the same transaction as the change it describes, so it can never
         // survive a rolled-back action and an action can never commit without

@@ -339,7 +339,7 @@ else
 
         try
         {
-            _detail = await Clients.LoadAsync(Client);
+            _detail = await Clients.LoadAsync(Client, await Me.VisibleAsync());
             if (_detail is null) return;
 
             _canEdit = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Client(_detail.Id));

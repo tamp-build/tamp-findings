@@ -373,7 +373,7 @@ else
 
         try
         {
-            _project = await Hub.ResolveAsync(Client, Project);
+            _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
             if (_project is null) return;
 
             var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
