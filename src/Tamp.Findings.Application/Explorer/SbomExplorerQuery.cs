@@ -32,7 +32,11 @@ public sealed class SbomExplorerQuery
             join cv in _db.ComponentVersions.AsNoTracking() on snap.ComponentVersionId equals cv.Id
             join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
             where c.ProjectId == projectId && (commitSha == null || cv.CommitSha == commitSha)
-            select new { sc.Id, sc.Purl, sc.Name, sc.Version, sc.License })
+            select new
+            {
+                sc.Id, sc.Purl, sc.Name, sc.Version, sc.License,
+                sc.LatestVersion, sc.LatestReleasedAt, sc.CurrentReleasedAt,
+            })
             .ToArrayAsync(ct);
 
         var ids = components.Select(c => c.Id).ToArray();
@@ -55,7 +59,15 @@ public sealed class SbomExplorerQuery
                      c.Version,
                      c.Purl,
                      byComponent.TryGetValue(c.Id, out var v) ? v.Worst : null,
-                     byComponent.TryGetValue(c.Id, out var v2) ? v2.Count : 0))
+                     byComponent.TryGetValue(c.Id, out var v2) ? v2.Count : 0,
+                     c.LatestVersion,
+                     // TFND-22. Staleness is the gap between when the version
+                     // this build SHIPS was released and when the newest one
+                     // was — not the age of the dependency. A package released
+                     // five years ago and never updated since is CURRENT; one
+                     // released last month with a newer release last week is
+                     // two weeks behind.
+                     StaleDays(c.CurrentReleasedAt, c.LatestReleasedAt)))
                  // Vulnerable first, then alphabetical. A reader opening this
                  // spine is looking for what is wrong, not taking inventory.
                  .OrderByDescending(l => l.VulnerabilityCount > 0)
@@ -137,6 +149,23 @@ public sealed class SbomExplorerQuery
             .ToArray();
     }
 
+    /// <summary>
+    /// How far behind the shipped version is, in days, or null when the
+    /// registry did not tell us.
+    ///
+    /// Null is a real and common answer — NuGet's flatcontainer API carries no
+    /// release dates at all, so nuget rows have nothing to compare. Rendering
+    /// that as "0 days behind" would claim currency this product cannot verify,
+    /// which is the same defect as a clean score from a scan that never ran.
+    /// </summary>
+    private static int? StaleDays(DateTimeOffset? current, DateTimeOffset? latest)
+    {
+        if (current is not { } shipped || latest is not { } newest) return null;
+
+        var days = (int)(newest - shipped).TotalDays;
+        return days > 0 ? days : null;
+    }
+
     // purl is "pkg:type/namespace/name@version". The type is the ecosystem.
     private static string EcosystemOf(string purl)
     {
@@ -152,7 +181,22 @@ public sealed class SbomExplorerQuery
 public sealed record SbomGroup(string Ecosystem, List<SbomLeaf> Components);
 
 public sealed record SbomLeaf(
-    string Name, string Version, string Purl, Severity? WorstSeverity, int VulnerabilityCount);
+    string Name, string Version, string Purl, Severity? WorstSeverity, int VulnerabilityCount,
+    string? LatestVersion,
+    /// <summary>
+    /// Days between the shipped version's release and the newest release, or
+    /// null when the registry does not publish dates (every NuGet row) or when
+    /// this IS the newest.
+    /// </summary>
+    int? StaleDays)
+{
+    /// <summary>
+    /// Behind by more than six months — the threshold the scorer's sbomStaleness
+    /// category already uses, so the badge and the score agree about what
+    /// "stale" means.
+    /// </summary>
+    public bool IsStale => StaleDays is > 180;
+}
 
 public sealed record SbomVulnerability(
     string AdvisoryId,
