@@ -198,13 +198,25 @@ else
                                      Selected="@(dep.Purl == Selection)"
                                      OnSelect="() => Select(dep.Purl)">
                                 <Badge>
-                                    @if (dep.WorstSeverity is { } worst)
-                                    {
-                                        <span class="row" style="gap: var(--space-1)">
+                                    <span class="row" style="gap: var(--space-1)">
+                                        @if (dep.StaleDays is { } behind)
+                                        {
+                                            @* TFND-22. The registry told us how
+                                               far behind this version is, so say
+                                               so — the number already feeds the
+                                               score, and a reader deciding what
+                                               to upgrade should not have to
+                                               infer it from a category total. *@
+                                            <span class="mono"
+                                                  style="@(dep.IsStale ? "color: var(--color-high)" : "color: var(--color-neutral-500)")"
+                                                  title="@Behind(dep)">@Age(behind)</span>
+                                        }
+                                        @if (dep.WorstSeverity is { } worst)
+                                        {
                                             <SeverityBadge Severity="worst" />
                                             <span class="num">@dep.VulnerabilityCount</span>
-                                        </span>
-                                    }
+                                        }
+                                    </span>
                                 </Badge>
                             </TreeRow>
                         </Virtualize>
@@ -604,6 +616,22 @@ else
     // A coverage number is a fact, but a reader still wants to know at a glance
     // whether it is a good one. The thresholds match the coverage gate's own
     // defaults so the colour never disagrees with the gate.
+    /// <summary>
+    /// How far behind, in the coarsest unit that is still true. "14mo behind"
+    /// reads; "426d behind" makes the reader do arithmetic.
+    /// </summary>
+    private static string Age(int days) => days switch
+    {
+        >= 365 => $"{days / 365}y behind",
+        >= 60 => $"{days / 30}mo behind",
+        _ => $"{days}d behind",
+    };
+
+    private static string Behind(SbomLeaf dep) =>
+        dep.LatestVersion is { Length: > 0 } latest
+            ? $"{dep.Version} shipped; {latest} is current, released {dep.StaleDays} days later"
+            : $"{dep.StaleDays} days behind the newest release";
+
     private static string PercentStyle(double percent) => percent switch
     {
         >= 80 => "color: var(--color-pass)",

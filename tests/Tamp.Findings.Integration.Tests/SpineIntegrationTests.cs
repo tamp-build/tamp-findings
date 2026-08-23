@@ -155,6 +155,64 @@ public class SpineIntegrationTests
         Assert.All(detail, v => Assert.NotNull(v.VexStatus));
     }
 
+    [SkippableFact]
+    public async Task A_dependency_behind_the_current_release_says_how_far()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // TFND-22. The gap already feeds the sbomStaleness category; a reader
+        // deciding what to upgrade should not have to infer it from a category
+        // total.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var query = scope.ServiceProvider.GetRequiredService<SbomExplorerQuery>();
+
+        var leaf = (await query.TreeAsync(world.ProjectId, world.Sha))
+            .SelectMany(g => g.Components).Single(c => c.Name == "Stale.Lib");
+
+        Assert.Equal(400, leaf.StaleDays);
+        Assert.True(leaf.IsStale);
+        Assert.Equal("3.0.0", leaf.LatestVersion);
+    }
+
+    [SkippableFact]
+    public async Task A_registry_with_no_release_dates_reports_no_staleness_rather_than_zero()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // NuGet's flatcontainer API carries no release dates at all, so nuget
+        // rows have nothing to compare. Rendering that as "0 days behind" would
+        // claim currency this product cannot verify — the same defect as a
+        // clean score from a scan that never ran.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var query = scope.ServiceProvider.GetRequiredService<SbomExplorerQuery>();
+
+        var leaf = (await query.TreeAsync(world.ProjectId, world.Sha))
+            .SelectMany(g => g.Components).Single(c => c.Name == "Vulnerable.Lib");
+
+        Assert.Null(leaf.StaleDays);
+        Assert.False(leaf.IsStale);
+    }
+
+    [SkippableFact]
+    public async Task A_dependency_only_slightly_behind_is_annotated_but_not_stale()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // The badge and the score agree about what "stale" means: 180 days, the
+        // threshold the sbomStaleness category already uses.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var query = scope.ServiceProvider.GetRequiredService<SbomExplorerQuery>();
+
+        var leaf = (await query.TreeAsync(world.ProjectId, world.Sha))
+            .SelectMany(g => g.Components).Single(c => c.Name == "Recent.Lib");
+
+        Assert.Equal(20, leaf.StaleDays);
+        Assert.False(leaf.IsStale);
+    }
+
     // ---- Coverage -----------------------------------------------------------
 
     [SkippableFact]
@@ -317,6 +375,18 @@ public class SpineIntegrationTests
         var clean = Dep("pkg:nuget/Clean.Lib@2.0.0", "Clean.Lib", "2.0.0");
         var retired = Dep("pkg:npm/retired-lib@3.0.0", "retired-lib", "3.0.0");
         _ = clean;
+
+        // TFND-22 staleness. The gap is between the SHIPPED version's release
+        // and the newest one's — not the age of the package.
+        var stale = Dep("pkg:npm/stale-lib@1.0.0", "Stale.Lib", "1.0.0");
+        stale.CurrentReleasedAt = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        stale.LatestReleasedAt = stale.CurrentReleasedAt.Value.AddDays(400);
+        stale.LatestVersion = "3.0.0";
+
+        var recent = Dep("pkg:npm/recent-lib@2.0.0", "Recent.Lib", "2.0.0");
+        recent.CurrentReleasedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        recent.LatestReleasedAt = recent.CurrentReleasedAt.Value.AddDays(20);
+        recent.LatestVersion = "2.1.0";
 
         void Vuln(SbomComponent dep, string advisory, Severity severity, double? cvss = null) =>
             db.Vulnerabilities.Add(new Vulnerability
