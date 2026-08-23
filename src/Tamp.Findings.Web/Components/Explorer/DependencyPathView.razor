@@ -1,0 +1,90 @@
+@* Why is this package here (TFND-7 / F6.2).
+
+   The single most-asked question about an SBOM, and the one a flat dependency
+   list cannot answer. A team told they have a critical CVE in a transitive
+   package they have never heard of needs to know what pulled it in before they
+   can do anything about it at all.
+
+   Read downwards: the leftmost node is something the team chose to depend on,
+   and the rightmost is the package in question. The first node is the one they
+   can actually act on. *@
+
+<div class="card-body">
+    <h3>Why is this here?</h3>
+
+    @if (!Paths.HasGraph)
+    {
+        @* Not the same as "nothing depends on this", and the difference
+           matters: this is a limitation of whatever produced the SBOM, not a
+           claim about the build. *@
+        <p class="field__help">
+            This SBOM lists components but carries no dependency edges, so the
+            path cannot be reconstructed. Some producers emit a flat component
+            list — <code class="mono">syft</code> with a directory scan, for
+            instance. A producer that walks the lock file emits the graph.
+        </p>
+    }
+    else if (Paths.Direct)
+    {
+        <p class="field__help">
+            A <strong>direct</strong> dependency — nothing else pulled it in.
+            Whoever added it to the manifest is who can remove it.
+        </p>
+    }
+    else if (Paths.Paths.Count == 0)
+    {
+        <p class="field__help">Not present in this project's most recent SBOM.</p>
+    }
+    else
+    {
+        <ol class="dep-paths">
+            @foreach (var path in Paths.Paths)
+            {
+                <li>
+                    <span class="dep-path">
+                        @for (var i = 0; i < path.Count; i++)
+                        {
+                            var node = path[i];
+                            var last = i == path.Count - 1;
+
+                            @* The FIRST node is emphasised, not the last. The
+                               last one is what the reader already clicked on;
+                               the first is the direct dependency they can
+                               actually change. *@
+                            <span class="mono @(i == 0 ? "dep-path__root" : null)"
+                                  style="@(last ? "color: var(--color-high)" : null)">
+                                @node.Name<span class="muted">@@@node.Version</span>
+                            </span>
+                            @if (!last)
+                            {
+                                <span class="muted dep-path__arrow">&rarr;</span>
+                            }
+                        }
+                    </span>
+                </li>
+            }
+        </ol>
+
+        <p class="field__help">
+            @if (Paths.Truncated)
+            {
+                <text>
+                    More routes reach this package than are shown. These are the
+                    shortest — the ones with the fewest maintainers between you
+                    and a fix.
+                </text>
+            }
+            else
+            {
+                <text>
+                    Shortest route first. The leftmost package is the one you
+                    depend on directly, and the one to change.
+                </text>
+            }
+        </p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public DependencyPaths Paths { get; set; } = DependencyPaths.None;
+}
