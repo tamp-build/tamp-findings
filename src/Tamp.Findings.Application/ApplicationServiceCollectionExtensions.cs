@@ -46,6 +46,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Risk.VexResolver>();
         services.AddScoped<Projects.ProjectHubQuery>();
         services.AddScoped<Projects.ComponentService>();
+        services.AddScoped<Ingest.IngestTokenService>();
+        services.AddScoped<Projects.ProjectKeyService>();
 
         return services;
     }
