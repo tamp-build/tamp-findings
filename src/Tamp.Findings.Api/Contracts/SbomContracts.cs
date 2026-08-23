@@ -47,7 +47,11 @@ public sealed record VulnerabilityDto(
     string? Description,
     string? FixedInVersion,
     string? ReferenceUrl,
-    ScannerKind Source);
+    ScannerKind Source,
+    // Optional so scanners that report a severity band and nothing else can
+    // keep posting the same payload they always have.
+    double? CvssScore = null,
+    string? CvssVector = null);
 
 public sealed record SbomDependencyDto(
     string ParentPurl,

@@ -50,6 +50,18 @@ public static class Routes
     public static string PoamItem(string client, string project, string id) => $"{Poam(client, project)}/{E(id)}";
     public static string Vex(string client, string project) => $"/c/{E(client)}/p/{E(project)}/vex";
 
+    /// <summary>
+    /// Deep link to one statement, or to writing the one that is missing.
+    ///
+    /// The SBOM table's VEX cell is the product's main path into VEX authoring,
+    /// and it always knows both halves of the key — so it hands them over
+    /// rather than dropping the reader on a list to find their own row again.
+    /// Carried as query parameters because a purl contains slashes, colons and
+    /// an '@'.
+    /// </summary>
+    public static string VexStatement(string client, string project, string purl, string advisoryId) =>
+        $"{Vex(client, project)}?purl={E(purl)}&advisory={E(advisoryId)}";
+
     public static string Attestation(string client, string project, string sha) =>
         $"{ProjectHub(client, project, sha)}/attestation";
 
