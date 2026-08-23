@@ -14,6 +14,7 @@
 @inject FindingsExplorerQuery Findings
 @inject DastExplorerQuery Dast
 @inject SbomExplorerQuery Sbom
+@inject DependencyPathQuery DepPaths
 @inject CoverageAndTestsQuery CoverageAndTests
 @inject RuleBreakdownQuery Rules
 
@@ -465,6 +466,7 @@ else
                         @_sbomDetail.Count known vulnerabilit@(_sbomDetail.Count == 1 ? "y" : "ies")
                     </p>
                 </div>
+                <DependencyPathView Paths="_sbomPaths" />
                 <SbomDetail Vulnerabilities="_sbomDetail" Client="@Client" Project="@Project"
                             Purl="@(Selection ?? "")" />
             }
@@ -582,6 +584,7 @@ else
     private IReadOnlyList<DastFinding> _dastDetail = [];
     private IReadOnlyList<SbomGroup> _sbom = [];
     private IReadOnlyList<SbomVulnerability> _sbomDetail = [];
+    private DependencyPaths _sbomPaths = DependencyPaths.None;
     private IReadOnlyList<CoverageGroup> _coverage = [];
     private CoverageLineMap? _coverageDetail;
     private List<SourceLine>? _coverageSource;
@@ -745,6 +748,13 @@ else
                 _sbomDetail = Selection is null
                     ? []
                     : await Sbom.DetailAsync(_project.ProjectId, BuildSha, Selection);
+                // TFND-7 (F6.2). Loaded alongside the vulnerabilities rather
+                // than on demand: a reader who has opened a transitive package
+                // is about to ask what pulled it in, and making them click
+                // again to find out is making them ask twice.
+                _sbomPaths = Selection is null
+                    ? DependencyPaths.None
+                    : await DepPaths.ForAsync(_project.ProjectId, BuildSha, Selection);
             }
             else if (Spine == Spines.Coverage)
             {
