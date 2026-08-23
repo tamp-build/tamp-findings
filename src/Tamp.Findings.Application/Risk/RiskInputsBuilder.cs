@@ -26,6 +26,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
     // statements scoped to the project filter the CVE counts. The
     // /aggregates path (which has its own VEX integration) doesn't
     // need to use this overload yet but it's available.
+    private static readonly IReadOnlySet<ScannerKind> QualitySet = ScannerKinds.Quality;
+
     public async Task<RiskInputs> BuildAsync(IReadOnlyList<Guid> cvIds, RiskPolicyConfig policy, Guid? projectId, CancellationToken ct)
     {
         if (cvIds.Count == 0) return Empty();
@@ -60,6 +62,14 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         var dastHigh = findings.Where(x => DastSet.Contains(x.Scanner) && x.Severity == Severity.High).Sum(x => x.Count);
         var dastMed  = findings.Where(x => DastSet.Contains(x.Scanner) && x.Severity == Severity.Medium).Sum(x => x.Count);
         var dastLow  = findings.Where(x => DastSet.Contains(x.Scanner) && x.Severity == Severity.Low).Sum(x => x.Count);
+
+        // TFND-33 … TFND-37. Counted separately from SAST so an OpenAPI style
+        // nit reported as High can never reach the criticalSast gate — a gate
+        // that fires on a lint warning is a gate a team turns off.
+        var qualityHigh = findings.Where(x => QualitySet.Contains(x.Scanner)
+                                           && x.Severity is Severity.Critical or Severity.High).Sum(x => x.Count);
+        var qualityMed  = findings.Where(x => QualitySet.Contains(x.Scanner) && x.Severity == Severity.Medium).Sum(x => x.Count);
+        var qualityLow  = findings.Where(x => QualitySet.Contains(x.Scanner) && x.Severity == Severity.Low).Sum(x => x.Count);
 
         // Trivy splits across IaC vs secret vs vuln via SubCategory.
         bool IsIac(ScannerKind s, string? sub) => s == ScannerKind.Trivy && (sub is null || sub == "misconfiguration");
@@ -171,6 +181,10 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         var ranIac = receiptSet.Contains(ScannerKind.Trivy);
         var ranSbom = compsCount > 0 || receiptSet.Contains(ScannerKind.Syft) || receiptSet.Contains(ScannerKind.OsvScanner);
         var ranCoverage = coverageMeasured;
+        // "Did any design-analysis tool run at all". Same honesty rule as every
+        // other Ran* flag: a zero from a scanner that never ran is not a clean
+        // result, it is an unanswered question.
+        var ranQuality = QualitySet.Any(s => receiptSet.Contains(s));
 
         // TFND-30: POA&M past-due count drives the poamPastDue gate.
         // Project-scoped (matches VEX scoping); the /aggregates path
@@ -204,7 +218,9 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             RanSbom: ranSbom, RanCoverage: ranCoverage,
             OpenPastDuePoams: openPastDuePoams,
             DastCritical: dastCrit, DastHigh: dastHigh, DastMedium: dastMed, DastLow: dastLow,
-            RanDast: ranDast);
+            RanDast: ranDast,
+            QualityHigh: qualityHigh, QualityMedium: qualityMed, QualityLow: qualityLow,
+            RanQuality: ranQuality);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the

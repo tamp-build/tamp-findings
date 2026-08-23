@@ -594,7 +594,12 @@ else
 
             if (ByRule)
             {
-                var scanners = Spine == Spines.Dast ? ScannerKinds.Dast : ScannerKinds.Sast;
+                // Static, not Sast: TFND-33 … TFND-37 wired five design-analysis
+                // scanners that belonged to no set and were therefore ingested
+                // and then invisible. A reader asking "what did the analysis
+                // find in this file" wants both kinds, and splitting them
+                // across two screens would mean checking two screens.
+                var scanners = Spine == Spines.Dast ? ScannerKinds.Dast : ScannerKinds.Static;
 
                 _rules = (await Rules.ByRuleAsync(_project.ProjectId, BuildSha, scanners)).ToList();
                 _ruleDetail = Selection is null
@@ -603,10 +608,10 @@ else
             }
             else if (Spine == Spines.Sast)
             {
-                _groups = await Findings.TreeAsync(_project.ProjectId, BuildSha, ScannerKinds.Sast);
+                _groups = await Findings.TreeAsync(_project.ProjectId, BuildSha, ScannerKinds.Static);
                 _detail = Selection is null
                     ? []
-                    : await Findings.DetailAsync(_project.ProjectId, BuildSha, ScannerKinds.Sast, Selection);
+                    : await Findings.DetailAsync(_project.ProjectId, BuildSha, ScannerKinds.Static, Selection);
 
                 _source = null;
                 _flagged = new Dictionary<int, Severity>();

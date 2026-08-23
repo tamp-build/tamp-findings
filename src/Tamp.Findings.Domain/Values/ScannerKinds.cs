@@ -30,6 +30,41 @@ public static class ScannerKinds
         ScannerKind.Nuclei,
     };
 
+    // Static analysis that finds DESIGN and MAINTAINABILITY problems rather
+    // than vulnerabilities (TFND-33 … TFND-37).
+    //
+    // These five had ScannerKind values and belonged to no set, which meant
+    // their findings were ingested and then invisible: absent from every spine,
+    // absent from the score. Ingesting evidence and then not showing it is the
+    // worst of both — the pipeline pays for the scan and nobody sees the result.
+    //
+    // Deliberately NOT folded into Sast. An OpenAPI style nit is not a static
+    // analysis SECURITY finding, and putting one there would let it block a
+    // release through the criticalSast gate — which is how a team learns to
+    // turn a gate off.
+    public static readonly IReadOnlySet<ScannerKind> Quality = new HashSet<ScannerKind>
+    {
+        // OpenAPI lint: a spec that contradicts itself or omits security
+        // definitions.
+        ScannerKind.Spectral,
+        // OpenAPI breaking-change detection against the previous spec.
+        ScannerKind.Oasdiff,
+        // Mutation testing: tests that pass whether or not the code works.
+        ScannerKind.Stryker,
+        // .NET architecture rules — layering violations, forbidden references.
+        ScannerKind.NetArchTest,
+        // The TS/JS analogue.
+        ScannerKind.DependencyCruiser,
+    };
+
+    // Every scanner that reports against a location in the source tree, whether
+    // it is looking for a vulnerability or a design problem. This is what the
+    // explorer's static spine shows: a reader looking at "what did the analysis
+    // find in this file" wants both, and splitting them across two screens would
+    // mean checking two screens.
+    public static readonly IReadOnlySet<ScannerKind> Static =
+        new HashSet<ScannerKind>(Sast.Concat(Quality));
+
     // True when a finding from this scanner describes a request rather than a
     // location in the source tree, and so needs the dynamic hash.
     public static bool IsDynamic(ScannerKind scanner) => Dast.Contains(scanner);

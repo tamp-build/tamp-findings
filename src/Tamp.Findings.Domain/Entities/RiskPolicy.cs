@@ -93,4 +93,12 @@ public static class RiskCategoryNames
     // findings independently of static ones.
     public const string DastSevere = "dastSevere";
     public const string DastLow = "dastLow";
+    // TFND-33 … TFND-37 — design and maintainability findings: OpenAPI lint,
+    // breaking-change detection, mutation testing, architecture rules.
+    //
+    // Its OWN category rather than folded into sastLow, because the two answer
+    // different questions and an admin should be able to weight them
+    // separately. A team shipping an internal service may not care about
+    // OpenAPI lint at all; a team shipping a public API cares a great deal.
+    public const string Quality = "quality";
 }
