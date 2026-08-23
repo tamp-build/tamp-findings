@@ -22,15 +22,41 @@ public sealed class CurrentUser
     private readonly AuthenticationStateProvider _auth;
     private readonly PrincipalResolver _resolver;
     private readonly CapabilityEvaluator _capabilities;
+    private readonly VisibilityScope _visibility;
 
     public CurrentUser(
         AuthenticationStateProvider auth,
         PrincipalResolver resolver,
-        CapabilityEvaluator capabilities)
+        CapabilityEvaluator capabilities,
+        VisibilityScope visibility)
     {
         _auth = auth;
         _resolver = resolver;
         _capabilities = capabilities;
+        _visibility = visibility;
+    }
+
+    /// <summary>
+    /// What the signed-in user may READ (TFND-133 / F2.3).
+    ///
+    /// Distinct from <see cref="AtAsync"/>, which answers what they may DO at
+    /// one place. Every screen that lists or resolves entities needs this one,
+    /// and it returns <see cref="VisibleSet.Nothing"/> for an anonymous or
+    /// unapproved caller rather than throwing — so a page renders an empty
+    /// result instead of an error, and "signed out" and "granted nothing" look
+    /// the same from outside, which is the intent.
+    /// </summary>
+    public async Task<VisibleSet> VisibleAsync(CancellationToken ct = default)
+    {
+        var state = await _auth.GetAuthenticationStateAsync();
+        var claims = state.User;
+
+        if (claims.Identity?.IsAuthenticated != true) return VisibleSet.Nothing;
+
+        var raw = claims.FindFirstValue(TampUserIdClaim);
+        if (!Guid.TryParse(raw, out var userId)) return VisibleSet.Nothing;
+
+        return await _visibility.ForAsync(userId, ct);
     }
 
     /// <summary>

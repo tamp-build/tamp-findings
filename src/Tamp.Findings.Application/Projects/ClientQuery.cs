@@ -32,7 +32,20 @@ public sealed class ClientQuery
         _audit = audit;
     }
 
-    public async Task<ClientDetail?> LoadAsync(string clientSlug, CancellationToken ct = default)
+    /// <summary>
+    /// One client and its projects, if the reader may see it (TFND-133).
+    ///
+    /// Null for a client outside the boundary — same shape as one that does not
+    /// exist, because distinguishing them would confirm that another tenant is
+    /// on this instance under that name.
+    ///
+    /// Note the second filter: a reader who reaches this client through a
+    /// PROJECT grant sees the client page, but only the projects they hold. The
+    /// client tile would otherwise list every project by name, which is a
+    /// perfectly good inventory of somebody else's estate.
+    /// </summary>
+    public async Task<ClientDetail?> LoadAsync(
+        string clientSlug, VisibleSet visible, CancellationToken ct = default)
     {
         // Case-insensitive, like every other slug resolution in the product: a
         // URL somebody typed should not 404 on capitalisation.
@@ -40,10 +53,26 @@ public sealed class ClientQuery
             .SingleOrDefaultAsync(c => c.Name.ToLower() == clientSlug.ToLower(), ct);
         if (client is null) return null;
 
-        var projects = await _db.Projects.AsNoTracking()
+        var allProjects = await _db.Projects.AsNoTracking()
             .Where(p => p.ClientId == client.Id)
             .Select(p => new { p.Id, p.Name, p.RiskPolicyId })
             .ToArrayAsync(ct);
+
+        var reachableByComponent = visible.Unrestricted || visible.Components.Count == 0
+            ? new HashSet<Guid>()
+            : (await _db.Components.AsNoTracking()
+                .Where(c => visible.Components.Contains(c.Id))
+                .Select(c => c.ProjectId)
+                .Distinct()
+                .ToArrayAsync(ct)).ToHashSet();
+
+        var projects = allProjects
+            .Where(p => visible.CanSeeProject(client.Id, p.Id) || reachableByComponent.Contains(p.Id))
+            .ToArray();
+
+        // Reaching nothing under this client is the same as the client not
+        // existing, as far as this reader is concerned.
+        if (!visible.CanSeeClient(client.Id) && projects.Length == 0) return null;
 
         var projectIds = projects.Select(p => p.Id).ToArray();
 

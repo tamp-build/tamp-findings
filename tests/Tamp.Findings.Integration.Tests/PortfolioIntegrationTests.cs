@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Tamp.Findings.Application.Projects;
 using Tamp.Findings.Domain.Entities;
@@ -24,7 +25,7 @@ public class PortfolioIntegrationTests
         using var scope = _fx.Scope();
         var portfolio = scope.ServiceProvider.GetRequiredService<PortfolioQuery>();
 
-        var row = (await portfolio.LoadAsync()).Single(r => r.ProjectName == name);
+        var row = (await portfolio.LoadAsync(VisibleSet.Everything /* TFND-133: this test is about the query, not the boundary */)).Single(r => r.ProjectName == name);
 
         Assert.Null(row.Score);
         Assert.Equal(ShipState.NoScan, row.Ship);
@@ -44,7 +45,7 @@ public class PortfolioIntegrationTests
 
         using var scope = _fx.Scope();
         var portfolio = scope.ServiceProvider.GetRequiredService<PortfolioQuery>();
-        var rows = await portfolio.LoadAsync();
+        var rows = await portfolio.LoadAsync(VisibleSet.Everything /* TFND-133: this test is about the query, not the boundary */);
 
         var unscannedIndex = rows.ToList().FindIndex(r => r.ProjectName == unscanned);
         var scannedIndex = rows.ToList().FindIndex(r => r.ProjectName == scanned);
@@ -64,7 +65,7 @@ public class PortfolioIntegrationTests
         using var scope = _fx.Scope();
         var portfolio = scope.ServiceProvider.GetRequiredService<PortfolioQuery>();
 
-        var row = (await portfolio.LoadAsync()).Single(r => r.ProjectName == name);
+        var row = (await portfolio.LoadAsync(VisibleSet.Everything /* TFND-133: this test is about the query, not the boundary */)).Single(r => r.ProjectName == name);
 
         Assert.All(row.Blocking, reason => Assert.True(reason.Length > 8, $"terse reason: '{reason}'"));
     }
