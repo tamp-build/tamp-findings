@@ -5,6 +5,7 @@
    destructive actions look destructive applies to leaving, not just deleting. *@
 
 @inject NavigationManager Nav
+@inject RouteScope Scope
 @inject IStringLocalizer<UiStrings> L
 
 <AuthorizeView>
@@ -39,6 +40,24 @@
                             <span class="account__item-sub">@item.Sub</span>
                         </a>
                     }
+
+                    @* Locale. Ports LanguageSwitcher.tsx, and it is not
+                       decoration: the pseudo-locale is how the ~40% expansion
+                       gets verified per screen without a translator (TFND-67),
+                       so it has to be reachable from every screen. *@
+                    <div class="account__head" style="border-top: 1px solid var(--color-divider)">
+                        <div style="width: 100%">
+                            <div class="kicker">@L["Account.Locale"]</div>
+                            <div class="row" style="gap: var(--space-2); margin-top: var(--space-1)">
+                                @foreach (var locale in Locales)
+                                {
+                                    <a class="chip @(IsCurrent(locale.Key) ? "chip--solid" : "chip--outlined")"
+                                       style="color: var(--color-accent)"
+                                       href="@LocaleHref(locale.Key)">@locale.Value</a>
+                                }
+                            </div>
+                        </div>
+                    </div>
                 </Card>
             }
         </div>
@@ -53,13 +72,48 @@
 
     private bool _open;
 
-    private IReadOnlyList<MenuItem> Items =>
+    private static readonly KeyValuePair<string, string>[] Locales =
     [
-        new(L["Account.Profile"], L["Account.ProfileSub"], "/c/-/p/-/settings/keys"),
-        new(L["Account.ApiKeys"], L["Account.ApiKeysSub"], "/c/-/p/-/settings/keys"),
-        new(L["Nav.PolicyAndGates"], L["Account.PolicySub"], "/c/-/p/-/settings/policy"),
-        new(L["Account.SignOut"], L["Account.SignOutSub"], "/auth/logout", Danger: true),
+        new("en", "en"),
+        new(PseudoLocale.CultureName, "pseudo"),
     ];
+
+    // Scope-aware. The settings screens live under a project, and a hardcoded
+    // placeholder scope sent the reader to a project called "-" that does not
+    // exist — a dead link on every screen. With no project in scope the items
+    // point at the portfolio, which is where you pick one.
+    private IReadOnlyList<MenuItem> Items =>
+        Scope.HasProject
+        ?
+        [
+            new(L["Account.Profile"], L["Account.ProfileSub"], Settings("account")),
+            new(L["Account.ApiKeys"], L["Account.ApiKeysSub"], Settings("keys")),
+            new(L["Nav.PolicyAndGates"], L["Account.PolicySub"], Settings("policy")),
+            new(L["Account.SignOut"], L["Account.SignOutSub"], "/auth/logout", Danger: true),
+        ]
+        :
+        [
+            new(L["Nav.Portfolio"], L["Account.ProfileSub"], Routes.Portfolio),
+            new(L["Account.SignOut"], L["Account.SignOutSub"], "/auth/logout", Danger: true),
+        ];
+
+    private string Settings(string tab) =>
+        $"/c/{Uri.EscapeDataString(Scope.Client!)}/p/{Uri.EscapeDataString(Scope.Project!)}/settings/{tab}";
+
+    private static bool IsCurrent(string culture) =>
+        string.Equals(System.Globalization.CultureInfo.CurrentUICulture.Name, culture,
+                      StringComparison.OrdinalIgnoreCase);
+
+    // Round-trips through the server so the culture cookie is set and the
+    // request re-runs under it. A client-side swap would change the labels
+    // without changing what the server formats — dates and numbers would stay
+    // in the old locale, which is worse than not offering the switch.
+    private string LocaleHref(string culture)
+    {
+        var current = Nav.ToBaseRelativePath(Nav.Uri);
+        var separator = current.Contains('?') ? '&' : '?';
+        return $"/{current}{separator}culture={culture}";
+    }
 
     private void Toggle() => _open = !_open;
     private void Close() => _open = false;

@@ -11,10 +11,9 @@ namespace Tamp.Findings.Web.Routing;
 /// </summary>
 public static class Routes
 {
-    // Portfolio does NOT claim "/" yet. The React SPA still serves the root and
-    // everything MapFallbackToFile catches, and an explicit Blazor route would
-    // shadow index.html. At cutover (TFND-128) Portfolio gains `@page "/"`
-    // alongside its current route and this constant becomes "/".
+    // TFND-128 landed: Blazor owns the root. Portfolio answers on both "/" and
+    // "/portfolio", and this constant stays the explicit form so a generated
+    // link is self-describing in a log or an email.
     public const string Portfolio = "/portfolio";
 
     /// <summary>
@@ -26,6 +25,13 @@ public static class Routes
     /// query, or it gets treated as a commit prefix and matches nothing.
     /// </summary>
     public const string LatestBuild = "latest";
+
+    /// <summary>
+    /// The client tier (TFND-127). Load-bearing rather than decorative: without
+    /// it the hierarchy has a gap between the portfolio and a project, and an
+    /// inherited policy is invisible from the project it applies to.
+    /// </summary>
+    public static string Client(string client) => $"/c/{E(client)}";
 
     public static string ProjectHub(string client, string project, string? sha = null) =>
         $"/c/{E(client)}/p/{E(project)}/build/{E(sha ?? LatestBuild)}";

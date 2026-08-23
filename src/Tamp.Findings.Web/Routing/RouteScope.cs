@@ -46,6 +46,26 @@ public sealed class RouteScope
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// A client with no project below it (TFND-127).
+    ///
+    /// Separate from <see cref="SetProject"/> rather than passing null,
+    /// because arriving at the client tier has to CLEAR any project the reader
+    /// came from — otherwise the sidebar keeps showing a project the page is
+    /// no longer about.
+    /// </summary>
+    public void SetClient(string? client)
+    {
+        if (Client == client && Project is null) return;
+        Client = client;
+        Project = null;
+        Build = null;
+        Component = null;
+        Spine = null;
+        Selection = null;
+        Changed?.Invoke();
+    }
+
     public void SetBuild(string? build)
     {
         if (Build == build) return;

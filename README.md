@@ -43,13 +43,16 @@ It ingests SARIF, SBOMs, coverage, and test results from any CI pipeline, scores
 
 ```
 src/
-  Tamp.Findings.Domain/    POCOs + risk policy + gate evaluator (no I/O)
-  Tamp.Findings.Data/      EF Core DbContext, migrations, Npgsql jsonb mapping
-  Tamp.Findings.Api/       Minimal API host — endpoints, auth, ingest
-build/                     Nuke build (security pipeline + ingest target)
-web/                       React + Vite + Tailwind SPA
-docker/                    docker-compose.dev.yml with bundled Postgres
-docs/                      ADRs, screenshots, attestation artifacts
+  Tamp.Findings.Domain/      POCOs + risk policy + gate evaluator (no I/O)
+  Tamp.Findings.Data/        EF Core DbContext, migrations, Npgsql jsonb mapping
+  Tamp.Findings.Application/ Authorization, queries, commands, audit — the one
+                             place access is decided (ADR 0002)
+  Tamp.Findings.Web/         Blazor Server RCL — every screen
+  Tamp.Findings.Workflows/   Elsa runtime + workflow definitions (off by default)
+  Tamp.Findings.Api/         Minimal API host — endpoints, auth, ingest; hosts Web
+build/                       Nuke build (security pipeline + ingest target)
+docker/                      docker-compose.dev.yml with bundled Postgres
+docs/                        ADRs, the redesign hand-off, attestation artifacts
 ```
 
 ## Quick start (dev)
@@ -63,16 +66,17 @@ $env:GITHUB_CLIENT_ID = "<your-app-client-id>"
 $env:GITHUB_CLIENT_SECRET = "<your-app-secret>"
 $env:GITHUB_BOOTSTRAP_ADMIN_LOGIN = "<your-github-login>"
 
-# 3. API on :5080 (migrations apply on startup)
+# 3. App + API on :5080 (migrations apply on startup)
 dotnet run --project src/Tamp.Findings.Api/Tamp.Findings.Api.csproj
-
-# 4. SPA dev server on :5173 (separate terminal)
-cd web
-pnpm install
-pnpm dev
 ```
 
-Open <http://localhost:5173/>. Sign in via GitHub. The bootstrap admin login auto-promotes itself on first sign-in.
+Open <http://localhost:5080/>. Sign in via GitHub. The bootstrap admin login auto-promotes itself on
+first sign-in; on a fresh instance with no users at all, the first registration must present the setup
+token printed at container start.
+
+There is no separate front-end dev server. The UI is Blazor Server, served by the same host as the API
+— one process, one port. The React SPA that used to run at :5173 was retired by TFND-128; see
+[docs/redesign/RETIREMENT.md](docs/redesign/RETIREMENT.md) for where each of its screens went.
 
 ## Ingest
 
@@ -90,7 +94,7 @@ Seven endpoints, all bearer-token gated:
 | `POST /ingest/scan-runs` | Per-scanner receipts (ran clean vs never ran) |
 | `POST /sbom-vulnerabilities/upsert` | OSV-Scanner CVE rows |
 
-A `cli_*` token authorizes ingest under any project beneath one client; a `prj_*` token is locked to one project. Mint in the SPA's project settings dialog; store in repo-root `.env` as `TAMP_FINDINGS_INGEST_TOKEN=cli_...` (gitignored). The Nuke build picks it up automatically.
+A `cli_*` token authorizes ingest under any project beneath one client; a `prj_*` token is locked to one project. Mint on the project's Ingest tokens tab (Settings > Ingest tokens); store in repo-root `.env` as `TAMP_FINDINGS_INGEST_TOKEN=cli_...` (gitignored). The Nuke build picks it up automatically.
 
 ## Federal-readiness coverage
 

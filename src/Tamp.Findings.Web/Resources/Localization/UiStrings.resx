@@ -108,6 +108,9 @@
   <data name="Account.SignIn" xml:space="preserve">
     <value>Sign in</value>
   </data>
+  <data name="Account.Locale" xml:space="preserve">
+    <value>Language</value>
+  </data>
   <data name="Account.Profile" xml:space="preserve">
     <value>Profile</value>
   </data>

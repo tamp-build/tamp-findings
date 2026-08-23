@@ -1,7 +1,8 @@
 # tamp.findings — dev convenience compose.
 #
 # Brings up only the bits a contributor doesn't run locally: Postgres.
-# The API runs from `dotnet run` and the SPA from `pnpm dev` so debuggers
+# The app runs from `dotnet run` — one process serving both the UI and the
+# API since TFND-128 retired the separate SPA dev server — so debuggers
 # and hot-reload stay snappy. Production adopters point the API at their
 # own Postgres via a connection string (TFND-4 / F3.2).
 
