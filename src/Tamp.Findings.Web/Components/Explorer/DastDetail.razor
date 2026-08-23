@@ -1,0 +1,58 @@
+@* DAST detail: request and response side by side, with the reflected payload
+   as evidence.
+
+   A DAST finding has no file and no line — it has the request the scanner
+   made. The response carrying the payload back is the difference between "a
+   scanner said so" and "here is the proof", which is what a developer needs
+   before they will act on it. *@
+
+@foreach (var finding in Findings)
+{
+    <div class="card-body">
+        <div class="row" style="gap: var(--space-3)">
+            <SeverityBadge Severity="finding.Severity" ShowName="true" />
+            <h3>@finding.Title</h3>
+        </div>
+        <div class="mono muted" style="font-size: var(--text-secondary)">
+            @finding.RuleId · @finding.Scanner
+        </div>
+        @if (finding.Description is { Length: > 0 } description)
+        {
+            <p>@description</p>
+        }
+        @if (finding.TargetUrl is { Length: > 0 } url)
+        {
+            @* The full URL as the scanner requested it, payload included. The
+               tree shows the normalised route; this shows what actually went
+               over the wire. *@
+            <div class="mono" style="word-break: break-all; font-size: var(--text-secondary)">@url</div>
+        }
+    </div>
+
+    @if (finding.Evidence.Request is not null || finding.Evidence.Response is not null)
+    {
+        <div class="dast-evidence">
+            <div>
+                <div class="kicker">Request</div>
+                <pre class="dast-pane">@(finding.Evidence.Request ?? "not captured")</pre>
+            </div>
+            <div>
+                <div class="kicker">Response</div>
+                <pre class="dast-pane">@(finding.Evidence.Response ?? "not captured")</pre>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card-body">
+            <p class="field__help">
+                This scanner did not capture the exchange. Without it the finding is a claim rather
+                than evidence — worth checking whether the scanner can be configured to record it.
+            </p>
+        </div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<DastFinding> Findings { get; set; } = [];
+}
