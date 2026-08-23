@@ -167,6 +167,33 @@
         </SecretPanel>
     </Card>
 
+    <Card Padded="false">
+        <div class="card-body">
+            <h2>Scan receipts</h2>
+            <p class="field__help">
+                Three states. A never-ran class is drawn differently — dashed, tinted — rather than
+                merely greyed, because grey reads as "less important" and dashed reads as "nothing
+                happened here".
+            </p>
+        </div>
+        <div class="card-body">
+            <ScanReceipts Inputs="SampleInputs" Sha="179fe8b" />
+        </div>
+    </Card>
+
+    <Card Padded="false">
+        <div class="card-body">
+            <h2>Gate rail</h2>
+            <p class="field__help">
+                An unscanned project reports UNKNOWN and does not ship. Without that third state this
+                rail would read PASS directly above receipts saying the scanner never ran.
+            </p>
+        </div>
+        <div class="card-body">
+            <GateRail Gates="SampleGates" />
+        </div>
+    </Card>
+
     <Card>
         <h2>Icons</h2>
         <p class="field__help">
@@ -227,6 +254,41 @@
     ];
 
     private static readonly string[] Spines = ["sast", "dast", "sbom", "coverage", "tests"];
+
+    // Synthetic, and deliberately mixed: SAST ran and found things, secrets ran
+    // clean, DAST and IaC never ran at all. One card of each state is the point
+    // — a gallery showing only the happy case teaches the wrong convention.
+    private static readonly RiskInputs SampleInputs = new(
+        CveCritical: 2, CveHigh: 3, CveMedium: 0, CveLow: 0, KevListedCves: 1,
+        SecretsVerified: 0, SecretsUnverified: 0,
+        SastCritical: 1, SastHigh: 4, SastMedium: 12, SastLow: 3,
+        IacCritical: 0, IacHigh: 0,
+        CoverageMeasured: true, SequenceCoveragePercent: 61,
+        SbomComponents: 84, SbomOutdated: 5, SbomStale: 2,
+        TestsMeasured: true, TestsTotal: 1284, TestsFailed: 0,
+        LicenseDenied: 0, LicenseStrongCopyleft: 1, LicenseUnknown: 3,
+        RanSast: true, RanSecrets: true, RanIac: false, RanSbom: true, RanCoverage: true,
+        RanDast: false);
+
+    private static readonly GateEvaluation SampleGates = BuildSampleGates();
+
+    private static GateEvaluation BuildSampleGates()
+    {
+        // Every verdict represented, because the rail's whole job is telling
+        // them apart.
+        var config = new ProjectGatesConfig();
+        foreach (var key in new[]
+                 {
+                     "criticalSast", "highSast", "criticalCves", "kevExposure",
+                     "criticalDast", "criticalIac", "testFailures", "coverageRegression",
+                 })
+        {
+            config.Gates[key] = new GateConfig { Enabled = true };
+        }
+
+        return GateEvaluator.Evaluate(config, SampleInputs, currentScore: 62.4,
+            prior: null, priorScore: null);
+    }
 
     private static readonly string[] IconNames =
     [

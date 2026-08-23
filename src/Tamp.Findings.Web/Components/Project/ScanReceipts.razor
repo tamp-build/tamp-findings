@@ -1,0 +1,79 @@
+@* "What actually ran on this build."
+
+   The card that makes the difference between "clean" and "never scanned"
+   visible. Problem 5 on the brief's list was that this distinction was weak,
+   and conflating the two is precisely how a compliance attestation becomes
+   false.
+
+   A never-ran class is drawn DIFFERENTLY — dashed border, tinted fill — not
+   merely greyed. Grey reads as "less important"; dashed reads as "nothing
+   happened here", which is the same idea the gate rail's UNKNOWN mark uses. *@
+
+<Card>
+    <h2>Scan receipts</h2>
+    <p class="field__help">What actually ran on @(Sha ?? "this build"). A missing scanner is not a clean scanner.</p>
+
+    <div class="receipts">
+        @foreach (var c in Classes)
+        {
+            var state = StateOf(c.Key);
+            <div class="receipt receipt--@state.Css">
+                <div class="receipt__name">@c.Label</div>
+                <div class="row">
+                    <span class="receipt__mark" aria-hidden="true">@state.Glyph</span>
+                    <span class="receipt__state">@state.Label</span>
+                </div>
+                <div class="receipt__detail muted">@state.Detail</div>
+            </div>
+        }
+    </div>
+</Card>
+
+@code {
+    [Parameter, EditorRequired] public RiskInputs Inputs { get; set; } = default!;
+    [Parameter] public string? Sha { get; set; }
+
+    private sealed record ClassRow(string Key, string Label, bool Ran, int Findings);
+    private sealed record State(string Css, string Glyph, string Label, string Detail);
+
+    // The six classes the scorer expects. Kept in step with
+    // ExpectedScannerKeys deliberately: if the hub showed a different set from
+    // the one missingScanners scores against, the card would contradict the
+    // number beside it.
+    private IReadOnlyList<ClassRow> Classes =>
+    [
+        new(ExpectedScannerKeys.Sast, "Static analysis", Inputs.RanSast,
+            Inputs.SastCritical + Inputs.SastHigh + Inputs.SastMedium + Inputs.SastLow),
+        new(ExpectedScannerKeys.Dast, "Dynamic scan", Inputs.RanDast,
+            Inputs.DastCritical + Inputs.DastHigh + Inputs.DastMedium + Inputs.DastLow),
+        new(ExpectedScannerKeys.Secrets, "Secrets", Inputs.RanSecrets,
+            Inputs.SecretsVerified + Inputs.SecretsUnverified),
+        new(ExpectedScannerKeys.Iac, "IaC misconfig", Inputs.RanIac,
+            Inputs.IacCritical + Inputs.IacHigh),
+        new(ExpectedScannerKeys.Sbom, "SBOM", Inputs.RanSbom,
+            Inputs.CveCritical + Inputs.CveHigh + Inputs.CveMedium + Inputs.CveLow),
+        new(ExpectedScannerKeys.Coverage, "Coverage", Inputs.RanCoverage, 0),
+    ];
+
+    private State StateOf(string key)
+    {
+        var row = Classes.First(c => c.Key == key);
+
+        if (!row.Ran)
+        {
+            // The one that matters. Not "0 findings" — nobody looked.
+            return new("never", "—", "Never ran", "No receipt for this build");
+        }
+
+        if (row.Key == ExpectedScannerKeys.Coverage)
+        {
+            return Inputs.CoverageMeasured
+                ? new("clean", "✓", "Measured", $"{Inputs.SequenceCoveragePercent:F0}% sequence coverage")
+                : new("never", "—", "Never ran", "No coverage report for this build");
+        }
+
+        return row.Findings > 0
+            ? new("findings", "!", "Ran with findings", $"{row.Findings} finding{(row.Findings == 1 ? "" : "s")}")
+            : new("clean", "✓", "Ran clean", "No findings");
+    }
+}
