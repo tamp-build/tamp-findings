@@ -106,178 +106,24 @@ public sealed class AttestationExporter
     // ---- OSCAL ------------------------------------------------------------
 
     /// <summary>
-    /// OSCAL 1.1.2. Assessment results, POA&amp;M, or a bundle of both.
+    /// OSCAL 1.1.2, in <see cref="OscalWriter"/>.
     ///
-    /// The bundle shares UUIDs across the two models on purpose: OSCAL POA&amp;M
-    /// items reference the findings an assessment cites, and emitting the two
-    /// models separately produces documents whose cross-references do not
-    /// resolve. That reads as a valid package right up until an assessor's
-    /// tooling tries to follow one.
+    /// Kept as a one-line delegation rather than folded in: FedRAMP RFC-0024
+    /// makes this the format that decides whether a package gets a 30-day
+    /// review or a 90-day queue, and it has grown three models and a shared
+    /// UUID graph. That is a file, not a method on an exporter whose other job
+    /// is picking filenames.
     /// </summary>
-    internal static string OscalJson(SsdfAttestationDoc doc, OscalModel model)
-    {
-        // Deterministic UUIDs derived from the document's own identity, so
-        // re-exporting the same build twice produces the same references
-        // rather than a package that looks like a different assessment.
-        var root = DeterministicUuid($"{doc.Project.Id}:{doc.Build?.CommitSha}");
-
-        var metadata = new Dictionary<string, object?>
-        {
-            ["title"] = $"SSDF attestation — {doc.Project.Name}",
-            ["last-modified"] = doc.Generated,
-            ["version"] = doc.Build?.VersionString ?? "0",
-            ["oscal-version"] = "1.1.2",
-            ["props"] = new object[]
-            {
-                new Dictionary<string, object?> { ["name"] = "commit", ["value"] = doc.Build?.CommitSha ?? "" },
-                new Dictionary<string, object?> { ["name"] = "risk-score", ["value"] = doc.Risk?.Score.ToString("0.0") ?? "" },
-                new Dictionary<string, object?> { ["name"] = "risk-policy", ["value"] = doc.Risk?.PolicyName ?? "" },
-            },
-        };
-
-        // One observation per practice. The Manual ones are included, marked as
-        // such: an assessment that silently omitted them would understate how
-        // much of the attestation rests on the signatory rather than on
-        // measurement.
-        var observations = doc.Practices.Select((p, i) => new Dictionary<string, object?>
-        {
-            ["uuid"] = DeterministicUuid($"{root}:obs:{p.Id}"),
-            ["title"] = $"{p.Id} — {p.Label}",
-            ["description"] = p.Intent,
-            ["methods"] = new[] { p.Status == "Manual" ? "INTERVIEW" : "TEST" },
-            ["collected"] = doc.Generated,
-            ["props"] = new object[]
-            {
-                new Dictionary<string, object?> { ["name"] = "ssdf-practice", ["value"] = p.Id },
-                new Dictionary<string, object?> { ["name"] = "attestation-status", ["value"] = p.Status },
-            },
-            ["remarks"] = p.Evidence,
-        }).ToArray();
-
-        // Findings: only the practices automated evidence CONTRADICTS. A
-        // Partial is not a finding — it is an incomplete measurement — and a
-        // Manual is not a finding either.
-        var findings = doc.Practices
-            .Where(p => p.Status == "No")
-            .Select(p => new Dictionary<string, object?>
-            {
-                ["uuid"] = DeterministicUuid($"{root}:finding:{p.Id}"),
-                ["title"] = $"{p.Id} not satisfied",
-                ["description"] = p.Evidence,
-                ["target"] = new Dictionary<string, object?>
-                {
-                    ["type"] = "objective-id",
-                    ["target-id"] = p.Id,
-                    ["status"] = new Dictionary<string, object?> { ["state"] = "not-satisfied" },
-                },
-                ["related-observations"] = new object[]
-                {
-                    new Dictionary<string, object?>
-                    {
-                        ["observation-uuid"] = DeterministicUuid($"{root}:obs:{p.Id}"),
-                    },
-                },
-            })
-            .ToArray();
-
-        var assessment = new Dictionary<string, object?>
-        {
-            ["uuid"] = root,
-            ["metadata"] = metadata,
-            ["import-ap"] = new Dictionary<string, object?> { ["href"] = "#ssdf-800-218" },
-            ["results"] = new object[]
-            {
-                new Dictionary<string, object?>
-                {
-                    ["uuid"] = DeterministicUuid($"{root}:result"),
-                    ["title"] = "Automated evidence",
-                    ["description"] = doc.Summary.Headline,
-                    ["start"] = doc.Generated,
-                    ["reviewed-controls"] = new Dictionary<string, object?>
-                    {
-                        ["control-selections"] = new object[]
-                        {
-                            new Dictionary<string, object?> { ["include-all"] = new Dictionary<string, object?>() },
-                        },
-                    },
-                    ["observations"] = observations,
-                    ["findings"] = findings,
-                },
-            },
-        };
-
-        var poam = new Dictionary<string, object?>
-        {
-            ["uuid"] = DeterministicUuid($"{root}:poam"),
-            ["metadata"] = metadata,
-            // Points at the assessment above. In a bundle this resolves; in a
-            // standalone POA&M export the consumer supplies the counterpart.
-            ["import-ssp"] = new Dictionary<string, object?> { ["href"] = $"#{root}" },
-            ["poam-items"] = doc.Practices
-                .Where(p => p.Status is "No" or "Partial")
-                .Select(p => new Dictionary<string, object?>
-                {
-                    ["uuid"] = DeterministicUuid($"{root}:poam-item:{p.Id}"),
-                    ["title"] = $"{p.Id} — {p.Label}",
-                    ["description"] = p.Evidence,
-                    ["related-findings"] = p.Status == "No"
-                        ? new object[]
-                        {
-                            new Dictionary<string, object?>
-                            {
-                                ["finding-uuid"] = DeterministicUuid($"{root}:finding:{p.Id}"),
-                            },
-                        }
-                        : Array.Empty<object>(),
-                    ["related-observations"] = new object[]
-                    {
-                        new Dictionary<string, object?>
-                        {
-                            ["observation-uuid"] = DeterministicUuid($"{root}:obs:{p.Id}"),
-                        },
-                    },
-                })
-                .ToArray(),
-        };
-
-        object payload = model switch
-        {
-            OscalModel.AssessmentResults => new Dictionary<string, object?> { ["assessment-results"] = assessment },
-            OscalModel.Poam => new Dictionary<string, object?> { ["plan-of-action-and-milestones"] = poam },
-            _ => new Dictionary<string, object?>
-            {
-                ["assessment-results"] = assessment,
-                ["plan-of-action-and-milestones"] = poam,
-            },
-        };
-
-        return JsonSerializer.Serialize(payload, JsonOptions);
-    }
+    internal static string OscalJson(SsdfAttestationDoc doc, OscalModel model) =>
+        OscalWriter.Write(doc, model);
 
     /// <summary>
-    /// A UUID derived from the seed rather than drawn at random.
-    ///
-    /// Re-exporting the same build must produce the same identifiers, or every
-    /// export looks to a downstream tool like a brand new assessment of the
-    /// same software.
+    /// Re-exposed for the tests that assert identifier stability across
+    /// exports. The property matters more than the algorithm: a POA&amp;M
+    /// submitted in March has to resolve against the assessment resubmitted in
+    /// September.
     /// </summary>
-    internal static string DeterministicUuid(string seed)
-    {
-        var hash = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(seed));
-        var bytes = hash.AsSpan(0, 16).ToArray();
-
-        // Stamp version 8 (RFC 9562, name-based custom) and the RFC 4122
-        // variant, so the value is a well-formed UUID rather than 16 bytes
-        // wearing a UUID's shape.
-        bytes[6] = (byte)((bytes[6] & 0x0F) | 0x80);
-        bytes[8] = (byte)((bytes[8] & 0x3F) | 0x80);
-
-        // Formatted from the bytes in RFC order rather than through
-        // new Guid(byte[]), which reads the first three fields as little-endian
-        // and would move the version nibble somewhere a reader does not look.
-        var hex = Convert.ToHexStringLower(bytes);
-        return $"{hex[..8]}-{hex[8..12]}-{hex[12..16]}-{hex[16..20]}-{hex[20..]}";
-    }
+    internal static string DeterministicUuid(string seed) => OscalWriter.Uuid(seed);
 
     private static string Slug(string name)
     {
