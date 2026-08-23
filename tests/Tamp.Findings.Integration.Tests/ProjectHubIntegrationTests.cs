@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Tamp.Findings.Application.Projects;
 using Tamp.Findings.Domain.Entities;
@@ -25,7 +26,7 @@ public class ProjectHubIntegrationTests
         using var scope = _fx.Scope();
         var hub = scope.ServiceProvider.GetRequiredService<ProjectHubQuery>();
 
-        var resolved = await hub.ResolveAsync(client.Name, project.Name);
+        var resolved = await hub.ResolveAsync(client.Name, project.Name, VisibleSet.Everything /* TFND-133: this test is about the query, not the boundary */);
 
         Assert.NotNull(resolved);
         Assert.Equal(project.Id, resolved!.ProjectId);
@@ -44,7 +45,9 @@ public class ProjectHubIntegrationTests
         using var scope = _fx.Scope();
         var hub = scope.ServiceProvider.GetRequiredService<ProjectHubQuery>();
 
-        var resolved = await hub.ResolveAsync(client.Name.ToUpperInvariant(), project.Name.ToUpperInvariant());
+        var resolved = await hub.ResolveAsync(
+            client.Name.ToUpperInvariant(), project.Name.ToUpperInvariant(),
+            VisibleSet.Everything /* TFND-133: this test is about the query, not the boundary */);
 
         Assert.NotNull(resolved);
     }
@@ -58,7 +61,7 @@ public class ProjectHubIntegrationTests
         using var scope = _fx.Scope();
         var hub = scope.ServiceProvider.GetRequiredService<ProjectHubQuery>();
 
-        var resolved = await hub.ResolveAsync(client.Name, project.Name);
+        var resolved = await hub.ResolveAsync(client.Name, project.Name, VisibleSet.Everything /* TFND-133: this test is about the query, not the boundary */);
         var data = await hub.LoadAsync(resolved!, null);
 
         // Null means "no scan", which the hub renders as such. A zero score
@@ -75,7 +78,7 @@ public class ProjectHubIntegrationTests
         using var scope = _fx.Scope();
         var hub = scope.ServiceProvider.GetRequiredService<ProjectHubQuery>();
 
-        var resolved = await hub.ResolveAsync(client.Name, project.Name);
+        var resolved = await hub.ResolveAsync(client.Name, project.Name, VisibleSet.Everything /* TFND-133: this test is about the query, not the boundary */);
         var data = await hub.LoadAsync(resolved!, null);
 
         Assert.NotNull(data);
@@ -98,7 +101,7 @@ public class ProjectHubIntegrationTests
         using var scope = _fx.Scope();
         var hub = scope.ServiceProvider.GetRequiredService<ProjectHubQuery>();
 
-        var resolved = await hub.ResolveAsync(client.Name, project.Name);
+        var resolved = await hub.ResolveAsync(client.Name, project.Name, VisibleSet.Everything /* TFND-133: this test is about the query, not the boundary */);
         var data = await hub.LoadAsync(resolved!, null);
 
         Assert.NotNull(data);

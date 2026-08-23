@@ -463,27 +463,39 @@ app.MapSbomEnrich();
 app.MapSbomVulnerabilities();
 
 // SPA-facing query endpoints — protected by the fallback policy
-// (RequireAuthenticatedUser; see AuthExtensions).
-app.MapCoverageDetail();
-app.MapTestResults();
-app.MapFindingsQuery();
-app.MapFindingsList();
-app.MapFindingsTree();
-app.MapDast();
-app.MapSbomComponents();
-app.MapSuppressions();
-app.MapRoleAssignments();
-app.MapAggregates();
-app.MapRiskPolicies();
-app.MapProjectScanReceipts();
-app.MapBuildEvaluation();
-app.MapVexStatements();
-app.MapPoamItems();
-app.MapSsdfAttestation();
-app.MapOscal();
-app.MapProjectVdp();
-app.MapSbomProvenance();
-app.MapHierarchyCreate();
+// (RequireAuthenticatedUser; see AuthExtensions) AND, since TFND-133, by the
+// visibility boundary.
+//
+// The fallback policy only ever asked "is somebody signed in". These endpoints
+// take client/project/component ids straight off the query string, so on a
+// multi-client instance any authenticated user could read every tenant's
+// evidence by supplying the id. The group filter refuses an id outside the
+// caller's boundary with a 404 — never a 403, which would confirm it exists.
+//
+// A GROUP rather than a per-endpoint filter because there are a dozen of these
+// and the thirteenth is the one that would forget.
+var queries = app.MapGroup("").AddEndpointFilter<Tamp.Findings.Api.Authentication.VisibilityFilter>();
+
+queries.MapCoverageDetail();
+queries.MapTestResults();
+queries.MapFindingsQuery();
+queries.MapFindingsList();
+queries.MapFindingsTree();
+queries.MapDast();
+queries.MapSbomComponents();
+queries.MapSuppressions();
+queries.MapRoleAssignments();
+queries.MapAggregates();
+queries.MapRiskPolicies();
+queries.MapProjectScanReceipts();
+queries.MapBuildEvaluation();
+queries.MapVexStatements();
+queries.MapPoamItems();
+queries.MapSsdfAttestation();
+queries.MapOscal();
+queries.MapProjectVdp();
+queries.MapSbomProvenance();
+queries.MapHierarchyCreate();
 
 // SPA fallback — any URL the API doesn't match (i.e. client-side
 // routes like /projects/<id>/attestation) serves index.html so the

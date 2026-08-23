@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Contracts;
+using Tamp.Findings.Api.Authentication;
+using Tamp.Findings.Application.Authorization;
+using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Values;
 
@@ -31,6 +34,7 @@ public static class FindingsListEndpoints
 
     private static async Task<Ok<FindingsListResponse>> ListFindingsAsync(
         FindingsDbContext db,
+        HttpContext http,
         CancellationToken ct,
         Guid? clientId = null,
         Guid? projectId = null,
@@ -54,6 +58,11 @@ public static class FindingsListEndpoints
         var q = db.Findings
             .Include(f => f.ComponentVersion)!.ThenInclude(v => v!.Component)!.ThenInclude(c => c!.Project)!.ThenInclude(p => p!.Client)
             .AsNoTracking();
+
+        // TFND-133. The group filter refuses an id the caller may not see; this
+        // is the other half — with no id supplied at all, the query would
+        // otherwise enumerate every tenant on the instance.
+        q = Visible(q, VisibilityFilter.Current(http));
 
         if (componentVersionId is { } cv) q = q.Where(f => f.ComponentVersionId == cv);
         if (componentId is { } cmp) q = q.Where(f => f.ComponentVersion!.ComponentId == cmp);
@@ -137,9 +146,21 @@ public static class FindingsListEndpoints
         return TypedResults.Ok(new FindingsListResponse(total, skip, take, sc, items));
     }
 
-    private static async Task<Ok<IReadOnlyList<ClientListItem>>> ListClientsAsync(FindingsDbContext db, CancellationToken ct)
+    private static async Task<Ok<IReadOnlyList<ClientListItem>>> ListClientsAsync(
+        FindingsDbContext db, HttpContext http, CancellationToken ct)
     {
+        var visible = VisibilityFilter.Current(http);
+
+        // Clients reachable through a project or component grant too, not only
+        // through a client-tier one: somebody granted a role on one project
+        // still has to see the client it belongs to, or the tree has a hole in
+        // the middle of it.
+        var reachable = visible.Unrestricted
+            ? null
+            : await ReachableClientsAsync(db, visible, ct);
+
         var rows = await db.Clients
+            .Where(c => reachable == null || reachable.Contains(c.Id))
             .AsNoTracking()
             .OrderBy(c => c.Name)
             .Select(c => new ClientListItem(c.Id, c.Name, c.Projects.Count, c.RiskPolicyId))
@@ -147,10 +168,19 @@ public static class FindingsListEndpoints
         return TypedResults.Ok((IReadOnlyList<ClientListItem>)rows);
     }
 
-    private static async Task<Ok<IReadOnlyList<ProjectListItem>>> ListProjectsAsync(FindingsDbContext db, CancellationToken ct, Guid? clientId = null)
+    private static async Task<Ok<IReadOnlyList<ProjectListItem>>> ListProjectsAsync(
+        FindingsDbContext db, HttpContext http, CancellationToken ct, Guid? clientId = null)
     {
+        var visible = VisibilityFilter.Current(http);
+
         var q = db.Projects.AsNoTracking();
         if (clientId is { } cli) q = q.Where(p => p.ClientId == cli);
+
+        if (!visible.Unrestricted)
+        {
+            var reachable = await ReachableProjectsAsync(db, visible, ct);
+            q = q.Where(p => reachable.Contains(p.Id));
+        }
         var rows = await q
             .OrderBy(p => p.Name)
             .Select(p => new ProjectListItem(p.Id, p.Name, p.ClientId, p.Client!.Name, p.Components.Count))
@@ -158,10 +188,19 @@ public static class FindingsListEndpoints
         return TypedResults.Ok((IReadOnlyList<ProjectListItem>)rows);
     }
 
-    private static async Task<Ok<IReadOnlyList<ComponentListItem>>> ListComponentsAsync(FindingsDbContext db, CancellationToken ct, Guid? projectId = null)
+    private static async Task<Ok<IReadOnlyList<ComponentListItem>>> ListComponentsAsync(
+        FindingsDbContext db, HttpContext http, CancellationToken ct, Guid? projectId = null)
     {
+        var visible = VisibilityFilter.Current(http);
+
         var q = db.Components.AsNoTracking();
         if (projectId is { } prj) q = q.Where(c => c.ProjectId == prj);
+
+        if (!visible.Unrestricted)
+        {
+            var reachable = await ReachableProjectsAsync(db, visible, ct);
+            q = q.Where(c => reachable.Contains(c.ProjectId) || visible.Components.Contains(c.Id));
+        }
         var rows = await q
             .OrderBy(c => c.Name)
             .Select(c => new ComponentListItem(
@@ -185,5 +224,61 @@ public static class FindingsListEndpoints
             }
         }
         return set;
+    }
+
+    /// <summary>
+    /// Narrow a findings query to what this caller may read (TFND-133).
+    ///
+    /// Applied BEFORE any user-supplied filter, so it cannot be widened by one.
+    /// </summary>
+    private static IQueryable<Finding> Visible(IQueryable<Finding> q, VisibleSet visible)
+    {
+        if (visible.Unrestricted) return q;
+
+        // Nothing granted is nothing visible — never "no filter". This is the
+        // whole defect in one line, and the flag is what keeps the two apart.
+        if (visible.IsEmpty) return q.Where(_ => false);
+
+        return q.Where(f =>
+            visible.Clients.Contains(f.ComponentVersion!.Component!.Project!.ClientId)
+            || visible.Projects.Contains(f.ComponentVersion!.Component!.ProjectId)
+            || visible.Components.Contains(f.ComponentVersion!.ComponentId));
+    }
+
+    /// <summary>Projects the caller can see, directly or through a component.</summary>
+    private static async Task<HashSet<Guid>> ReachableProjectsAsync(
+        FindingsDbContext db, VisibleSet visible, CancellationToken ct)
+    {
+        var byClient = visible.Clients.Count == 0
+            ? []
+            : await db.Projects.AsNoTracking()
+                .Where(p => visible.Clients.Contains(p.ClientId))
+                .Select(p => p.Id)
+                .ToArrayAsync(ct);
+
+        var byComponent = visible.Components.Count == 0
+            ? []
+            : await db.Components.AsNoTracking()
+                .Where(c => visible.Components.Contains(c.Id))
+                .Select(c => c.ProjectId)
+                .ToArrayAsync(ct);
+
+        return byClient.Concat(byComponent).Concat(visible.Projects).ToHashSet();
+    }
+
+    /// <summary>Clients the caller can see, directly or through anything under them.</summary>
+    private static async Task<HashSet<Guid>> ReachableClientsAsync(
+        FindingsDbContext db, VisibleSet visible, CancellationToken ct)
+    {
+        var projects = await ReachableProjectsAsync(db, visible, ct);
+
+        var byProject = projects.Count == 0
+            ? []
+            : await db.Projects.AsNoTracking()
+                .Where(p => projects.Contains(p.Id))
+                .Select(p => p.ClientId)
+                .ToArrayAsync(ct);
+
+        return byProject.Concat(visible.Clients).ToHashSet();
     }
 }
