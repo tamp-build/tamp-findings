@@ -20,6 +20,7 @@
     <ProjectReference Include="..\Tamp.Findings.Data\Tamp.Findings.Data.csproj" />
     <ProjectReference Include="..\Tamp.Findings.Application\Tamp.Findings.Application.csproj" />
     <ProjectReference Include="..\Tamp.Findings.Web\Tamp.Findings.Web.csproj" />
+    <ProjectReference Include="..\Tamp.Findings.Workflows\Tamp.Findings.Workflows.csproj" />
   </ItemGroup>
 
 </Project>
