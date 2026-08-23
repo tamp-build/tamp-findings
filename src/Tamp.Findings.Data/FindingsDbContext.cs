@@ -14,6 +14,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<ComponentVersion> ComponentVersions => Set<ComponentVersion>();
     public DbSet<Finding> Findings => Set<Finding>();
     public DbSet<PaidComponent> PaidComponents => Set<PaidComponent>();
+    public DbSet<ContainerImage> ContainerImages => Set<ContainerImage>();
     public DbSet<Suppression> Suppressions => Set<Suppression>();
     public DbSet<User> Users => Set<User>();
     public DbSet<ProjectRoleAssignment> ProjectRoleAssignments => Set<ProjectRoleAssignment>();
@@ -139,6 +140,30 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.Severity);
             e.HasIndex(x => x.Scanner);
+        });
+
+        // TFND-134: the image a build produced, and the base image behind it.
+        b.Entity<ContainerImage>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Reference).HasMaxLength(512).IsRequired();
+            e.Property(x => x.Digest).HasMaxLength(256);
+            e.Property(x => x.OsFamily).HasMaxLength(64);
+            e.Property(x => x.OsVersion).HasMaxLength(64);
+            e.Property(x => x.BaseImageReference).HasMaxLength(512);
+            e.Property(x => x.BaseImageDigest).HasMaxLength(256);
+            e.Ignore(x => x.BaseImageAgeInDays);
+
+            // One image per build. Re-inspecting the same build updates rather
+            // than accumulating — otherwise a rebuild would leave two answers
+            // to "how old is the base image" and the score would depend on
+            // which one a query happened to pick.
+            e.HasIndex(x => x.ComponentVersionId).IsUnique();
+
+            e.HasOne(x => x.ComponentVersion)
+             .WithMany()
+             .HasForeignKey(x => x.ComponentVersionId)
+             .OnDelete(DeleteBehavior.Cascade);
         });
 
         // TFND-8 (F7.2): the paid-component registry. Instance-scoped — "Telerik

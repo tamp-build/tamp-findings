@@ -152,6 +152,8 @@ public static class RiskCategoryNames
     public const string IacSevere = "iacSevere";
     public const string Coverage = "coverage";
     public const string SbomStaleness = "sbomStaleness";
+    /// <summary>TFND-134. How old the base image was when the build ran.</summary>
+    public const string BaseImageAge = "baseImageAge";
     public const string Tests = "tests";
     public const string License = "license";
     public const string SastLow = "sastLow";

@@ -106,6 +106,7 @@ public static class GateEvaluator
         GateKeys.CriticalIac,
         GateKeys.VerifiedSecrets,
         GateKeys.DeniedLicenses,
+        GateKeys.BaseImageAge,
         GateKeys.TestFailures,
         GateKeys.CoverageRegression,
         GateKeys.PoamPastDue,
@@ -132,6 +133,7 @@ public static class GateEvaluator
         GateKeys.CriticalIac => "Critical IaC",
         GateKeys.VerifiedSecrets => "Verified secrets",
         GateKeys.DeniedLicenses => "Denied licences",
+        GateKeys.BaseImageAge => "Base image age",
         GateKeys.TestFailures => "Test failures",
         GateKeys.CoverageRegression => "Coverage regression",
         GateKeys.PoamPastDue => "POA&M past due",
@@ -163,6 +165,9 @@ public static class GateEvaluator
         GateKeys.VerifiedSecrets =>
             "Blocks on secrets a scanner verified as live. Needs a secret scan.",
         GateKeys.DeniedLicenses => "Blocks on dependencies under a denied licence tier. Needs an SBOM.",
+        GateKeys.BaseImageAge =>
+            "Blocks when the base image was older than the threshold on the day this was built. "
+            + "Needs a container-image inspect, AND the base image to be identifiable.",
         GateKeys.TestFailures => "Blocks on failing tests. Needs an ingested test run.",
         GateKeys.CoverageRegression =>
             "Blocks when coverage drops more than the threshold against the previous build. A project "
@@ -195,6 +200,11 @@ public static class GateEvaluator
             GateKeys.CriticalCves        => Threshold(key, cfg, current.CveCritical, 0, "critical CVEs", current.RanSbom, "SBOM"),
             GateKeys.HighCves            => Threshold(key, cfg, current.CveHigh, 0, "high CVEs", current.RanSbom, "SBOM"),
             GateKeys.DeniedLicenses      => Threshold(key, cfg, current.LicenseDenied, 0, "denied licenses", current.RanSbom, "SBOM"),
+
+            // TFND-134. Not a Threshold() call, because this gate has THREE
+            // ways of not knowing rather than one, and collapsing them would
+            // tell a team to fix the wrong thing.
+            GateKeys.BaseImageAge        => EvaluateBaseImageAge(key, cfg, current),
 
             GateKeys.CriticalSast        => Threshold(key, cfg, current.SastCritical, 0, "critical SAST", current.RanSast, "SAST"),
             GateKeys.HighSast            => Threshold(key, cfg, current.SastHigh, 0, "high SAST", current.RanSast, "SAST"),
@@ -239,6 +249,51 @@ public static class GateEvaluator
             ? $"{observed} {label} ≤ {threshold} allowed"
             : $"{observed} {label} exceeds {threshold} allowed";
         return new GateResult(key, true, verdict, $"{observed} {label}", threshold, reason);
+    }
+
+    /// <summary>
+    /// How old the base image was on the day this was built (TFND-134).
+    ///
+    /// Three distinct ways of not knowing, and they are reported separately
+    /// because they call for three different actions:
+    ///
+    ///  1. No image was inspected — add the inspect step to the pipeline.
+    ///  2. An image was inspected but the BASE could not be identified — name
+    ///     the base image in the build script. This is the common one: the OCI
+    ///     annotation that carries it is usually absent.
+    ///  3. The base was identified but publishes no timestamp — nothing to do;
+    ///     some reproducible builds zero that field.
+    ///
+    /// All three are Unknown rather than Pass. An unmeasured base image is not
+    /// a fresh one, and this is the same rule as every other gate here.
+    /// </summary>
+    private static GateResult EvaluateBaseImageAge(string key, GateConfig cfg, RiskInputs current)
+    {
+        var threshold = (int)(cfg.Threshold ?? 365);
+
+        if (!current.RanImageInspect)
+        {
+            return new GateResult(key, true, GateVerdict.Unknown,
+                "no image inspected on this build", threshold,
+                "cannot evaluate base image age: no container image was inspected, so an age of "
+                + "zero would mean nobody looked");
+        }
+
+        if (current.BaseImageAgeDays is not { } age)
+        {
+            return new GateResult(key, true, GateVerdict.Unknown,
+                "base image not identified", threshold,
+                "an image was inspected but its base image could not be identified. Name the base "
+                + "image in the build so it can be inspected too — guessing it from layer history "
+                + "would be a confident wrong answer");
+        }
+
+        var verdict = age <= threshold ? GateVerdict.Pass : GateVerdict.Fail;
+        var reason = verdict == GateVerdict.Pass
+            ? $"base image was {age} days old at build, within {threshold} allowed"
+            : $"base image was {age} days old at build, over the {threshold} allowed";
+
+        return new GateResult(key, true, verdict, $"{age} days old at build", threshold, reason);
     }
 
     private static GateResult EvaluateRiskRegression(string key, GateConfig cfg, double currentScore, double? priorScore, double? delta)
