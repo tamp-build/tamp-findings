@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 
-namespace Tamp.Findings.Api.Authentication;
+namespace Tamp.Findings.Application.Ingest;
 
 public sealed record MintedToken(IngestToken Record, string Plaintext);
 
