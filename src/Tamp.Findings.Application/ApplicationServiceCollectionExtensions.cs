@@ -68,6 +68,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Policy.GateService>();
         services.AddScoped<Projects.ProjectSettingsService>();
         services.AddScoped<SystemAdmin.SystemAdminService>();
+        services.AddScoped<Approvals.ApprovalService>();
         services.AddScoped<Ingest.IngestTokenService>();
         services.AddScoped<Projects.ProjectKeyService>();
 

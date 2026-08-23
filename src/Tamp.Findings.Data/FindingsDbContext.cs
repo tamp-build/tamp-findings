@@ -41,6 +41,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<VexStatement> VexStatements => Set<VexStatement>();
     public DbSet<PoamItem> PoamItems => Set<PoamItem>();
     public DbSet<AttestationSnapshot> AttestationSnapshots => Set<AttestationSnapshot>();
+    public DbSet<PendingApproval> PendingApprovals => Set<PendingApproval>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -243,6 +244,19 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasOne(x => x.SbomComponent).WithMany(c => c.Vulnerabilities).HasForeignKey(x => x.SbomComponentId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.SbomComponentId, x.AdvisoryId }).IsUnique();
             e.HasIndex(x => x.Severity);
+        });
+
+        b.Entity<PendingApproval>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SubjectKind).HasMaxLength(60).IsRequired();
+            e.Property(x => x.RequestedByLogin).HasMaxLength(200).IsRequired();
+            e.Property(x => x.DecidedByLogin).HasMaxLength(200);
+            e.Property(x => x.WorkflowInstanceId).HasMaxLength(64);
+            // The two reads the screens perform: "is this thing pending?" and
+            // "what is waiting on me?".
+            e.HasIndex(x => new { x.SubjectKind, x.SubjectId, x.State });
+            e.HasIndex(x => new { x.State, x.AssignedToUserId });
         });
 
         b.Entity<AttestationSnapshot>(e =>

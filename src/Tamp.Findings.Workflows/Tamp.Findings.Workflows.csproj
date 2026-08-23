@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tamp.Findings.Workflows</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <Description>Elsa runtime and workflow definitions for tamp.findings (TFND-115 … TFND-124). Sits beside Web over Application — Elsa is a dependency of the runtime, not of the domain, and nothing in Application or Web references it.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Elsa" />
+    <PackageReference Include="Elsa.Persistence.EFCore.PostgreSql" />
+    <PackageReference Include="Elsa.Scheduling" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tamp.Findings.Domain\Tamp.Findings.Domain.csproj" />
+    <ProjectReference Include="..\Tamp.Findings.Data\Tamp.Findings.Data.csproj" />
+    <ProjectReference Include="..\Tamp.Findings.Application\Tamp.Findings.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tamp.Findings.Workflows.Tests" />
+  </ItemGroup>
+
+</Project>

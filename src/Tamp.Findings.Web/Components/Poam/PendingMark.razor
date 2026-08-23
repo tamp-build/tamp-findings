@@ -1,0 +1,27 @@
+@* The pending qualifier (TFND-116).
+
+   ONE representation, used by POA&M, VEX and attestation alike. It sits BESIDE
+   the terminal-status chip in monospace, never in place of it: an item awaiting
+   risk acceptance is still Open, and rendering it as Risk accepted would state
+   the outcome of a decision nobody has taken.
+
+   It also carries who asked and why, because the reader's next question after
+   "pending" is always "waiting on what". *@
+
+@if (State is { } pending)
+{
+    <span class="pending" title="@Tooltip(pending)">
+        <span class="pending__dot" aria-hidden="true">◔</span>
+        <span class="mono">@pending.Qualifier</span>
+    </span>
+}
+
+@code {
+    [Parameter] public PendingState? State { get; set; }
+
+    private static string Tooltip(PendingState pending)
+    {
+        var who = $"Requested by {pending.RequestedBy} on {pending.RequestedAt:yyyy-MM-dd}";
+        return pending.Justification is { Length: > 0 } why ? $"{who} — {why}" : who;
+    }
+}

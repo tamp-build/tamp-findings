@@ -16,6 +16,7 @@
         <div class="row" style="gap: var(--space-2)">
             <SeverityBadge Severity="Record.Severity" ShowName="true" />
             <PoamStatusChip Status="Record.Status" PastDue="Record.PastDue" />
+            <PendingMark State="Pending" />
         </div>
     </div>
 
@@ -81,17 +82,36 @@
     </div>
 
     <div class="card-body row" style="gap: var(--space-2)">
-        <Button Disabled="@(!CanEdit.Allowed)" DisabledReason="@CanEdit.Reason"
+        @* Every terminal action is disabled while a decision is pending. A
+           pending item cannot have its terminal action triggered a second
+           time — that is TFND-116's acceptance criterion, and doing it here as
+           well as in ApprovalService means the reader is told rather than
+           refused. *@
+        <Button Disabled="@(!CanEdit.Allowed || IsPending)" DisabledReason="@Reason(CanEdit)"
                 OnClick="() => OnEdit.InvokeAsync()">Edit</Button>
-        <Button Disabled="@(!CanComplete.Allowed || Record.Status == PoamStatus.Completed)"
-                DisabledReason="@CanComplete.Reason"
+        <Button Disabled="@(!CanComplete.Allowed || IsPending || Record.Status == PoamStatus.Completed)"
+                DisabledReason="@Reason(CanComplete)"
                 OnClick="() => OnTransition.InvokeAsync(PoamStatus.Completed)">Mark completed</Button>
-        <Button Disabled="@(!CanAccept.Allowed || Record.Status == PoamStatus.RiskAccepted)"
-                DisabledReason="@CanAccept.Reason"
+        <Button Disabled="@(!CanAccept.Allowed || IsPending || Record.Status == PoamStatus.RiskAccepted)"
+                DisabledReason="@Reason(CanAccept)"
                 OnClick="() => OnTransition.InvokeAsync(PoamStatus.RiskAccepted)">Risk accepted</Button>
-        <Button Disabled="@(!CanEdit.Allowed)" DisabledReason="@CanEdit.Reason"
+        <Button Disabled="@(!CanEdit.Allowed || IsPending)" DisabledReason="@Reason(CanEdit)"
                 OnClick="() => OnExtend.InvokeAsync()">Request AO extension</Button>
     </div>
+
+    @if (Pending is { } pending)
+    {
+        <div class="card-body">
+            <p class="field__help">
+                @pending.RequestedBy asked for this on @pending.RequestedAt.ToString("yyyy-MM-dd").
+                @if (pending.Justification is { Length: > 0 } why)
+                {
+                    <text> Their reason: @why</text>
+                }
+                Until it is answered, the actions above would change what the approver was asked about.
+            </p>
+        </div>
+    }
 
     @if (!CanAccept.Allowed)
     {
@@ -160,12 +180,22 @@
 @code {
     [Parameter, EditorRequired] public PoamRecord Record { get; set; } = default!;
     [Parameter, EditorRequired] public ProjectRef Project { get; set; } = default!;
+    /// <summary>The decision this item is waiting on, if any.</summary>
+    [Parameter] public PendingState? Pending { get; set; }
+
     [Parameter] public AuthorizationDecision CanEdit { get; set; } = AuthorizationDecision.Deny("Checking…");
     [Parameter] public AuthorizationDecision CanComplete { get; set; } = AuthorizationDecision.Deny("Checking…");
     [Parameter] public AuthorizationDecision CanAccept { get; set; } = AuthorizationDecision.Deny("Checking…");
     [Parameter] public EventCallback OnEdit { get; set; }
     [Parameter] public EventCallback OnExtend { get; set; }
     [Parameter] public EventCallback<PoamStatus> OnTransition { get; set; }
+
+    private bool IsPending => Pending is not null;
+
+    private string? Reason(AuthorizationDecision decision) =>
+        Pending is { } pending
+            ? $"A decision is {pending.Qualifier}. Acting now would race it."
+            : decision.Reason;
 
     private void Open(PoamLink link)
     {
