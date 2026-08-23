@@ -364,6 +364,7 @@ app.MapBuildEvaluation();
 app.MapVexStatements();
 app.MapPoamItems();
 app.MapSsdfAttestation();
+app.MapOscal();
 app.MapProjectVdp();
 app.MapSbomProvenance();
 app.MapHierarchyCreate();
