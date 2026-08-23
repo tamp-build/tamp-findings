@@ -150,6 +150,9 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => x.RuleId);
             e.HasIndex(x => x.ComponentId);
             e.HasIndex(x => x.ExpiresAt);
+            // TFND-132: the matcher filters on tenant before anything else, so
+            // this is the index the hot path actually uses.
+            e.HasIndex(x => new { x.ClientId, x.ProjectId });
         });
 
         b.Entity<User>(e =>
