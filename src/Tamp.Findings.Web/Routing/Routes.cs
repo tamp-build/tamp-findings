@@ -79,7 +79,7 @@ public static class Routes
     private static string E(string s) => Uri.EscapeDataString(s);
 }
 
-/// <summary>The explorer's five spines. One shell, five bodies.</summary>
+/// <summary>The explorer's spines. One shell, one body each.</summary>
 public static class Spines
 {
     public const string Sast = "sast";
@@ -88,7 +88,19 @@ public static class Spines
     public const string Coverage = "coverage";
     public const string Tests = "tests";
 
-    public static readonly IReadOnlyList<string> All = [Sast, Dast, Sbom, Coverage, Tests];
+    /// <summary>
+    /// Section 508 / WCAG 2.1 AA (TFND-27).
+    ///
+    /// A sixth spine rather than a fold into DAST, even though both are
+    /// route-shaped: an accessibility defect is read by UX and by compliance,
+    /// and burying it among security alerts would put it in front of the wrong
+    /// people. The hand-off's five were the five that existed when it was
+    /// written, not a ceiling.
+    /// </summary>
+    public const string Accessibility = "a11y";
+
+    public static readonly IReadOnlyList<string> All =
+        [Sast, Dast, Sbom, Coverage, Tests, Accessibility];
 
     public static bool IsValid(string? spine) => spine is not null && All.Contains(spine);
 }

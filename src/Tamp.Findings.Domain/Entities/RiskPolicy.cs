@@ -101,4 +101,11 @@ public static class RiskCategoryNames
     // separately. A team shipping an internal service may not care about
     // OpenAPI lint at all; a team shipping a public API cares a great deal.
     public const string Quality = "quality";
+    // TFND-27 — Section 508 / WCAG 2.1 AA conformance.
+    //
+    // Its own category for the same reason it is its own scanner set: the
+    // audience is UX and compliance rather than security triage, and an admin
+    // shipping a headless service should be able to zero it without touching
+    // anything else.
+    public const string Accessibility = "accessibility";
 }

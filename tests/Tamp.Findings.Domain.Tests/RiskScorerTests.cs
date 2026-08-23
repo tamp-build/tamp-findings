@@ -252,8 +252,11 @@ public class RiskScorerTests
         var row = RiskScorer.Compute(policy, inputs).Breakdown
             .Single(r => r.Key == RiskCategoryNames.MissingScanners);
 
-        // One of six expected classes absent.
-        Assert.Equal(1.0 / 6.0, row.SubScore, precision: 10);
+        // One of SEVEN expected classes absent. It was six until TFND-27 added
+        // accessibility to the federal expectation — a UI-facing federal
+        // deliverable must conform to Section 508, so not running the scan is
+        // an unanswered question like any other.
+        Assert.Equal(1.0 / 7.0, row.SubScore, precision: 10);
     }
 
     // ------------------------------------------------------------------
@@ -316,7 +319,7 @@ public class RiskScorerTests
         // the point of a v2 policy is that adding one REDISTRIBUTES rather than
         // overflowing, which is exactly what the first assertion proves.
         Assert.Equal(100, totalEffective, precision: 8);
-        Assert.Equal(116, result.WeightBasis, precision: 10);
+        Assert.Equal(124, result.WeightBasis, precision: 10);
     }
 
     [Fact]
@@ -343,7 +346,9 @@ public class RiskScorerTests
         LicenseDenied: 0, LicenseStrongCopyleft: 0, LicenseUnknown: 0,
         RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true,
         OpenPastDuePoams: 0,
-        DastCritical: 0, DastHigh: 0, DastMedium: 0, DastLow: 0, RanDast: true);
+        DastCritical: 0, DastHigh: 0, DastMedium: 0, DastLow: 0, RanDast: true,
+        QualityHigh: 0, QualityMedium: 0, QualityLow: 0, RanQuality: true,
+        A11ySevere: 0, A11yModerate: 0, A11yMinor: 0, RanAccessibility: true);
 
     private static RiskInputs DirtyProject() => CleanProject() with
     {
