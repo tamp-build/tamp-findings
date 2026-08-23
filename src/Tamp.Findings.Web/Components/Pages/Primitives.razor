@@ -58,6 +58,18 @@
         </div>
     </Card>
 
+    <Card Padded="false">
+        <div class="card-body">
+            <h2>Source viewer</h2>
+            <p class="field__help">
+                Fixed 22px rows so the gutter stays in step with the code — the height is on the ROW,
+                not the code span, because an empty line in a baseline-aligned flex row otherwise
+                collapses. The flagged line takes a 13% tint of its severity colour.
+            </p>
+        </div>
+        <SourceViewer Lines="SampleSource" Flagged="SampleFlagged" />
+    </Card>
+
     <Card>
         <h2>Severity</h2>
         <p class="field__help">
@@ -314,6 +326,27 @@
         return GateEvaluator.Evaluate(config, SampleInputs, currentScore: 62.4,
             prior: null, priorScore: null);
     }
+
+    // Deliberately includes an empty line and a comment: the empty line is what
+    // collapses if the row height is set on the wrong element, and the comment
+    // proves the lexer ran.
+    private static readonly List<SourceLine> SampleSource = SourceTokenizer.Tokenize(
+        """
+        public sealed class GateEvaluator
+        {
+            // A gate that passes because nothing ran is not a green build.
+            public static GateEvaluation Evaluate(ProjectGatesConfig config)
+            {
+
+                var threshold = 0;
+                return new GateEvaluation("unscanned", threshold);
+            }
+        }
+        """,
+        "GateEvaluator.cs");
+
+    private static readonly IReadOnlyDictionary<int, Severity> SampleFlagged =
+        new Dictionary<int, Severity> { [7] = Severity.Critical, [3] = Severity.Low };
 
     private static readonly string[] IconNames =
     [

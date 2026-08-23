@@ -103,6 +103,27 @@ else
                 <h2 class="mono">@Selection</h2>
                 <p class="muted">@_detail.Count finding@(_detail.Count == 1 ? "" : "s") on this build</p>
             </div>
+
+            @if (_source is { Count: > 0 })
+            {
+                <SourceViewer Lines="_source" Flagged="_flagged" />
+                <div class="card-body">
+                    <p class="field__help">
+                        Source at build @Sha, from the coverage report that measured this file.
+                    </p>
+                </div>
+            }
+            else
+            {
+                <div class="card-body">
+                    <p class="field__help">
+                        No source is stored for this file. tamp.findings keeps full file content only
+                        when a coverage report is ingested over it, so the viewer appears for
+                        SAST-flagged files exactly when coverage also ran. The findings themselves are
+                        below.
+                    </p>
+                </div>
+            }
             <ScrollBox Label="Findings">
                 <table class="table">
                     <thead>
@@ -143,6 +164,8 @@ else
     private ProjectRef? _project;
     private IReadOnlyList<FindingGroup> _groups = [];
     private IReadOnlyList<FindingDetail> _detail = [];
+    private List<SourceLine>? _source;
+    private IReadOnlyDictionary<int, Severity> _flagged = new Dictionary<int, Severity>();
     private string? _error;
 
     private string SpineTitle => Spine switch
@@ -192,6 +215,26 @@ else
                 _detail = Selection is null
                     ? []
                     : await Findings.DetailAsync(_project.ProjectId, sha, ScannerKinds.Sast, Selection);
+
+                _source = null;
+                _flagged = new Dictionary<int, Severity>();
+
+                if (Selection is not null)
+                {
+                    var text = await Findings.SourceAsync(_project.ProjectId, Selection);
+                    if (text is { Length: > 0 })
+                    {
+                        _source = SourceTokenizer.Tokenize(text, Selection);
+
+                        // Worst severity wins when several findings land on one
+                        // line: the mark has to say how bad the line is, not
+                        // which finding was loaded first.
+                        _flagged = _detail
+                            .Where(f => f.Line is > 0)
+                            .GroupBy(f => f.Line!.Value)
+                            .ToDictionary(g => g.Key, g => g.Max(f => f.Severity));
+                    }
+                }
             }
             else
             {

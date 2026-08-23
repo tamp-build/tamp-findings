@@ -249,9 +249,6 @@ app.UseRequestLocalization(new Microsoft.AspNetCore.Builder.RequestLocalizationO
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Required by Razor Components (TFND-40): interactive endpoints carry
-// anti-forgery metadata and the pipeline throws without this. Must sit after
-// authentication and authorization.
 app.UseAntiforgery();
 app.MapOpenApi().AllowAnonymous();
 
