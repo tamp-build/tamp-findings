@@ -106,6 +106,10 @@ builder.Services.AddSingleton<Tamp.Findings.Api.Services.CheckPublishQueue>();
 builder.Services.AddHostedService<Tamp.Findings.Api.Services.CheckPublishWorker>();
 builder.Services.TryAddSingleton(TimeProvider.System);
 
+// TFND-11 (F10.5): a suppression's expiry date is the date it stops working,
+// not the date of the next build that happens to touch the finding.
+builder.Services.AddHostedService<Tamp.Findings.Api.Services.SuppressionExpiryWorker>();
+
 builder.Services.AddScoped<Tamp.Findings.Api.Services.KevFeedSyncService>();
 builder.Services.AddHostedService<Tamp.Findings.Api.Services.KevFeedSyncWorker>();
 

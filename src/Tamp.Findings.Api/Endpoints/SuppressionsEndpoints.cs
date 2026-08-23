@@ -1,4 +1,5 @@
 using Tamp.Findings.Application.Auditing;
+using Tamp.Findings.Application.Suppressions;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Application.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -24,7 +25,7 @@ public static class SuppressionsEndpoints
 
         app.MapDelete("/suppressions/{id:guid}", DeleteAsync)
            .WithName("DeleteSuppression")
-           .WithSummary("Remove a suppression");
+           .WithSummary("Withdraw a suppression. Requires the AuthorSuppression capability at its scope; the row is expired rather than deleted, and the findings it covered reopen.");
 
         return app;
     }
@@ -68,6 +69,20 @@ public static class SuppressionsEndpoints
         var validation = ValidateScope(req);
         if (validation is not null) return TypedResults.BadRequest(validation);
         if (string.IsNullOrWhiteSpace(req.Reason)) return TypedResults.BadRequest("reason is required");
+
+        // F10.2 lists expiry among the REQUIRED fields, and it is required for
+        // a reason the ticket's own note gives: the difference between a useful
+        // tool and a wall of red everyone ignores. A suppression with no expiry
+        // is the same failure inverted — a silence nobody ever revisits, which
+        // is how a finding stays hidden long after the reason for hiding it
+        // stopped being true.
+        if (req.ExpiresAt is null)
+            return TypedResults.BadRequest(
+                "expiresAt is required — a suppression with no expiry is a permanent silence. "
+                + "Pick a date to revisit it by.");
+
+        if (req.ExpiresAt <= DateTimeOffset.UtcNow)
+            return TypedResults.BadRequest("expiresAt is in the past, so this would suppress nothing.");
 
         var user = acting.User;
         var role = acting.RecordedRole;
@@ -151,12 +166,76 @@ public static class SuppressionsEndpoints
         return TypedResults.Ok(items);
     }
 
-    private static async Task<Results<NoContent, NotFound>> DeleteAsync(Guid id, FindingsDbContext db, CancellationToken ct)
+    /// <summary>
+    /// Withdraw a suppression (TFND-11 / F10.4).
+    ///
+    /// This used to take an id, remove the row, and return 204 — with no
+    /// capability check and no audit entry. Any authenticated user could
+    /// silently delete any suppression on any tenant, and un-hiding a finding
+    /// moves the score and can flip a gate. "Full audit log of every
+    /// suppression action" cannot be satisfied by an action that leaves no
+    /// trace, and neither can an assessor's question about who withdrew one.
+    ///
+    /// It now EXPIRES the row rather than deleting it. Same visible effect —
+    /// the matcher stops honouring it and the findings reopen — but the
+    /// decision survives, so "was this suppressed in March, and who lifted it"
+    /// still has an answer. The reopen happens here rather than waiting for the
+    /// hourly sweep, because a caller who withdrew a suppression expects the
+    /// findings back now.
+    /// </summary>
+    private static async Task<Results<NoContent, NotFound, BadRequest<string>, ForbidHttpResult>> DeleteAsync(
+        Guid id,
+        HttpContext http,
+        FindingsDbContext db,
+        CapabilityEvaluator capabilities,
+        PrincipalResolver principals,
+        AuditLog audit,
+        SuppressionExpiryService expiry,
+        CancellationToken ct)
     {
-        var s = await db.Suppressions.FindAsync([id], ct);
-        if (s is null) return TypedResults.NotFound();
-        db.Suppressions.Remove(s);
+        var suppression = await db.Suppressions.FirstOrDefaultAsync(s => s.Id == id, ct);
+        if (suppression is null) return TypedResults.NotFound();
+
+        // Authorized at the suppression's OWN scope, from the row rather than
+        // from anything the caller sent. The caller supplies an id; letting
+        // them supply the scope it is checked at would be TFND-132 again.
+        var target = new ScopeTarget(
+            suppression.ClientId, suppression.ProjectId, suppression.ComponentId);
+
+        var userId = SuppressionAuthorization.UserIdFrom(http.User);
+        if (userId is not { } actingId) return TypedResults.Forbid();
+
+        var actor = await principals.ResolveAsync(actingId, target, ct);
+        if (actor is null) return TypedResults.Forbid();
+
+        if (!capabilities.Evaluate(actor, Capability.AuthorSuppression).Allowed)
+            return TypedResults.Forbid();
+
+        if (suppression.ExpiresAt is { } already && already <= DateTimeOffset.UtcNow)
+        {
+            // Already lifted. Idempotent rather than an error: a retried DELETE
+            // should not read as a failure.
+            return TypedResults.NoContent();
+        }
+
+        suppression.ExpiresAt = DateTimeOffset.UtcNow;
+
+        // Risk class. Withdrawing a suppression reopens findings, which moves
+        // the score and can flip a gate — the same weight as authoring one.
+        audit.Record(
+            actor,
+            "suppression.withdrawn",
+            AuditClass.Risk,
+            target,
+            subjectId: suppression.Id,
+            subjectKind: nameof(Suppression),
+            detail: $"{suppression.Scope} suppression withdrawn: {suppression.Reason}");
+
         await db.SaveChangesAsync(ct);
+
+        // Reopen now rather than on the next hourly tick.
+        await expiry.SweepAsync(DateTimeOffset.UtcNow, ct);
+
         return TypedResults.NoContent();
     }
 
