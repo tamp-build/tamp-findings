@@ -1,0 +1,84 @@
+@* Last six canonical builds.
+
+   Problem 9 on the brief's list was that nothing was time-aware. A score with
+   no history answers "how bad is it" but never "is it getting worse", which is
+   the security lead's actual question. *@
+
+@inject ViewPreferences Prefs
+
+<Card Padded="false">
+    <div class="card-body">
+        <h2>Build history</h2>
+    </div>
+
+    <ScrollBox Label="Build history">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Build</th>
+                    <th>Branch</th>
+                    <th class="align-end">Score</th>
+                    @if (Prefs.ShowDeltas)
+                    {
+                        <th class="align-end">Δ</th>
+                    }
+                    <th class="align-end">Coverage</th>
+                    <th>Gates</th>
+                    <th>Ingested</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Rows)
+                {
+                    <tr>
+                        <td class="mono">@Short(row.CommitSha)</td>
+                        <td class="mono">@(row.Branch ?? "—")</td>
+                        <td class="num align-end">@row.Score.ToString("F1")</td>
+                        @if (Prefs.ShowDeltas)
+                        {
+                            <td class="num align-end" style="color: @DeltaTone(row.Delta)">@Delta(row.Delta)</td>
+                        }
+                        <td class="num align-end">@Coverage(row.CoveragePercent)</td>
+                        <td>
+                            @* Derived from the evaluation, never stored prose.
+                               Three counts, not two: reconstructing a tally
+                               from pass and fail alone drops every Unknown. *@
+                            <span class="buildrow-gates mono">
+                                <span style="color: var(--color-accent)">@row.Gates.Passed ✓</span>
+                                @if (row.Gates.Failed > 0)
+                                {
+                                    <span style="color: var(--color-critical)">@row.Gates.Failed ✕</span>
+                                }
+                                @if (row.Gates.Unknown > 0)
+                                {
+                                    <span style="color: var(--color-medium)">@row.Gates.Unknown ?</span>
+                                }
+                            </span>
+                        </td>
+                        <td class="mono">@row.IngestedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </ScrollBox>
+</Card>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<BuildHistoryRow> Rows { get; set; } = [];
+
+    private static string Short(string sha) => sha.Length > 7 ? sha[..7] : sha;
+
+    // Absent, not zero. The first build in the window has nothing to compare
+    // against, and "0.0" would claim it held steady.
+    private static string Delta(double? d) =>
+        d is null ? "—" : d > 0 ? $"+{d:F1}" : d.Value.ToString("F1");
+
+    private static string DeltaTone(double? d) =>
+        d is null ? "var(--color-neutral-500)"
+        : d > 0 ? "var(--color-critical)"     // score up = worse posture
+        : d < 0 ? "var(--color-pass)"
+        : "inherit";
+
+    // Never measured is not zero percent.
+    private static string Coverage(double? pct) => pct is null ? "—" : $"{pct:F0}%";
+}

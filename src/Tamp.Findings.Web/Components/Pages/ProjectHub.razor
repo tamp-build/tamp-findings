@@ -79,6 +79,11 @@ else
         </div>
 
         <ScanReceipts Inputs="_data.Inputs" Sha="@ShortSha" />
+
+        @if (_data.History.Count > 0)
+        {
+            <BuildHistory Rows="_data.History" />
+        }
     </div>
 }
 
