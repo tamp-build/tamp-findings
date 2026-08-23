@@ -310,8 +310,13 @@ public class RiskScorerTests
         var result = RiskScorer.Compute(policy, CleanProject());
         var totalEffective = result.Breakdown.Where(r => r.Enabled).Sum(r => r.EffectiveMax);
 
+        // Normalisation to 100 is the invariant; the BASIS is just the sum of
+        // authored weights and moves whenever a category is added. It went from
+        // 114 to 116 when TFND-33 … TFND-37 added the quality category — and
+        // the point of a v2 policy is that adding one REDISTRIBUTES rather than
+        // overflowing, which is exactly what the first assertion proves.
         Assert.Equal(100, totalEffective, precision: 8);
-        Assert.Equal(114, result.WeightBasis, precision: 10);
+        Assert.Equal(116, result.WeightBasis, precision: 10);
     }
 
     [Fact]
