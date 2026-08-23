@@ -65,7 +65,27 @@ public static class ScannerKinds
     public static readonly IReadOnlySet<ScannerKind> Static =
         new HashSet<ScannerKind>(Sast.Concat(Quality));
 
+    // Section 508 / WCAG 2.1 AA conformance (TFND-27).
+    //
+    // Its own set, not part of Sast or Dast, because the AUDIENCE is different:
+    // an accessibility defect is read by UX and by compliance, not by whoever
+    // triages CVEs. Folding it into a security bucket would put it in front of
+    // the wrong people and hide it from the right ones.
+    //
+    // For federal work this is not optional — any UI-facing software must
+    // conform under 29 U.S.C. § 794d, and a gap here blocks acceptance as
+    // surely as an unpatched CVE does.
+    public static readonly IReadOnlySet<ScannerKind> Accessibility = new HashSet<ScannerKind>
+    {
+        ScannerKind.AxeCore,
+    };
+
     // True when a finding from this scanner describes a request rather than a
     // location in the source tree, and so needs the dynamic hash.
-    public static bool IsDynamic(ScannerKind scanner) => Dast.Contains(scanner);
+    //
+    // Accessibility findings qualify: axe reports a URL and a CSS selector, not
+    // a file and a line, so the file/line hasher would produce a hash from two
+    // nulls and collapse every violation on a page into one finding.
+    public static bool IsDynamic(ScannerKind scanner) =>
+        Dast.Contains(scanner) || Accessibility.Contains(scanner);
 }

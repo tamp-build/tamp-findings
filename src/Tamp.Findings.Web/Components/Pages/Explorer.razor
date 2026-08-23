@@ -71,7 +71,7 @@ else
                 </span>
             }
 
-            @if (Spine is Spines.Sast or Spines.Dast or Spines.Sbom)
+            @if (Spine is Spines.Sast or Spines.Dast or Spines.Sbom or Spines.Accessibility)
             {
                 @foreach (var s in new[] { Severity.Critical, Severity.High, Severity.Medium, Severity.Low, Severity.Info })
                 {
@@ -126,6 +126,39 @@ else
                 else
                 {
                     @foreach (var host in _dast.Hosts)
+                    {
+                        <TreeRow Name="@host.Host" Group="true" />
+                        <Virtualize TItem="DastRouteRow" Items="host.Routes" Context="route" ItemSize="26">
+                            <TreeRow Name="@route.Route" Depth="1"
+                                     Selected="@(route.Route == Selection)"
+                                     OnSelect="() => Select(route.Route)">
+                                <Badge>
+                                    <span class="row" style="gap: var(--space-1)">
+                                        <SeverityBadge Severity="route.WorstSeverity" />
+                                        <span class="num">@route.Count</span>
+                                    </span>
+                                </Badge>
+                            </TreeRow>
+                        </Virtualize>
+                    }
+                }
+            }
+            else if (Spine == Spines.Accessibility)
+            {
+                @if (_a11y is null || _a11y.Hosts.Count == 0)
+                {
+                    <div class="card-body">
+                        <p class="muted">No open accessibility findings on this build.</p>
+                        <p class="field__help">
+                            If no accessibility scanner ran, that is not the same as a conformant
+                            interface — and for federal work an unmeasured interface is not one that
+                            can be attested. Check the scan receipts on the project hub.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var host in _a11y.Hosts)
                     {
                         <TreeRow Name="@host.Host" Group="true" />
                         <Virtualize TItem="DastRouteRow" Items="host.Routes" Context="route" ItemSize="26">
@@ -390,6 +423,16 @@ else
                 </div>
                 <DastDetail Findings="_dastDetail" />
             }
+            else if (Spine == Spines.Accessibility)
+            {
+                <div class="card-body">
+                    <h2 class="mono">@Selection</h2>
+                    <p class="muted">
+                        @_a11yDetail.Count violation@(_a11yDetail.Count == 1 ? "" : "s") on this page
+                    </p>
+                </div>
+                <DastDetail Findings="_a11yDetail" />
+            }
             else if (Spine == Spines.Sbom)
             {
                 <div class="card-body">
@@ -510,6 +553,8 @@ else
     private IReadOnlyList<FindingGroup> _groups = [];
     private IReadOnlyList<FindingDetail> _detail = [];
     private DastTree? _dast;
+    private DastTree? _a11y;
+    private IReadOnlyList<DastFinding> _a11yDetail = [];
     private IReadOnlyList<DastFinding> _dastDetail = [];
     private IReadOnlyList<SbomGroup> _sbom = [];
     private IReadOnlyList<SbomVulnerability> _sbomDetail = [];
@@ -531,6 +576,7 @@ else
         Spines.Sbom => "SBOM",
         Spines.Coverage => "Coverage",
         Spines.Tests => "Tests",
+        Spines.Accessibility => "Accessibility",
         _ => Spine,
     };
 
@@ -541,6 +587,7 @@ else
         Spines.Sbom => "Dependencies and their known vulnerabilities.",
         Spines.Coverage => "What the tests actually executed.",
         Spines.Tests => "Cases, outcomes and skip reasons.",
+        Spines.Accessibility => "Section 508 / WCAG 2.1 AA conformance, by page.",
         _ => "",
     };
 
@@ -639,6 +686,18 @@ else
                 _dastDetail = Selection is null
                     ? []
                     : await Dast.DetailAsync(_project.ProjectId, BuildSha, Selection);
+            }
+            else if (Spine == Spines.Accessibility)
+            {
+                // The DAST query, pointed at the accessibility scanners. Both
+                // report against a URL, so the grouping and the evidence panels
+                // are already right — what differs is the audience, which is
+                // why this is its own spine rather than a filter on that one.
+                _a11y = await Dast.TreeAsync(_project.ProjectId, BuildSha, ScannerKinds.Accessibility);
+                _a11yDetail = Selection is null
+                    ? []
+                    : await Dast.DetailAsync(
+                        _project.ProjectId, BuildSha, Selection, ScannerKinds.Accessibility);
             }
             else if (Spine == Spines.Sbom)
             {

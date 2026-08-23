@@ -173,6 +173,10 @@ public static class RiskPolicyDefaults
                     [ExpectedScannerKeys.Sbom] = 1,
                     [ExpectedScannerKeys.Coverage] = 1,
                     [ExpectedScannerKeys.Dast] = 1,
+                    // TFND-27. A UI-facing federal deliverable must conform to
+                    // Section 508; a headless service clones this policy and
+                    // zeroes the key rather than carrying a permanent ding.
+                    [ExpectedScannerKeys.Accessibility] = 1,
                 },
             },
             [RiskCategoryNames.DastLow] = new()
@@ -193,6 +197,17 @@ public static class RiskPolicyDefaults
             {
                 Enabled = true, Max = 2,
                 Weights = new() { ["high"] = 0.01, ["medium"] = 0.004, ["low"] = 0.001 },
+            },
+            // TFND-27 — Section 508 / WCAG 2.1 AA.
+            //
+            // Weighted like iacSevere rather than like the quality category:
+            // for federal work an inaccessible control blocks acceptance, and
+            // scoring it as a nit would misrepresent what it costs. A severe
+            // axe violation is a control somebody cannot operate at all.
+            [RiskCategoryNames.Accessibility] = new()
+            {
+                Enabled = true, Max = 8,
+                Weights = new() { ["severe"] = 0.20, ["moderate"] = 0.02, ["minor"] = 0.004 },
             },
         },
     };
