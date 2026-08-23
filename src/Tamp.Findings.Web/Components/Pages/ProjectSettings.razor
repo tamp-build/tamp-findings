@@ -1,31 +1,433 @@
-@* Ingest tokens, disclosure policy and account (TFND-107 - TFND-109).
+@* Project settings (TFND-107 … TFND-109).
 
-   Policy and gates moved to their own screen at /settings/policy - they are
-   instance-scoped rather than a project tab. *@
+   Three tabs: ingest tokens, disclosure policy, account. Policy and gates moved
+   to their own screen — they are instance-scoped rather than a project tab.
+
+   The token panel's whole design turns on one fact: the plaintext exists for
+   the length of one render and is never recoverable. Everything about how it is
+   presented has to make that impossible to miss. *@
 @page "/c/{Client}/p/{Project}/settings/keys"
+@page "/c/{Client}/p/{Project}/settings/{Tab}"
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject RouteScope Scope
 @inject NavigationManager Nav
+@inject ProjectHubQuery Hub
+@inject ProjectSettingsService Settings
+@inject CurrentUser Me
+@inject AuthenticationStateProvider Auth
 
 <PageTitle>Settings — @Project</PageTitle>
 
-<Placeholder Title="@Heading" Ticket="@Ticket" Description="@Description" Scope="Params" />
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>Settings</h1>
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not load this project's settings.</span>
+            </div>
+            <p class="field__help">
+                An empty token list would read as "nothing can write here", which is a claim about
+                access this screen cannot currently make. @_error
+            </p>
+        </Card>
+    </div>
+}
+else if (_project is null)
+{
+    <div class="stack">
+        <h1>Project not found</h1>
+        <Card><p>No project matches <code class="mono">@Client / @Project</code>.</p></Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <div>
+            <div class="kicker">Project settings</div>
+            <h1>@_project.ProjectName</h1>
+        </div>
+
+        <div class="tabs settings-tabs">
+            @foreach (var tab in Tabs)
+            {
+                <a class="tab @(tab.Key == Current ? "tab--active" : null)"
+                   href="@($"/c/{Client}/p/{Project}/settings/{tab.Key}")">@tab.Value</a>
+            }
+        </div>
+
+        @if (Current == TabKeys)
+        {
+            <Card Padded="false">
+                <div class="card-body row row--between">
+                    <div>
+                        <h2>Ingest tokens</h2>
+                        <p class="field__help">
+                            How a pipeline proves it may write to this project. Only the SHA-256 of a
+                            token is stored, so a lost one is regenerated, never recovered.
+                        </p>
+                    </div>
+                    <Button Variant="Button.ButtonVariant.Primary"
+                            Disabled="@(!_canManageKeys.Allowed)" DisabledReason="@_canManageKeys.Reason"
+                            OnClick="() => { _minting = true; _newName = null; _mintError = null; }">
+                        Generate token
+                    </Button>
+                </div>
+
+                @if (_minted is { } minted)
+                {
+                    @* Revealed exactly once, and the panel says so before the
+                       value rather than after it. Someone who reads top to
+                       bottom must not reach the token first and the warning
+                       second. *@
+                    <div class="card-body">
+                        <SecretPanel Heading="COPY IT NOW — THIS VALUE IS NOT STORED AND WILL NOT BE SHOWN AGAIN"
+                                     Value="@minted" />
+                        <details class="curl">
+                            <summary>Use it</summary>
+                            <pre class="dast-pane">curl -X POST @(_instanceUrl)/ingest/sarif \
+  -H "Authorization: Bearer @minted" \
+  -H "Content-Type: application/json" \
+  --data-binary @@results.sarif</pre>
+                        </details>
+                    </div>
+                }
+
+                @if (_tokens.Count == 0)
+                {
+                    <div class="card-body">
+                        <p class="muted">No ingest tokens on this project.</p>
+                        <p class="field__help">
+                            Nothing can currently push findings here. A project that has never received
+                            a scan is not a clean project — it is an unmeasured one.
+                        </p>
+                    </div>
+                }
+                else
+                {
+                    <ScrollBox Label="Ingest tokens">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th><th>Hash</th><th>Created by</th>
+                                    <th>Created</th><th>Last used</th><th>State</th><th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var token in _tokens)
+                                {
+                                    <tr class="@(token.Revoked ? "is-retired" : null)">
+                                        <td>@token.Name</td>
+                                        @* The hash prefix, not the token: enough to match a rejected
+                                           request in a log against this row, not enough to
+                                           authenticate with. *@
+                                        <td class="mono muted">@token.HashPrefix…</td>
+                                        <td>@token.CreatedBy</td>
+                                        <td class="mono">@token.CreatedAt.ToString("yyyy-MM-dd")</td>
+                                        <td class="mono">
+                                            @if (token.LastUsedAt is { } used)
+                                            {
+                                                @used.ToString("yyyy-MM-dd")
+                                            }
+                                            else
+                                            {
+                                                <span class="muted">never</span>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (token.Revoked)
+                                            {
+                                                <Chip Label="REVOKED" Tone="var(--color-neutral-500)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                            else if (token.NeverUsed)
+                                            {
+                                                @* Either the pipeline was never wired up or it is
+                                                   failing silently. Both worth knowing. *@
+                                                <Chip Label="NEVER USED" Tone="var(--color-high)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                            else
+                                            {
+                                                <Chip Label="ACTIVE" Tone="var(--color-pass)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (!token.Revoked)
+                                            {
+                                                <Button Variant="Button.ButtonVariant.Text" Class="btn--danger"
+                                                        Disabled="@(!_canManageKeys.Allowed)"
+                                                        DisabledReason="@_canManageKeys.Reason"
+                                                        OnClick="() => _revoking = token">revoke</Button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </ScrollBox>
+                }
+            </Card>
+        }
+        else if (Current == TabDisclosure)
+        {
+            <Card>
+                <h2>Disclosure policy</h2>
+                <p class="field__help">
+                    Where a security researcher reports something they found. This is not cosmetic —
+                    it is the evidence behind SSDF RV.3.1, and the attestation reads it directly.
+                </p>
+
+                <div class="row" style="gap: var(--space-3); margin: var(--space-3) 0">
+                    <Chip Label="@($"RV.3.1 → {EffectLabel(_effect)}")" Tone="@EffectTone(_effect)"
+                          Style="Chip.ChipStyle.Solid" />
+                    <span class="field__help">
+                        @switch (_effect)
+                        {
+                            case VdpEffect.Yes:
+                                <text>A published policy URL is the gold-standard artefact, and it answers the practice outright.</text>
+                                break;
+                            case VdpEffect.Partial:
+                                <text>A contact email alone is the minimum CISA BOD 20-01 asks for, and it caps the practice at Partial. Publish a policy page for a full answer.</text>
+                                break;
+                            default:
+                                <text>With neither on file the practice answers No — not Manual. This is something the tool can measure, so an absence is a finding rather than the signatory's problem.</text>
+                                break;
+                        }
+                    </span>
+                </div>
+
+                <TextField Label="Policy URL" Mono="true" @bind-Value="_vdpPolicy"
+                           Disabled="@(!_canEditVdp.Allowed)"
+                           Help="The public page describing how to report a vulnerability and what happens next." />
+                <TextField Label="Security contact" Mono="true" @bind-Value="_vdpContact"
+                           Disabled="@(!_canEditVdp.Allowed)"
+                           Help="A monitored inbox — a security alias rather than a person, so a report does not sit unread while someone is away." />
+                <TextField Label="Reporting form" Mono="true" @bind-Value="_vdpForm"
+                           Disabled="@(!_canEditVdp.Allowed)"
+                           Help="Optional — a triage form or a coordinated-disclosure platform." />
+
+                @if (_vdpError is not null)
+                {
+                    <p style="color: var(--color-critical)">@_vdpError</p>
+                }
+                @if (_vdpSaved)
+                {
+                    <p style="color: var(--color-pass)">Saved.</p>
+                }
+
+                <div class="row" style="gap: var(--space-2); margin-top: var(--space-3)">
+                    <Button Variant="Button.ButtonVariant.Primary"
+                            Disabled="@(!_canEditVdp.Allowed)" DisabledReason="@_canEditVdp.Reason"
+                            OnClick="SaveDisclosure">Save disclosure policy</Button>
+                </div>
+            </Card>
+        }
+        else
+        {
+            <Card>
+                <h2>Account</h2>
+                <dl class="stamp">
+                    <dt>Signed in as</dt>
+                    <dd>@_login</dd>
+                    <dt>Default scope</dt>
+                    <dd class="mono">@Client / @Project</dd>
+                    <dt>Roles here</dt>
+                    <dd>@(_roles is { Length: > 0 } ? _roles : "Viewer — read access, no role")</dd>
+                </dl>
+                <p class="field__help">
+                    Roles are additive and resolved at the NARROWEST scope that grants anything, so a
+                    role held here may differ from one held on another project.
+                </p>
+                <div class="row" style="margin-top: var(--space-3)">
+                    <a class="btn btn--text btn--danger" href="/auth/signout">Sign out</a>
+                </div>
+            </Card>
+        }
+    </div>
+}
+
+<Dialog Open="_minting" OpenChanged="v => _minting = v" Title="Generate ingest token" Width="620">
+    <ChildContent>
+        <TextField Label="Label" @bind-Value="_newName"
+                   Help="What this token is for — &quot;ci · brewerybot&quot;, &quot;laptop · scott&quot;. It is what makes a revoke decision possible six months from now." />
+        <p class="field__help">
+            The value is shown once when the dialog closes and is never recoverable — only its
+            SHA-256 is stored.
+        </p>
+        @if (_mintError is not null)
+        {
+            <p style="color: var(--color-critical)">@_mintError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Mint">Generate</Button>
+        <Button OnClick="() => _minting = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_revoking is not null" OpenChanged="v => { if (!v) _revoking = null; }"
+        Title="Revoke token" Width="620">
+    <ChildContent>
+        @if (_revoking is { } target)
+        {
+            <p>Revoke <strong>@target.Name</strong>?</p>
+            <p class="field__help">
+                Any pipeline still presenting it starts failing immediately. The row stays in the list
+                so "was this key live in March?" still has an answer after an incident.
+            </p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Danger" OnClick="Revoke">Revoke</Button>
+        <Button OnClick="() => _revoking = null">Cancel</Button>
+    </Footer>
+</Dialog>
 
 @code {
     [Parameter] public string Client { get; set; } = "";
     [Parameter] public string Project { get; set; } = "";
+    [Parameter] public string? Tab { get; set; }
 
-    private bool IsPolicy => Nav.Uri.EndsWith("/policy", StringComparison.Ordinal);
+    private const string TabKeys = "keys";
+    private const string TabDisclosure = "disclosure";
+    private const string TabAccount = "account";
 
-    private string Heading => IsPolicy ? "Policy & gates" : "Ingest keys";
-    private string Ticket => IsPolicy ? "TFND-104 … TFND-106" : "TFND-107 … TFND-109";
+    private static readonly KeyValuePair<string, string>[] Tabs =
+    [
+        new(TabKeys, "Ingest tokens"),
+        new(TabDisclosure, "Disclosure policy"),
+        new(TabAccount, "Account"),
+    ];
 
-    private string Description => IsPolicy
-        ? "Effective maxima recompute live as weights change and as categories are switched on and off — that is why a category's ceiling is not a fixed number, and demonstrating it is the point of the screen."
-        : "Ingest tokens, disclosure policy, account. Secrets reveal exactly once, in a panel that says so.";
+    // An unknown tab lands on keys rather than on an empty screen. A settings
+    // URL is the kind of thing people hand-edit.
+    private string Current =>
+        Tab is not null && Tabs.Any(t => t.Key == Tab) ? Tab : TabKeys;
 
-    private List<KeyValuePair<string, string?>> Params =>
-        [new("client", Client), new("project", Project)];
+    private ProjectRef? _project;
+    private IReadOnlyList<TokenRow> _tokens = [];
+    private string? _error;
 
-    protected override void OnParametersSet() => Scope.SetProject(Client, Project);
+    private AuthorizationDecision _canManageKeys = AuthorizationDecision.Deny("Checking…");
+    private AuthorizationDecision _canEditVdp = AuthorizationDecision.Deny("Checking…");
+
+    private bool _minting;
+    private string? _newName, _mintError, _minted;
+    private TokenRow? _revoking;
+    private string _instanceUrl = "";
+
+    private string? _vdpPolicy, _vdpContact, _vdpForm, _vdpError;
+    private bool _vdpSaved;
+    private VdpEffect _effect = VdpEffect.No;
+
+    private string _login = "";
+    private string _roles = "";
+
+    private ScopeTarget Here =>
+        _project is null
+            ? ScopeTarget.Instance
+            : ScopeTarget.Project(_project.ClientId, _project.ProjectId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project);
+        _error = null;
+
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project);
+            if (_project is null) return;
+
+            _instanceUrl = new Uri(Nav.BaseUri).GetLeftPart(UriPartial.Authority);
+
+            _tokens = await Settings.TokensAsync(_project.ProjectId, DateTimeOffset.UtcNow);
+            _canManageKeys = await Me.CanAsync(Capability.ManageIngestKey, Here);
+            _canEditVdp = await Me.CanAsync(Capability.EditDisclosurePolicy, Here);
+
+            if (await Settings.DisclosureAsync(_project.ProjectId) is { } vdp)
+            {
+                _vdpPolicy = vdp.PolicyUrl;
+                _vdpContact = vdp.ContactEmail;
+                _vdpForm = vdp.ReportingFormUrl;
+                _effect = ProjectSettingsService.Effect(vdp);
+            }
+
+            var principal = await Me.AtAsync(Here);
+            var state = await Auth.GetAuthenticationStateAsync();
+            _login = principal?.Login ?? state.User.Identity?.Name ?? "(not signed in)";
+            _roles = principal is null
+                ? ""
+                : string.Join(", ", principal.Actors.Select(a => a.ToString()).OrderBy(a => a));
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetType().Name;
+        }
+    }
+
+    private async Task Mint()
+    {
+        if (_project is null) return;
+        _mintError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _mintError = "You are not signed in."; return; }
+
+        var result = await Settings.MintTokenAsync(actor, Here, _project.ProjectId, _newName ?? "");
+        if (!result.Success) { _mintError = result.Error; return; }
+
+        // Held in a field only until the next navigation. There is nowhere else
+        // it could be recovered from, which is the point.
+        _minted = result.Value!.Plaintext;
+        _minting = false;
+        _tokens = await Settings.TokensAsync(_project.ProjectId, DateTimeOffset.UtcNow);
+    }
+
+    private async Task Revoke()
+    {
+        if (_project is null || _revoking is not { } target) return;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) return;
+
+        await Settings.RevokeTokenAsync(actor, Here, _project.ProjectId, target.Id);
+        _revoking = null;
+        _tokens = await Settings.TokensAsync(_project.ProjectId, DateTimeOffset.UtcNow);
+    }
+
+    private async Task SaveDisclosure()
+    {
+        if (_project is null) return;
+        _vdpError = null;
+        _vdpSaved = false;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _vdpError = "You are not signed in."; return; }
+
+        var result = await Settings.SaveDisclosureAsync(
+            actor, Here, _project.ProjectId, new VdpSettings(_vdpPolicy, _vdpContact, _vdpForm));
+
+        if (!result.Success) { _vdpError = result.Error; return; }
+
+        _effect = result.Value;
+        _vdpSaved = true;
+    }
+
+    private static string EffectLabel(VdpEffect effect) => effect switch
+    {
+        VdpEffect.Yes => "Yes",
+        VdpEffect.Partial => "Partial",
+        _ => "No",
+    };
+
+    private static string EffectTone(VdpEffect effect) => effect switch
+    {
+        VdpEffect.Yes => "var(--color-accent)",
+        VdpEffect.Partial => "var(--color-high)",
+        _ => "var(--color-critical)",
+    };
 }

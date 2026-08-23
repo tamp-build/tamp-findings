@@ -1035,3 +1035,13 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 .band-grid { display: grid; gap: var(--space-2); }
 .band { display: grid; grid-template-columns: 14px 1fr auto; gap: var(--space-2); align-items: center; }
 .band__swatch { width: 14px; height: 14px; display: inline-block; }
+
+/* Settings tab strip sits inside the page rather than under the header, so it
+   keeps the tab visuals but not the shell's edge-to-edge padding. */
+.settings-tabs { padding: 0; }
+
+/* The curl example. Collapsed by default: it is reference material, and an
+   open code block between the token and the table pushes the list of existing
+   tokens off the first screen. */
+.curl { margin-top: var(--space-3); }
+.curl summary { cursor: pointer; font-size: var(--text-secondary); color: var(--color-accent-700); }
