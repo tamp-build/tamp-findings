@@ -81,6 +81,9 @@
 
   <ItemGroup Label="Test stack (TFND mirrors tamp test stack)">
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <!-- Skippable tests: the integration suite runs only when a database is
+         configured, and a skip is honest where a silent pass is not. -->
+    <PackageVersion Include="Xunit.SkippableFact" Version="1.5.23" />
     <PackageVersion Include="xunit" Version="2.9.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageVersion Include="Bogus" Version="35.6.1" />
