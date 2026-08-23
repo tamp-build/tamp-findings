@@ -59,6 +59,31 @@
     </Card>
 
     <Card>
+        <h2>Severity</h2>
+        <p class="field__help">
+            Three redundant signals: a five-step ladder, a letter code, and colour. The ladder and
+            letter survive a monochrome print and a colour-blind reader — the attestation has to be
+            readable off a black-and-white printer, so colour is never the only carrier.
+        </p>
+        <div class="stack" style="margin-top: var(--space-3)">
+            <div class="row" style="flex-wrap: wrap; gap: var(--space-4)">
+                @foreach (var s in new[] { Severity.Critical, Severity.High, Severity.Medium, Severity.Low, Severity.Info })
+                {
+                    <SeverityBadge Severity="s" ShowName="true" />
+                }
+            </div>
+            <div>
+                <div class="kicker">Tally — zeros omitted</div>
+                <SeverityCounts Critical="2" High="4" Medium="12" Low="3" />
+            </div>
+            <div>
+                <div class="kicker">Tally — nothing found</div>
+                <SeverityCounts />
+            </div>
+        </div>
+    </Card>
+
+    <Card>
         <h2>Chips</h2>
         <div class="row" style="flex-wrap: wrap; margin-top: var(--space-3)">
             <Chip Label="Blocked" Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" Glyph="✕" />

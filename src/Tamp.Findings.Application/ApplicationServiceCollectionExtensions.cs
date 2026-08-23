@@ -48,6 +48,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Projects.ComponentService>();
         services.AddScoped<Projects.PortfolioQuery>();
         services.AddScoped<Projects.HierarchyService>();
+        services.AddScoped<Explorer.FindingsExplorerQuery>();
         services.AddScoped<Ingest.IngestTokenService>();
         services.AddScoped<Projects.ProjectKeyService>();
 

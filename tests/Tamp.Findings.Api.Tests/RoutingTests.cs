@@ -80,11 +80,17 @@ public class RoutingTests : IClassFixture<TestApiFactory>
         var sast = await client.GetStringAsync("/c/brewingcoder/p/tamp/build/179fe8b/sast");
         var bogus = await client.GetStringAsync("/c/brewingcoder/p/tamp/build/179fe8b/bogus");
 
-        Assert.Contains("Explorer", sast, StringComparison.Ordinal);
+        // Asserted on the SPINE VALIDATION rather than on the screen's title:
+        // this suite has no database, so a valid spine renders the Unavailable
+        // state, and asserting a title here would only be testing which error
+        // path ran.
         Assert.DoesNotContain("Unknown spine", sast, StringComparison.Ordinal);
 
-        // A bad spine is a broken link, not an empty screen.
+        // A bad spine is a broken link, not an empty screen — and it is
+        // rejected BEFORE any database is touched, which is why this half
+        // still asserts real content.
         Assert.Contains("Unknown spine", bogus, StringComparison.Ordinal);
+        Assert.Contains("Go to the SAST spine", bogus, StringComparison.Ordinal);
     }
 
     [Fact]
