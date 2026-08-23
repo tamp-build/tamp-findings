@@ -83,8 +83,19 @@ class Build : SecurityPipelineBuild
     AbsolutePath Artifacts => RootDirectory / "artifacts";
     AbsolutePath CoverageDir => Artifacts / "coverage";
     AbsolutePath TestResults => Artifacts / "test-results";
-    AbsolutePath SpaTestResults => Artifacts / "test-results-spa";
-    AbsolutePath SpaProjectDir => RootDirectory / "web";
+    // Where the Node-based scanners live.
+    //
+    // It used to be web/, whose devDependencies carried @axe-core/cli and
+    // eslint. TFND-128 retired web/ — and took the accessibility scan with it,
+    // silently: AxeCoreBinaryResolver simply reported "not installed" and the
+    // target skipped, so a scan that had been running stopped running and
+    // nothing said so.
+    //
+    // build/tools/node/ has no application in it, only the two CLIs the build
+    // shells out to. That is the honest home for them now: this repository has
+    // no JavaScript application, but it still has a browser-rendered UI that
+    // Section 508 applies to.
+    AbsolutePath NodeToolsDir => RootDirectory / "build" / "tools" / "node";
     // ReSharper InspectCode SARIF. Output lives next to roslyn/opengrep so
     // the SAST merge step finds it consistently.
     AbsolutePath SecuritySarifResharperFile => RootDirectory / "artifacts" / "security" / "resharper.sarif";
@@ -266,17 +277,17 @@ class Build : SecurityPipelineBuild
     // and never enters the pnpm workspace). Skips cleanly when no ESLint
     // install is found, same posture as OpenGrep / ReSharper.
     Target SecurityScanEslint => _ => _
-        .Description("ESLint v9 SARIF over web/src. Requires eslint + @microsoft/eslint-formatter-sarif in web/'s devDependencies (or globally).")
+        .Description("ESLint v9 SARIF. Skips unless a JavaScript/TypeScript source tree and an eslint install are present — there is none in this repository since TFND-128, and the target stays for tenants that have one.")
         .Executes(() =>
         {
             SecurityArtifactsDir.CreateDirectory();
-            if (!EslintBinaryResolver.IsAvailable(SpaProjectDir.Value))
+            if (!EslintBinaryResolver.IsAvailable(NodeToolsDir.Value))
             {
-                Console.WriteLine($"[security] ESLint skipped — no install found at {SpaProjectDir} (pnpm add -D eslint @microsoft/eslint-formatter-sarif).");
+                Console.WriteLine($"[security] ESLint skipped — no install found at {NodeToolsDir}. This repository has no JavaScript application since TFND-128; the target stays wired for tenants that do.");
                 return;
             }
             var plan = EslintCli.Scan(s => s
-                .SetWorkingDirectory(SpaProjectDir.Value)
+                .SetWorkingDirectory(NodeToolsDir.Value)
                 .AddTarget("src")
                 .SetSarif()
                 .SetOutputFile(SecuritySarifEslintFile.Value)
@@ -302,24 +313,28 @@ class Build : SecurityPipelineBuild
     // the Docker / restricted-runner case; first-time runs may need
     // `npx playwright install chromium` as a one-off pre-step.
     Target SecurityScanAxeCore => _ => _
-        .Description("axe-core a11y SARIF against a deployed SPA URL. Requires @axe-core/cli + axe-sarif-converter in web/'s devDependencies.")
+        .Description("axe-core a11y SARIF against the running app (TFND-27 / TFND-131). Requires @axe-core/cli + axe-sarif-converter under build/tools/node.")
         .Executes(() =>
         {
             SecurityArtifactsDir.CreateDirectory();
-            var url = string.IsNullOrWhiteSpace(AxeTargetUrl) ? IngestUrl.Replace(":5080", ":5173") : AxeTargetUrl;
+            // The app and the API are one host since TFND-128 retired the
+            // separate Vite dev server on :5173, so the ingest URL IS the URL
+            // to scan. Rewriting the port here used to point axe at a server
+            // that is no longer started.
+            var url = string.IsNullOrWhiteSpace(AxeTargetUrl) ? IngestUrl : AxeTargetUrl;
             if (string.IsNullOrWhiteSpace(url))
             {
                 Console.WriteLine("[security] AxeCore skipped — no target URL (set TAMP_FINDINGS_AXE_TARGET_URL).");
                 return;
             }
-            if (!AxeCoreBinaryResolver.IsAvailable(SpaProjectDir.Value))
+            if (!AxeCoreBinaryResolver.IsAvailable(NodeToolsDir.Value))
             {
-                Console.WriteLine($"[security] AxeCore skipped — @axe-core/cli + axe-sarif-converter not installed at {SpaProjectDir} (pnpm add -D @axe-core/cli axe-sarif-converter).");
+                Console.WriteLine($"[security] AxeCore skipped — @axe-core/cli + axe-sarif-converter not installed at {NodeToolsDir} (pnpm install --dir build/tools/node).");
                 return;
             }
 
             var scanPlan = AxeCoreCli.Scan(s => s
-                .SetWorkingDirectory(SpaProjectDir.Value)
+                .SetWorkingDirectory(NodeToolsDir.Value)
                 .AddUrl(url)
                 .SetOutputFile(SecurityJsonAxeCoreFile.Value)
                 .AddTag("wcag2a").AddTag("wcag2aa").AddTag("wcag21aa").AddTag("best-practice")
@@ -333,7 +348,7 @@ class Build : SecurityPipelineBuild
             if (scanRc > 1) throw new Exception($"axe-core exited with {scanRc}");
 
             var sarifPlan = AxeCoreCli.ConvertToSarif(s => s
-                .SetWorkingDirectory(SpaProjectDir.Value)
+                .SetWorkingDirectory(NodeToolsDir.Value)
                 .SetInputFile(SecurityJsonAxeCoreFile.Value)
                 .SetOutputFile(SecuritySarifAxeCoreFile.Value));
             var convertRc = ProcessRunner.Execute(sarifPlan, Console.Out, Console.Error);
@@ -545,30 +560,10 @@ class Build : SecurityPipelineBuild
             .SetSettings((RootDirectory / "build" / "coverlet.runsettings").Value)
             .SetResultsDirectory(TestResults)));
 
-    Target TestSpa => _ => _
-        .Description("Run the Vitest suite in web/ with coverage. Output: artifacts/test-results-spa/lcov.info, consumed by VitestCoverageIngestMapper at Ingest time.")
-        .Executes(() =>
-        {
-            // Vitest's pnpm script is configured (in web/package.json) to drop
-            // lcov + json-summary + html under ../artifacts/test-results-spa.
-            // pnpm on Windows is a .CMD shim, so we invoke through cmd /c with
-            // direct stdio so the user sees the run + test output inline.
-            var isWindows = System.Runtime.InteropServices.RuntimeInformation
-                .IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows);
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = isWindows ? "cmd.exe" : "pnpm",
-                Arguments = isWindows ? "/c pnpm run test:coverage" : "run test:coverage",
-                WorkingDirectory = SpaProjectDir.Value,
-                UseShellExecute = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false,
-            };
-            using var proc = System.Diagnostics.Process.Start(psi)
-                ?? throw new Exception("Failed to launch pnpm — is it on PATH?");
-            proc.WaitForExit();
-            if (proc.ExitCode != 0) throw new Exception($"pnpm run test:coverage exited with {proc.ExitCode}");
-        });
+    // TestSpa is gone with web/ (TFND-128 / TFND-131). It ran Vitest in a
+    // directory that no longer exists, so it could only ever fail — and it
+    // would have failed at "pnpm: not found" on a machine with no Node, which
+    // reads as a tooling problem rather than as a target that should not exist.
 
     Target Coverage => _ => _
         .DependsOn(nameof(Test))
@@ -707,12 +702,15 @@ class Build : SecurityPipelineBuild
             await PostSarifAsync(client, ctx, SecuritySarifResharperFile, "ReSharper");
             await PostSarifAsync(client, ctx, SecuritySarifCveFile, "CVE");
             await PostSarifAsync(client, ctx, SecuritySarifTrivyFile, "Trivy");
-            // ESLint findings target web/src — post to the "web" flavor so
-            // they attach to the same ComponentVersion as the SPA coverage
-            // (VitestCoverageIngestMapper also writes Flavor="web").
+            // The "web" flavor is the BROWSER-RENDERED SURFACE, which since
+            // TFND-128 is served by the API project rather than by a separate
+            // application. It is still a distinct flavor because what these
+            // scanners look at — rendered markup and client assets — is a
+            // different artefact from the compiled service, even though one
+            // process now serves both.
             var webCtx = ctx with { Flavor = "web" };
             await PostSarifAsync(client, webCtx, SecuritySarifEslintFile, "ESLint");
-            // TFND-27: axe-core a11y findings also target the SPA → "web" flavor.
+            // TFND-27 / TFND-131: axe-core scans the rendered UI.
             await PostSarifAsync(client, webCtx, SecuritySarifAxeCoreFile, "AxeCore");
 
             // TFND-38: DAST findings attach to a "deployed" flavor rather than
@@ -750,20 +748,11 @@ class Build : SecurityPipelineBuild
                 Console.WriteLine($"[ingest] Coverage   → {coverage.SequenceCoverage:F1}% sequence  ({resp.GetProperty("modulesCount")} modules, {coverage.CoveredSequences}/{coverage.TotalSequences} points)");
             }
 
-            // Coverage (SPA / Vitest lcov): same DTO shape, posts as a separate
-            // ComponentVersion via Flavor="web" so the dashboard rolls up both
-            // flavors but each is independently replaceable.
-            var lcov = SpaTestResults / "lcov.info";
-            var spaCoverage = VitestCoverageIngestMapper.Map(lcov.Value, ctx, RootDirectory.Value, SpaProjectDir.Value);
-            if (spaCoverage is null)
-            {
-                Console.WriteLine($"[ingest] CoverageSPA — no lcov.info at {lcov.Value}, skipping (run nuke TestSpa first)");
-            }
-            else
-            {
-                var resp = await client.PostCoverageAsync(spaCoverage);
-                Console.WriteLine($"[ingest] CoverageSPA → {spaCoverage.SequenceCoverage:F1}% sequence  ({resp.GetProperty("modulesCount")} modules, {spaCoverage.CoveredSequences}/{spaCoverage.TotalSequences} points)");
-            }
+            // No SPA coverage leg any more (TFND-128 / TFND-131). It posted a
+            // separate ComponentVersion under Flavor="web" from a Vitest lcov
+            // that nothing produces now. Leaving it in would have kept a
+            // "web" flavor alive on the dashboard whose coverage silently
+            // stopped updating — a stale number is worse than an absent one.
 
             // Test results (TFND-20): TRX → TestRunReport. Same artifacts dir
             // as coverage; same replace-on-ingest semantic.
