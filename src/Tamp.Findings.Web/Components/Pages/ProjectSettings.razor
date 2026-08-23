@@ -172,7 +172,38 @@ else
                 }
             </Card>
         }
-        else if (Current == TabDisclosure)
+        else if (Current == TabKeys)
+        {
+            <Card>
+                <h2>GitHub repository</h2>
+                <p class="field__help">
+                    When set, each ingest posts a check run to the scanned commit, so branch
+                    protection can block a merge on a failing gate. The instance also needs a GitHub
+                    App configured under System &gt; Authentication.
+                </p>
+
+                <TextField Label="Repository" Mono="true" @bind-Value="_repository"
+                           Disabled="@(!_canManageKeys.Allowed)"
+                           Help="owner/name — not a URL. Blank means no checks are published for this project, which is the default: a commit sha says nothing about which repository it came from, and guessing would eventually post to somebody else's." />
+
+                @if (_repoError is not null)
+                {
+                    <p style="color: var(--color-critical)">@_repoError</p>
+                }
+                @if (_repoSaved)
+                {
+                    <p style="color: var(--color-pass)">Saved.</p>
+                }
+
+                <div class="row" style="gap: var(--space-2); margin-top: var(--space-3)">
+                    <Button Variant="Button.ButtonVariant.Primary"
+                            Disabled="@(!_canManageKeys.Allowed)" DisabledReason="@_canManageKeys.Reason"
+                            OnClick="SaveRepository">Save repository</Button>
+                </div>
+            </Card>
+        }
+
+        @if (Current == TabDisclosure)
         {
             <Card>
                 <h2>Disclosure policy</h2>
@@ -321,6 +352,8 @@ else
     private string _instanceUrl = "";
 
     private string? _vdpPolicy, _vdpContact, _vdpForm, _vdpError;
+    private string? _repository, _repoError;
+    private bool _repoSaved;
     private bool _vdpSaved;
     private VdpEffect _effect = VdpEffect.No;
 
@@ -347,6 +380,7 @@ else
             _tokens = await Settings.TokensAsync(_project.ProjectId, DateTimeOffset.UtcNow);
             _canManageKeys = await Me.CanAsync(Capability.ManageIngestKey, Here);
             _canEditVdp = await Me.CanAsync(Capability.EditDisclosurePolicy, Here);
+            _repository = await Settings.RepositoryAsync(_project.ProjectId);
 
             if (await Settings.DisclosureAsync(_project.ProjectId) is { } vdp)
             {
@@ -397,6 +431,21 @@ else
         await Settings.RevokeTokenAsync(actor, Here, _project.ProjectId, target.Id);
         _revoking = null;
         _tokens = await Settings.TokensAsync(_project.ProjectId, DateTimeOffset.UtcNow);
+    }
+
+    private async Task SaveRepository()
+    {
+        if (_project is null) return;
+        _repoError = null;
+        _repoSaved = false;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _repoError = "You are not signed in."; return; }
+
+        var result = await Settings.SaveRepositoryAsync(actor, Here, _project.ProjectId, _repository);
+        if (!result.Success) { _repoError = result.Error; return; }
+
+        _repoSaved = true;
     }
 
     private async Task SaveDisclosure()

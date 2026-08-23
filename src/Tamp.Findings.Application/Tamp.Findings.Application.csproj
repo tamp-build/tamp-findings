@@ -12,6 +12,8 @@
          rest by the Application layer rather than by a transport, so the
          protector lives where the write happens (TFND-111). -->
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" />
+    <!-- HttpClient + JsonContent for the GitHub App client (TFND-23). -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
   </ItemGroup>
 
   <ItemGroup>
