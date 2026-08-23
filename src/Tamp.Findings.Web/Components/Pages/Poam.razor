@@ -1,13 +1,290 @@
+@* POA&M — the federal record (NIST SP 800-53 CA-5) that a weakness exists, who
+   owns it, and when it closes. Reviewed monthly by the Authorizing Official.
+
+   TFND-95 (table, stats, gate banner), TFND-96 (record view), TFND-97
+   (create/edit dialog), TFND-98 (the delete confirmation that steers away from
+   deletion). *@
 @page "/c/{Client}/p/{Project}/poam"
 @page "/c/{Client}/p/{Project}/poam/{ItemId}"
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject RouteScope Scope
+@inject NavigationManager Nav
+@inject ProjectHubQuery Hub
+@inject PoamQuery Query
+@inject PoamService Service
+@inject CurrentUser Me
 
 <PageTitle>POA&amp;M — @Project</PageTitle>
 
-<Placeholder Title="POA&amp;M" Ticket="TFND-95 … TFND-98"
-             Description="The federal record (NIST SP 800-53 CA-5) that a weakness exists, who owns it, and when it closes. Reviewed monthly by the Authorizing Official."
-             Scope="Params" />
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>POA&amp;M</h1>
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not load the plan of action.</span>
+            </div>
+            <p class="field__help">
+                Absent evidence is not clean evidence — an empty table here would read as "nothing
+                outstanding", which is the opposite of what is known. @_error
+            </p>
+        </Card>
+    </div>
+}
+else if (_project is null)
+{
+    <div class="stack">
+        <h1>Project not found</h1>
+        <Card><p>No project matches <code class="mono">@Client / @Project</code>.</p></Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <div class="row row--between">
+            <div>
+                <div class="kicker">NIST SP 800-53 CA-5 · plan of action &amp; milestones</div>
+                <h1>@_project.ProjectName</h1>
+            </div>
+            <Button Variant="Button.ButtonVariant.Primary"
+                    Disabled="@(!_canCreate.Allowed)" DisabledReason="@_canCreate.Reason"
+                    OnClick="StartCreate">New POA&amp;M item</Button>
+        </div>
+
+        @if (_board.Stats.PastDue > 0)
+        {
+            @* The gate banner. It says what is failing, what it costs, and the
+               three legitimate ways out — because a gate that only says "no"
+               teaches the team to route around it. *@
+            <Card>
+                <div class="row" style="gap: var(--space-3)">
+                    <Chip Label="GATE FAILING" Tone="var(--color-accent)" Style="Chip.ChipStyle.Solid" Glyph="✕" />
+                    <strong>
+                        <code class="mono">poamPastDue</code> has @_board.Stats.PastDue overdue
+                        item@(_board.Stats.PastDue == 1 ? "" : "s").
+                    </strong>
+                </div>
+                <p>
+                    This build is blocked until each one is closed, granted an extension by the
+                    Authorizing Official, or moved to risk-accepted. Those are the three legitimate
+                    outcomes; quietly moving the date without a recorded reason is not one of them.
+                </p>
+                <Button Variant="Button.ButtonVariant.Text" OnClick="GoToGates">See the gates →</Button>
+            </Card>
+        }
+
+        @if (_board.Stats.Unscheduled > 0)
+        {
+            @* The gate's blind spot, said out loud. An unscheduled item can
+               never be past due, so a project could park everything here and
+               pass poamPastDue forever. *@
+            <Card>
+                <div class="row" style="gap: var(--space-3)">
+                    <Chip Label="UNSCHEDULED" Tone="var(--color-high)" Style="Chip.ChipStyle.Outlined" />
+                    <span>
+                        @_board.Stats.Unscheduled open item@(_board.Stats.Unscheduled == 1 ? " has" : "s have")
+                        no committed date, so the past-due gate cannot see @(_board.Stats.Unscheduled == 1 ? "it" : "them").
+                    </span>
+                </div>
+            </Card>
+        }
+
+        <Card Padded="false">
+            <div class="card-body poam-stats">
+                <Stat Label="Open" Value="@_board.Stats.Open" />
+                <Stat Label="In progress" Value="@_board.Stats.InProgress" />
+                <Stat Label="Completed" Value="@_board.Stats.Completed" Tone="var(--color-pass)" />
+                <Stat Label="Risk accepted" Value="@_board.Stats.RiskAccepted" Tone="var(--color-accent)" />
+                <Stat Label="Past due" Value="@_board.Stats.PastDue"
+                      Tone="@(_board.Stats.PastDue > 0 ? "var(--color-critical)" : null)" />
+            </div>
+
+            @if (_board.Items.Count == 0)
+            {
+                <div class="card-body">
+                    <p class="muted">No POA&amp;M items on this project.</p>
+                    <p class="field__help">
+                        An auditor expects a POA&amp;M for any weakness that was not fixed on detection
+                        and is not explained away by a VEX statement. An empty plan is only honest when
+                        neither case exists.
+                    </p>
+                </div>
+            }
+            else
+            {
+                <ScrollBox Label="POA&amp;M items">
+                    <table class="table table--rows">
+                        <thead>
+                            <tr>
+                                <th>Weakness</th><th>Sev</th><th>Status</th><th>Owner</th>
+                                <th>Scheduled</th><th class="align-end">Age</th>
+                                <th class="align-end">Links</th><th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _board.Items)
+                            {
+                                <tr class="@(row.Id == _selectedId ? "is-selected" : null)"
+                                    @onclick="() => Select(row.Id)">
+                                    <td>
+                                        <div>@row.Title</div>
+                                        <div class="muted" style="font-size: var(--text-secondary)">
+                                            @Truncate(row.WeaknessDescription)
+                                        </div>
+                                    </td>
+                                    <td><SeverityBadge Severity="row.Severity" /></td>
+                                    <td><PoamStatusChip Status="row.Status" PastDue="row.PastDue" /></td>
+                                    <td>@row.Owner</td>
+                                    <td class="mono">
+                                        @if (row.ScheduledCompletionDate is { } due)
+                                        {
+                                            <span style="@(row.PastDue ? "color: var(--color-critical)" : null)">
+                                                @due.ToString("yyyy-MM-dd")
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span style="color: var(--color-high)">unscheduled</span>
+                                        }
+                                    </td>
+                                    <td class="num align-end">@Age(row) d</td>
+                                    <td class="num align-end">@row.LinkCount</td>
+                                    <td>
+                                        <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
+                                                Disabled="@(!_canCreate.Allowed)" DisabledReason="@_canCreate.Reason"
+                                                OnClick="() => StartEdit(row.Id)">edit</Button>
+                                        <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
+                                                Class="btn--danger"
+                                                Disabled="@(!_canCreate.Allowed)" DisabledReason="@_canCreate.Reason"
+                                                OnClick="() => _deleting = row">delete</Button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </ScrollBox>
+            }
+        </Card>
+
+        @if (_record is { } record)
+        {
+            <PoamRecordView Record="record" Project="_project"
+                            CanEdit="_canCreate" CanComplete="_canComplete" CanAccept="_canAccept"
+                            OnEdit="() => StartEdit(record.Id)"
+                            OnExtend="StartExtend"
+                            OnTransition="Transition" />
+        }
+    </div>
+}
+
+@* ---- Create / edit ---------------------------------------------------- *@
+<Dialog Open="_editing" OpenChanged="v => _editing = v"
+        Title="@(_editingId is null ? "New POA&M item" : "Edit POA&M item")" Width="780">
+    <ChildContent>
+        <TextField Label="Title" @bind-Value="_draftTitle"
+                   Help="One line, as it will appear in the AO's monthly review." />
+        <TextField Label="Weakness description" Multiline="true" Rows="4" @bind-Value="_draftWeakness"
+                   Help="The weakness as it would be described to an Authorizing Official. Required by the federal template." />
+        <TextField Label="Mitigation plan" Multiline="true" Rows="3" @bind-Value="_draftPlan"
+                   Help="How the project intends to close it. May be TBD on a draft, but an item that stays planless is an item nobody owns." />
+        <TextField Label="Resources required" Multiline="true" Rows="2" @bind-Value="_draftResources"
+                   Help="People, budget, dependencies. Surfaces in exports for AO review." />
+        <TextField Label="Reference URL" Mono="true" @bind-Value="_draftReference"
+                   Help="Ticket, AO memo or vendor advisory. Optional." />
+
+        <div class="field">
+            <span class="field__label">Severity</span>
+            <div class="row" style="gap: var(--space-2)">
+                @foreach (var severity in new[] { Severity.Critical, Severity.High, Severity.Medium, Severity.Low, Severity.Info })
+                {
+                    <span @onclick="() => _draftSeverity = severity" style="cursor: pointer">
+                        <Chip Label="@severity.ToString().ToUpperInvariant()"
+                              Tone="@SeverityTone(severity)"
+                              Style="@(_draftSeverity == severity ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                    </span>
+                }
+            </div>
+        </div>
+
+        @if (_editingId is null)
+        {
+            @* Status is only editable at creation. After that it moves through
+               TransitionAsync, which enforces the two capabilities the matrix
+               deliberately separates — completing versus accepting risk. *@
+            <div class="field">
+                <span class="field__label">Status</span>
+                <div class="row" style="gap: var(--space-2)">
+                    @foreach (var status in new[] { PoamStatus.Open, PoamStatus.InProgress })
+                    {
+                        <span @onclick="() => _draftStatus = status" style="cursor: pointer">
+                            <Chip Label="@status.ToString()" Tone="var(--color-accent)"
+                                  Style="@(_draftStatus == status ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                        </span>
+                    }
+                </div>
+                <span class="field__help">
+                    Terminal states are reached from the record view, not set here.
+                </span>
+            </div>
+        }
+
+        <TextField Label="Scheduled completion" Type="date" Mono="true" @bind-Value="_draftScheduled"
+                   Help="Blank means unscheduled — and the past-due gate skips unscheduled items, so it is not the safe default it looks like." />
+
+        @if (_dialogError is not null)
+        {
+            <p style="color: var(--color-critical)">@_dialogError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Save">Save item</Button>
+        <Button OnClick="() => _editing = false">Cancel</Button>
+        <span class="field__help">Saving writes an audit entry.</span>
+    </Footer>
+</Dialog>
+
+@* ---- AO extension ------------------------------------------------------ *@
+<Dialog Open="_extending" OpenChanged="v => _extending = v" Title="Request AO extension" Width="620">
+    <ChildContent>
+        <TextField Label="New scheduled completion" Type="date" Mono="true" @bind-Value="_extendDate" />
+        <TextField Label="Reason" Multiline="true" Rows="3" @bind-Value="_extendReason"
+                   Help="Required, and recorded verbatim in the audit log. An extension with no stated reason is indistinguishable from making a past-due item quietly stop being past due." />
+        @if (_dialogError is not null)
+        {
+            <p style="color: var(--color-critical)">@_dialogError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Extend">Record extension</Button>
+        <Button OnClick="() => _extending = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+@* ---- Delete, which steers away from itself ----------------------------- *@
+<Dialog Open="_deleting is not null" OpenChanged="v => { if (!v) _deleting = null; }"
+        Title="Delete POA&amp;M item" Width="660">
+    <ChildContent>
+        @if (_deleting is { } target)
+        {
+            <p>Delete <strong>@target.Title</strong>?</p>
+            <p class="field__help">
+                Federal practice is to close an item rather than delete it — a deleted item leaves no
+                audit trail for the AO. Delete only entries opened in error.
+            </p>
+            @if (_dialogError is not null)
+            {
+                <p style="color: var(--color-critical)">@_dialogError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Danger" OnClick="Delete">Delete permanently</Button>
+        <Button OnClick="() => _deleting = null">Cancel</Button>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="CancelItem">Cancel &amp; mark cancelled</Button>
+    </Footer>
+</Dialog>
 
 @code {
     [Parameter] public string Client { get; set; } = "";
@@ -15,8 +292,225 @@
     /// <summary>Null on the list route; set when a single item is deep-linked.</summary>
     [Parameter] public string? ItemId { get; set; }
 
-    private List<KeyValuePair<string, string?>> Params =>
-        [new("client", Client), new("project", Project), new("item", ItemId)];
+    private ProjectRef? _project;
+    private PoamBoard _board = new([], new PoamStats(0, 0, 0, 0, 0, 0, 0));
+    private PoamRecord? _record;
+    private Guid? _selectedId;
+    private string? _error, _dialogError;
 
-    protected override void OnParametersSet() => Scope.SetProject(Client, Project);
+    private AuthorizationDecision _canCreate = AuthorizationDecision.Deny("Checking…");
+    private AuthorizationDecision _canComplete = AuthorizationDecision.Deny("Checking…");
+    private AuthorizationDecision _canAccept = AuthorizationDecision.Deny("Checking…");
+
+    private bool _editing, _extending;
+    private Guid? _editingId;
+    private PoamRow? _deleting;
+
+    private string? _draftTitle, _draftWeakness, _draftPlan, _draftResources, _draftReference, _draftScheduled;
+    private Severity _draftSeverity = Severity.Medium;
+    private PoamStatus _draftStatus = PoamStatus.Open;
+    private string? _extendDate, _extendReason;
+
+    // Named "Here" rather than "ScopeTarget": a member cannot share a name
+    // with the type it returns, and "Scope" is already the injected RouteScope.
+    private ScopeTarget Here =>
+        _project is null
+            ? ScopeTarget.Instance
+            : ScopeTarget.Project(_project.ClientId, _project.ProjectId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project);
+        _error = null;
+
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project);
+            if (_project is null) return;
+
+            // ONE instant for the whole page. Reading the clock per row would
+            // let the stats strip and the table disagree about what is past
+            // due, which is how a reader stops trusting a compliance screen.
+            var asOf = DateTimeOffset.UtcNow;
+
+            _board = await Query.BoardAsync(_project.ProjectId, asOf);
+
+            _selectedId = Guid.TryParse(ItemId, out var parsed) ? parsed : null;
+            _record = _selectedId is { } id
+                ? await Query.RecordAsync(_project.ProjectId, id, asOf)
+                : null;
+
+            _canCreate = await Me.CanAsync(Capability.CreatePoamItem, Here);
+            _canComplete = await Me.CanAsync(Capability.CompletePoamItem, Here);
+            _canAccept = await Me.CanAsync(Capability.AcceptRisk, Here);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetType().Name;
+        }
+    }
+
+    private void Select(Guid id) => Nav.NavigateTo(Routes.PoamItem(Client, Project, id.ToString()));
+
+    private void GoToGates() => Nav.NavigateTo(Routes.ProjectHub(Client, Project) + "#gates");
+
+    private static string Truncate(string text) =>
+        text.Length <= 110 ? text : text[..110].TrimEnd() + "…";
+
+    private static int Age(PoamRow row) =>
+        (int)((row.ClosedAt ?? DateTimeOffset.UtcNow) - row.CreatedAt).TotalDays;
+
+    private static string SeverityTone(Severity severity) => severity switch
+    {
+        Severity.Critical => "var(--color-critical)",
+        Severity.High => "var(--color-high)",
+        Severity.Medium => "var(--color-medium)",
+        Severity.Low => "var(--color-low)",
+        _ => "var(--color-info)",
+    };
+
+    private void StartCreate()
+    {
+        _editingId = null;
+        _draftTitle = _draftWeakness = _draftPlan = _draftResources = _draftReference = _draftScheduled = null;
+        _draftSeverity = Severity.Medium;
+        _draftStatus = PoamStatus.Open;
+        _dialogError = null;
+        _editing = true;
+    }
+
+    private async Task StartEdit(Guid id)
+    {
+        if (_project is null) return;
+
+        var record = await Query.RecordAsync(_project.ProjectId, id, DateTimeOffset.UtcNow);
+        if (record is null) return;
+
+        _editingId = id;
+        _draftTitle = record.Title;
+        _draftWeakness = record.WeaknessDescription;
+        _draftPlan = record.MitigationPlan;
+        _draftResources = record.ResourcesRequired;
+        _draftReference = record.ReferenceUrl;
+        _draftSeverity = record.Severity;
+        _draftStatus = record.Status;
+        _draftScheduled = record.ScheduledCompletionDate?.ToString("yyyy-MM-dd");
+        _dialogError = null;
+        _editing = true;
+    }
+
+    private void StartExtend()
+    {
+        _extendDate = _record?.ScheduledCompletionDate?.ToString("yyyy-MM-dd");
+        _extendReason = null;
+        _dialogError = null;
+        _extending = true;
+    }
+
+    private async Task Save()
+    {
+        if (_project is null) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var draft = new PoamDraft(
+            _draftTitle ?? "",
+            _draftWeakness ?? "",
+            _draftPlan,
+            _draftResources,
+            _draftReference,
+            _draftSeverity,
+            _draftStatus,
+            ParseDate(_draftScheduled),
+            _record is not null && _editingId == _record.Id
+                ? _record.LinkedFindings.Select(l => l.FindingId).ToArray()
+                : []);
+
+        var result = _editingId is { } id
+            ? await Service.UpdateAsync(actor, Here, _project.ProjectId, id, draft)
+            : await Service.CreateAsync(actor, Here, _project.ProjectId, draft);
+
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _editing = false;
+        await OnParametersSetAsync();
+    }
+
+    private async Task Transition(PoamStatus target)
+    {
+        if (_project is null || _record is null) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) return;
+
+        await Service.TransitionAsync(actor, Here, _project.ProjectId, _record.Id, target);
+        await OnParametersSetAsync();
+    }
+
+    private async Task Extend()
+    {
+        if (_project is null || _record is null) return;
+        _dialogError = null;
+
+        if (ParseDate(_extendDate) is not { } newDate)
+        {
+            _dialogError = "An extension needs a date.";
+            return;
+        }
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Service.RequestExtensionAsync(
+            actor, Here, _project.ProjectId, _record.Id, newDate, _extendReason ?? "");
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _extending = false;
+        await OnParametersSetAsync();
+    }
+
+    private async Task Delete()
+    {
+        if (_project is null || _deleting is not { } target) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Service.DeleteAsync(actor, Here, _project.ProjectId, target.Id);
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _deleting = null;
+        // The deleted item may be the one the URL points at; go back to the list
+        // rather than rendering a record view over a row that is gone.
+        Nav.NavigateTo(Routes.Poam(Client, Project));
+    }
+
+    /// <summary>The third option on the delete dialog — the one it steers toward.</summary>
+    private async Task CancelItem()
+    {
+        if (_project is null || _deleting is not { } target) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Service.TransitionAsync(
+            actor, Here, _project.ProjectId, target.Id, PoamStatus.Cancelled);
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _deleting = null;
+        await OnParametersSetAsync();
+    }
+
+    // Midnight UTC. A date field carries no zone, and inventing the reader's
+    // local one would make the same item past due in one office and not in
+    // another.
+    private static DateTimeOffset? ParseDate(string? value) =>
+        DateOnly.TryParse(value, out var date)
+            ? new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
+            : null;
 }
