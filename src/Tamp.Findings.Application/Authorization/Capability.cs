@@ -65,6 +65,15 @@ public enum Capability
     /// </summary>
     ManageIngestKey,
 
+    /// <summary>
+    /// Edit the project's vulnerability disclosure metadata (TFND-108).
+    ///
+    /// Sits with gates rather than with ordinary project settings because it is
+    /// not cosmetic: a published policy URL flips SSDF RV.3.1 from Manual to
+    /// Yes, which changes what a signed attestation claims. Admin and InfoSec.
+    /// </summary>
+    EditDisclosurePolicy,
+
     /// <summary>Assign roles. Conditional for InfoSec: at or below their own scope.</summary>
     AssignRoles,
 }

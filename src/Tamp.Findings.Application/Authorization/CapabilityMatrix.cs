@@ -31,7 +31,7 @@ public static class CapabilityMatrix
             Capability.CreatePoamItem, Capability.CompletePoamItem,
             Capability.EditPolicyWeights, Capability.DuplicatePolicy, Capability.EditGates,
             Capability.CreateProject, Capability.CreateComponent,
-            Capability.ManageIngestKey, Capability.AssignRoles,
+            Capability.ManageIngestKey, Capability.EditDisclosurePolicy, Capability.AssignRoles,
             // NOT AcceptRisk. An Authorizing Official decision, not a systems
             // privilege. This absence is load-bearing.
         ],
@@ -42,7 +42,7 @@ public static class CapabilityMatrix
             Capability.AuthorSuppression, Capability.AuthorVex, Capability.PublishVex,
             Capability.CreatePoamItem, Capability.CompletePoamItem, Capability.AcceptRisk,
             Capability.EditPolicyWeights, Capability.DuplicatePolicy, Capability.EditGates,
-            Capability.ManageIngestKey,
+            Capability.ManageIngestKey, Capability.EditDisclosurePolicy,
             // AssignRoles is conditional — at or below their own scope.
         ],
 
