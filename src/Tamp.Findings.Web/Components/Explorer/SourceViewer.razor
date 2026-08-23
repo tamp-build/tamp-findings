@@ -1,0 +1,69 @@
+@* The source viewer.
+
+   22px rows in 12px monospace: a 46px right-aligned, non-selectable
+   line-number gutter, a severity mark, then syntax-highlighted code. The
+   flagged line takes a 13% tint of its severity colour and a 3px left border
+   in the same colour.
+
+   THE ROW HEIGHT IS ON THE ROW, NOT THE CODE SPAN. The hand-off calls this out
+   specifically: an empty line in a baseline-aligned flex row otherwise
+   collapses, and the gutter stops lining up with the code. *@
+
+<div class="source">
+    <Virtualize TItem="SourceLine" Items="Lines" Context="line" ItemSize="22">
+        <div class="source__row @(MarkFor(line.Number) is not null ? "source__row--flagged" : null)"
+             style="@RowStyle(line.Number)" id="L@(line.Number)">
+            @* Not selectable: copying a block of code should give the code,
+               not the code with a line number welded to every line. *@
+            <span class="source__gutter" aria-hidden="true">@line.Number</span>
+            <span class="source__mark">
+                @if (MarkFor(line.Number) is { } severity)
+                {
+                    <SeverityBadge Severity="severity" />
+                }
+            </span>
+            <code class="source__code">@foreach (var span in line.Spans)
+{<span class="@ClassFor(span.Kind)">@span.Text</span>}</code>
+        </div>
+    </Virtualize>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<SourceLine> Lines { get; set; } = [];
+
+    /// <summary>Line number to worst severity flagged on it.</summary>
+    [Parameter] public IReadOnlyDictionary<int, Severity> Flagged { get; set; } =
+        new Dictionary<int, Severity>();
+
+    private Severity? MarkFor(int line) => Flagged.TryGetValue(line, out var s) ? s : null;
+
+    private string? RowStyle(int line)
+    {
+        if (MarkFor(line) is not { } severity) return null;
+        var colour = Tone(severity);
+        // 13% tint, 3px border, both in the severity's own colour — so the
+        // flag reads at a glance without the row becoming unreadable.
+        return $"background: color-mix(in srgb, {colour} 13%, transparent); border-left-color: {colour}";
+    }
+
+    private static string Tone(Severity severity) => severity switch
+    {
+        Severity.Critical => "var(--color-critical)",
+        Severity.High => "var(--color-high)",
+        Severity.Medium => "var(--color-medium)",
+        Severity.Low => "var(--color-low)",
+        _ => "var(--color-info)",
+    };
+
+    private static string ClassFor(TokenKind kind) => kind switch
+    {
+        TokenKind.Keyword => "tok-keyword",
+        TokenKind.Type => "tok-type",
+        TokenKind.Method => "tok-method",
+        TokenKind.String => "tok-string",
+        TokenKind.Number => "tok-number",
+        TokenKind.Comment => "tok-comment",
+        TokenKind.Punctuation => "tok-punct",
+        _ => "tok-plain",
+    };
+}
