@@ -95,7 +95,9 @@ Eight endpoints, all bearer-token gated:
 | `POST /sbom-vulnerabilities/upsert` | OSV-Scanner CVE rows |
 | `POST /ingest/container-image` | Image + base-image metadata (Tamp.Trivy `InspectImage`) |
 
-A `cli_*` token authorizes ingest under any project beneath one client; a `prj_*` token is locked to one project. Mint on the project's Ingest tokens tab (Settings > Ingest tokens); store in repo-root `.env` as `TAMP_FINDINGS_INGEST_TOKEN=cli_...` (gitignored). The Nuke build picks it up automatically.
+A `cli_*` token authorizes ingest under any project beneath one client; a `prj_*` token is locked to one project. Mint on the project's Ingest tokens tab (Settings > Ingest tokens); store in repo-root `.env` as `TAMP_FINDINGS_INGEST_TOKEN=cli_...` (gitignored). The Nuke build picks it up automatically — copy [`.env.example`](.env.example) to get started.
+
+**Leave `TAMP_FINDINGS_URL` unset locally.** Unset, the build defaults to `http://localhost:5080`, so an ingest target run by accident writes to the instance on your own machine rather than to a shared one — the safe target should be the one you get without thinking about it. Set it (with a matching token minted on *that* instance) only for a deliberate roll to the cluster, and comment it back out afterwards. The build prints a banner whenever it is posting anywhere that is not localhost, so a forgotten setting is visible rather than silent.
 
 ## Agent access (MCP)
 
@@ -188,7 +190,7 @@ Organizational practices that aren't introspectable from automated evidence (PO.
 ## Repo conventions
 
 - `.mcp.json` is gitignored — contains the shared inter-agent token. Each developer drops their own per [`AGENT_INSTRUCTIONS.md`](https://github.com/BrewingCoder/claude.interAgentComs/blob/main/AGENT_INSTRUCTIONS.md).
-- `.env` is gitignored — holds the per-developer ingest token.
+- `.env` is gitignored — holds the per-developer ingest token. [`.env.example`](.env.example) documents the shape; local is the default and the cluster is an explicit, temporary opt-in.
 - Default branch `main`. CI workflow lands with TFND-40.
 
 ## License

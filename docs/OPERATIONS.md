@@ -105,6 +105,16 @@ Then start the instance. It runs any pending migrations on boot, so restoring an
 
 ---
 
+## Pointing a build at an instance
+
+`TAMP_FINDINGS_URL` decides where the Nuke ingest targets post. **Leave it unset locally** — the build then defaults to `http://localhost:5080`.
+
+That default is deliberate. It used to be set to the cluster in the repo-root `.env`, which made production the target of every local run: an ingest invoked while trying something out wrote to the shared instance, and succeeded, so nothing said otherwise. The safe target should be the one you get without thinking about it.
+
+Set it only for a deliberate roll, together with a token minted **on that instance** — tokens are per-instance and a cluster token just 401s against localhost. Comment both back out afterwards. The build prints a banner whenever the target is not localhost, so a forgotten setting is visible rather than silent.
+
+---
+
 ## Retention
 
 Off by default. **Keeping everything is the honest default** for the reason above — evidence you deleted is evidence you cannot produce.
