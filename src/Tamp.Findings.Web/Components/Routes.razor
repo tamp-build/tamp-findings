@@ -29,14 +29,30 @@
    render — which is exactly TFND-126. Fix it there, either by narrowing the
    host FallbackPolicy to exclude /_framework or by mapping the script endpoint
    explicitly. Do not paper over it by opening the FallbackPolicy globally. *@
+@inject NavigationManager Nav
+
 <Router AppAssembly="@typeof(Routes).Assembly">
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
             <NotAuthorized>
-                @* TFND-126 replaces this with the real sign-in surface. *@
-                <p>You are not signed in. <a href="/auth/login">Sign in</a>.</p>
+                @* Carries the current URL through, so signing in returns the
+                   reader to the deep link they followed rather than dumping
+                   them on the portfolio. That is the whole point of having
+                   addressable URLs. *@
+                <div class="stack">
+                    <h1>Not signed in</h1>
+                    <Card>
+                        <p>You need to sign in to see this.</p>
+                        <a class="btn btn--primary" href="@SignInHref">Sign in</a>
+                    </Card>
+                </div>
             </NotAuthorized>
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
 </Router>
+
+@code {
+    private string SignInHref =>
+        $"/signin?returnUrl={Uri.EscapeDataString("/" + Nav.ToBaseRelativePath(Nav.Uri))}";
+}

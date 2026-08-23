@@ -1,0 +1,83 @@
+@* Sign-in.
+
+   Static SSR on purpose: this page should not need a circuit to show someone a
+   button. It is also the page most likely to be reached by someone whose
+   session has just expired, so the less machinery between the request and the
+   rendered page, the better.
+
+   Anonymous by necessity — it is the page that exists to stop people being
+   anonymous. *@
+@page "/signin"
+@attribute [AllowAnonymous]
+@layout SignInLayout
+@inject NavigationManager Nav
+
+<PageTitle>Sign in — tamp.findings</PageTitle>
+
+<div class="signin">
+    <div class="signin__brand">
+        <div class="brand">tamp<span class="brand__accent">.findings</span></div>
+        <div class="kicker">attestation evidence</div>
+    </div>
+
+    <Card Class="signin__card">
+        <h1>Sign in</h1>
+
+        @if (Reason is { Length: > 0 })
+        {
+            <div class="row" style="margin: var(--space-3) 0">
+                <Chip Label="Refused" Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" Glyph="✕" />
+                <span>@ReasonText</span>
+            </div>
+        }
+
+        <p class="muted">
+            tamp.findings uses your identity provider. It never stores a password.
+        </p>
+
+        @* A plain link, not a Blazor navigation: this leaves the app entirely
+           and hands off to the OAuth handler, which has to be a full request. *@
+        <a class="btn btn--primary" href="@LoginHref">
+            <Icon Name="lock" Size="14" />
+            <span>Continue with GitHub</span>
+        </a>
+
+        <p class="field__help">
+            New accounts start with read access and no role. An administrator grants roles per
+            client, project or component — until then you can see evidence and change nothing.
+        </p>
+    </Card>
+</div>
+
+@code {
+    /// <summary>Set by /auth/denied so the reason survives the redirect.</summary>
+    [SupplyParameterFromQuery] public string? Reason { get; set; }
+
+    /// <summary>Where to return after signing in. Defaults to the portfolio.</summary>
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+
+    private string LoginHref
+    {
+        get
+        {
+            // Only a LOCAL path is ever forwarded. An absolute URL here would
+            // make this an open redirect — a phisher could send someone a
+            // tamp.findings sign-in link that lands them somewhere else
+            // afterwards, having just typed a password into a real login page.
+            var target = ReturnUrl is { Length: > 0 } r && r.StartsWith('/') && !r.StartsWith("//")
+                ? r
+                : Routes.Portfolio;
+
+            return $"/auth/login/github?returnUrl={Uri.EscapeDataString(target)}";
+        }
+    }
+
+    private string ReasonText => Reason switch
+    {
+        "not_approved" =>
+            "This account is not approved on this instance yet. An administrator has to approve it.",
+        "no_email" =>
+            "Your identity provider did not share an email address, which this instance requires.",
+        _ => "Sign-in did not complete. Try again, or ask an administrator to check the logs.",
+    };
+}
