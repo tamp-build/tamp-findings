@@ -17,11 +17,24 @@ namespace Tamp.Findings.Data.Migrations
                 type: "integer",
                 nullable: true);
 
+            // defaultValueSql, added retroactively: without it this migration
+            // FAILS on any instance that already has an InstanceSettings row —
+            // and every instance does, because TFND-72 created one for the
+            // separation-of-duties switch. Postgres refuses to add a NOT NULL
+            // column with no default to a populated table.
+            //
+            // It slipped through because the test database happened to have no
+            // settings row when the migration first ran. Corrected in place
+            // rather than by a follow-up migration: this one has never run
+            // against a real deployment, and a second migration to fix the
+            // first would leave the broken statement in the history for anyone
+            // restoring from an older snapshot.
             migrationBuilder.AddColumn<List<string>>(
                 name: "ExpectedScanners",
                 table: "InstanceSettings",
                 type: "text[]",
-                nullable: false);
+                nullable: false,
+                defaultValueSql: "'{}'::text[]");
 
             migrationBuilder.AddColumn<int>(
                 name: "FindingRetentionDays",
