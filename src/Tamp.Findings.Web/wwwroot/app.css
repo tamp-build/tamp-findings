@@ -641,6 +641,38 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
   .gate__observed { grid-column: 1 / -1; }
 }
 
+/* ── Scan receipts ──────────────────────────────────────────────────────
+   A never-ran class is drawn DIFFERENTLY, not merely greyed. Grey reads as
+   "less important"; dashed reads as "nothing happened here" — the same idea
+   the gate rail's UNKNOWN mark uses, so the reader learns one convention. */
+
+.receipts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.receipt { border: 1px solid var(--color-divider); padding: var(--space-3); }
+.receipt__name { font-size: var(--text-emphasis); font-family: var(--font-heading); font-weight: 600; }
+.receipt__mark { font-size: var(--text-emphasis); line-height: 1; }
+.receipt__state {
+  font-size: var(--text-kicker); text-transform: uppercase; letter-spacing: 0.12em;
+}
+.receipt__detail { font-size: var(--text-secondary); margin-top: var(--space-1); }
+
+.receipt--clean .receipt__mark { color: var(--color-pass); }
+.receipt--findings .receipt__mark { color: var(--color-high); }
+.receipt--never {
+  border-style: dashed;
+  border-color: var(--color-accent-600);
+  background: var(--color-accent-100);
+}
+.receipt--never .receipt__mark { color: var(--color-medium); }
+
+/* ── Build history ──────────────────────────────────────────────────── */
+
+.buildrow-gates { display: inline-flex; gap: var(--space-2); }
+
 /* ── Utility ────────────────────────────────────────────────────────── */
 
 .hr { height: 1px; border: 0; background: var(--color-divider); margin: var(--space-4) 0; }

@@ -77,6 +77,8 @@ else
             <ScoreCard Data="_data" />
             <GateRail Gates="_data.Gates" />
         </div>
+
+        <ScanReceipts Inputs="_data.Inputs" Sha="@ShortSha" />
     </div>
 }
 
@@ -89,6 +91,10 @@ else
     private ProjectHubData? _data;
     private bool _loading = true;
     private string? _error;
+
+    // Seven characters is what the design's build stamp shows, and what a
+    // reader can actually match against a git log.
+    private string? ShortSha => _data?.CommitSha is { Length: > 7 } full ? full[..7] : _data?.CommitSha;
 
     private string BandColour => _data?.Risk.Band switch
     {
