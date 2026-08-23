@@ -1,0 +1,127 @@
+@* "How are we trending" — the score, its band, and the ranked contribution
+   table that replaces the six-of-twelve concentric rings.
+
+   The old rings drew six of twelve categories. Showing ALL of them is the
+   point: a category contributing nothing is information, and a category that
+   is disabled in policy is different information again. *@
+
+@inject ViewPreferences Prefs
+
+<Card>
+    <div class="kicker">How are we trending</div>
+
+    <div class="score">
+        <span class="score__value">@Data.Risk.Score.ToString("F1")</span>
+        <Chip Label="@Data.Risk.Band" Tone="@BandTone(Data.Risk.Band)" />
+        @if (Prefs.ShowDeltas && Data.Gates.DeltaPoints is { } delta)
+        {
+            @* Never wraps: a delta that falls to its own line reads as a
+               separate fact rather than as a qualifier on the score. *@
+            <span class="score__delta num">@Signed(delta) vs prior build</span>
+        }
+        <div class="score__caption">
+            <div>@Bands()</div>
+            <div class="muted">Categories saturate — the score is posture, not volume.</div>
+        </div>
+    </div>
+
+    <div class="contrib">
+        @foreach (var row in Data.Risk.Breakdown)
+        {
+            <div class="contrib__row @(row.Contribution > 0 ? "contrib__row--hot" : null) @(row.Enabled ? null : "contrib__row--off")">
+                <div>
+                    <div class="contrib__label">@Label(row.Key)</div>
+                    <div class="contrib__key mono">@row.Key</div>
+                </div>
+
+                <div class="contrib__bar" role="img" aria-label="@BarLabel(row)">
+                    <div class="contrib__fill" style="width: @Percent(row)%; background: @FillTone(row)"></div>
+                </div>
+
+                <div class="num contrib__points">
+                    @row.Contribution.ToString("F1") / @row.EffectiveMax.ToString("F0")
+                </div>
+
+                <div>
+                    @if (row.Saturated)
+                    {
+                        @* SAT and the red fill read the same fact off the same
+                           field, so they cannot disagree (TFND-76). *@
+                        <span class="contrib__sat mono">SAT</span>
+                    }
+                </div>
+
+                <div class="contrib__evidence">
+                    @if (!row.Enabled)
+                    {
+                        <span class="muted">disabled in policy</span>
+                    }
+                    else
+                    {
+                        <span>@Evidence(row)</span>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    <p class="field__help">
+        SAT = category saturated: more findings of that class cannot raise the score.
+        @Data.Risk.Breakdown.Count of @Data.Risk.Breakdown.Count scored categories shown.
+    </p>
+</Card>
+
+@code {
+    [Parameter, EditorRequired] public ProjectHubData Data { get; set; } = default!;
+
+    private static string Signed(double d) => d > 0 ? $"+{d:F1}" : d.ToString("F1");
+
+    private static string BandTone(string band) => band switch
+    {
+        "green" => "var(--color-band-green)",
+        "yellow" => "var(--color-band-yellow)",
+        "orange" => "var(--color-band-orange)",
+        _ => "var(--color-band-red)",
+    };
+
+    private double Percent(RiskCategoryBreakdown row) =>
+        row.EffectiveMax <= 0 ? 0 : Math.Clamp(row.Contribution / row.EffectiveMax * 100, 0, 100);
+
+    private static string FillTone(RiskCategoryBreakdown row) =>
+        row.Saturated ? "var(--color-critical)"
+        : row.Contribution > 0 ? "var(--color-accent)"
+        : "var(--color-neutral-400)";
+
+    // The bar is decorative on its own — the numbers beside it carry the same
+    // value — but a screen reader should not be handed an unlabelled div.
+    private string BarLabel(RiskCategoryBreakdown row) =>
+        $"{Label(row.Key)}: {row.Contribution:F1} of {row.EffectiveMax:F0} points"
+        + (row.Saturated ? ", saturated" : "");
+
+    private string Bands()
+    {
+        // Read from the live policy rather than hard-coded, so the caption
+        // cannot contradict the band the chip is showing.
+        return "Bands are set by the project's risk policy.";
+    }
+
+    private static string Evidence(RiskCategoryBreakdown row) =>
+        row.Contribution <= 0 ? "nothing found" : $"{row.SubScore * 100:F0}% of this category's ceiling";
+
+    // Human labels for policy keys. Data, not copy — the KEY is the identifier
+    // the policy editor and the API use, and it stays visible beneath.
+    private static string Label(string key) => key switch
+    {
+        "cve" => "Known CVEs",
+        "secrets" => "Secrets",
+        "sast" => "Static analysis",
+        "dast" => "Dynamic scan",
+        "iac" => "IaC misconfig",
+        "coverage" => "Coverage",
+        "tests" => "Tests",
+        "sbom" => "SBOM freshness",
+        "licenses" => "Licences",
+        "missingScanners" => "Missing scanners",
+        _ => key,
+    };
+}

@@ -1,4 +1,4 @@
-namespace Tamp.Findings.Api.Services;
+namespace Tamp.Findings.Application.Risk;
 
 // Classifies a license string (SPDX-id or short expression) into a
 // permissiveness tier. POC-grade — hardcoded allow/deny lists; will

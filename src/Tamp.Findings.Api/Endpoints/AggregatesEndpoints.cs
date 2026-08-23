@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Api.Services;
+using Tamp.Findings.Application.Risk;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Risk;
@@ -21,7 +22,7 @@ public static class AggregatesEndpoints
 
     private static async Task<Ok<AggregatesResponse>> GetAsync(
         FindingsDbContext db,
-        Tamp.Findings.Api.Services.VexResolver vexResolver,
+        Tamp.Findings.Application.Risk.VexResolver vexResolver,
         CancellationToken ct,
         Guid? clientId = null,
         Guid? projectId = null,
