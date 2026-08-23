@@ -61,6 +61,12 @@ public sealed class CostsAndLicensesQuery
 
         var registry = await _db.PaidComponents.AsNoTracking().ToArrayAsync(ct);
 
+        // The policy that applies here (TFND-10 / F9.3). Project first, then
+        // the client's, then the instance default — the same chain the scorer
+        // walks, because a screen that classified licences differently from the
+        // score would be a second opinion nobody asked for.
+        var rules = await PolicyAsync(projectId, ct);
+
         // ---- Licences --------------------------------------------------------
 
         // Distinct by purl before tallying. The same package appearing in three
@@ -73,11 +79,11 @@ public sealed class CostsAndLicensesQuery
             .ToArray();
 
         var licences = distinct
-            .GroupBy(p => LicensePolicy.Classify(p.License))
+            .GroupBy(p => LicensePolicy.Classify(p.License, rules.Licenses))
             .ToDictionary(g => g.Key, g => g.Count());
 
         var obligations = distinct
-            .Select(p => new { p, Tier = LicensePolicy.Classify(p.License) })
+            .Select(p => new { p, Tier = LicensePolicy.Classify(p.License, rules.Licenses) })
             .Where(x => x.Tier is LicensePolicy.Tier.Denied
                             or LicensePolicy.Tier.StrongCopyleft
                             or LicensePolicy.Tier.Unknown)
@@ -111,6 +117,13 @@ public sealed class CostsAndLicensesQuery
                 .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
+            // F9.3: has this organisation agreed to the spend? A licence
+            // somebody has to buy, in a build nobody approved it for, is a
+            // procurement problem before it is a security one.
+            var approved = !rules.PaidComponents.RequireApproval
+                || rules.PaidComponents.ApprovedVendors
+                    .Any(v => string.Equals(v?.Trim(), entry.Vendor, StringComparison.OrdinalIgnoreCase));
+
             paid.Add(new PaidUsage(
                 entry.Id, entry.Vendor, entry.Product, entry.LicenseModel, entry.PricingUrl,
                 entry.AnnualCostPerSeat, entry.Currency, entry.CostAsOf,
@@ -127,13 +140,18 @@ public sealed class CostsAndLicensesQuery
                     .Select(m => new PaidPackage(m.Purl, m.Name, m.Version, m.LatestVersion))
                     .OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
                     .ToArray(),
-                components));
+                components,
+                approved,
+                rules.PaidComponents.RequireApproval));
         }
 
         var ordered = paid
-            // Priced first: those are the rows that add up to a number, and the
+            // Unapproved first when approval is required: that is a policy
+            // violation, and it outranks how much anything costs.
+            .OrderBy(p => p.Approved)
+            // Then priced: those are the rows that add up to a number, and the
             // unpriced ones are a call to action rather than part of the total.
-            .OrderByDescending(p => p.AnnualCostPerSeat is not null)
+            .ThenByDescending(p => p.AnnualCostPerSeat is not null)
             .ThenByDescending(p => p.AnnualCostPerSeat ?? 0)
             .ThenBy(p => p.Vendor, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -151,7 +169,34 @@ public sealed class CostsAndLicensesQuery
                 .GroupBy(p => p.Currency, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.Sum(p => p.AnnualCostPerSeat!.Value),
                     StringComparer.OrdinalIgnoreCase),
-            ordered.Count(p => p.AnnualCostPerSeat is null));
+            ordered.Count(p => p.AnnualCostPerSeat is null),
+            ordered.Count(p => !p.Approved));
+    }
+
+    /// <summary>
+    /// The policy in force for this project (TFND-10 / F9.2).
+    ///
+    /// Project override, then the client's, then the instance default — the
+    /// same chain the scorer walks. Falls back to an empty config rather than
+    /// throwing when an instance has no default policy at all, so a brand-new
+    /// deployment renders the built-in classification instead of an error.
+    /// </summary>
+    private async Task<RiskPolicyConfig> PolicyAsync(Guid projectId, CancellationToken ct)
+    {
+        var project = await _db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => new { p.RiskPolicyId, ClientPolicyId = p.Client!.RiskPolicyId })
+            .SingleOrDefaultAsync(ct);
+
+        var policyId = project?.RiskPolicyId ?? project?.ClientPolicyId;
+
+        var policy = policyId is { } id
+            ? await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct)
+            : null;
+
+        policy ??= await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
+
+        return policy?.Config ?? new RiskPolicyConfig();
     }
 
     /// <summary>
@@ -181,7 +226,9 @@ public sealed record CostsAndLicenses(
     IReadOnlyDictionary<LicensePolicy.Tier, int> LicenceTiers,
     int DistinctPackages,
     IReadOnlyDictionary<string, decimal> AnnualPerSeatByCurrency,
-    int UnpricedProducts);
+    int UnpricedProducts,
+    /// <summary>Paid products in use that policy has not approved (F9.3).</summary>
+    int UnapprovedProducts);
 
 public sealed record PaidUsage(
     Guid RegistryId,
@@ -197,7 +244,15 @@ public sealed record PaidUsage(
     bool SupportEnded,
     string? Notes,
     IReadOnlyList<PaidPackage> Packages,
-    IReadOnlyList<string> Components);
+    IReadOnlyList<string> Components,
+    /// <summary>
+    /// True when policy does not require approval, or when this vendor has it.
+    /// Always true when the policy does not ask the question, so a caller can
+    /// read it without also checking <see cref="ApprovalRequired"/>.
+    /// </summary>
+    bool Approved,
+    /// <summary>Whether the policy asks the question at all.</summary>
+    bool ApprovalRequired);
 
 public sealed record PaidPackage(string Purl, string Name, string Version, string? LatestVersion);
 

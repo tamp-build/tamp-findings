@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Tamp.Findings.Application.Authorization;
 using Tamp.Findings.Application.Explorer;
@@ -313,6 +314,151 @@ public class CostsAndLicensesIntegrationTests
             world.LeadDev, world.RegistryId, 999m, "USD", null, true, world.AsOf);
 
         Assert.True(result.WasDenied);
+    }
+
+    // ---- Policy-driven rules (TFND-10 / F9.3) --------------------------------
+
+    [SkippableFact]
+    public async Task With_no_approval_required_every_paid_product_reads_as_approved()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // Approved is true when the policy does not ask the question, so a
+        // caller can read it without also checking ApprovalRequired.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var costs = scope.ServiceProvider.GetRequiredService<CostsAndLicensesQuery>();
+
+        var data = await costs.LoadAsync(world.ProjectId, world.AsOf);
+
+        Assert.All(data.Paid, p => Assert.True(p.Approved));
+        Assert.Equal(0, data.UnapprovedProducts);
+    }
+
+    [SkippableFact]
+    public async Task An_unapproved_vendor_is_a_violation_when_the_policy_asks()
+    {
+        Skip.IfNot(_fx.Available);
+
+        var world = await SeedAsync();
+        await SetPolicyAsync(world, paid: new PaidComponentRules { RequireApproval = true });
+
+        using var scope = _fx.Scope();
+        var costs = scope.ServiceProvider.GetRequiredService<CostsAndLicensesQuery>();
+
+        var data = await costs.LoadAsync(world.ProjectId, world.AsOf);
+
+        Assert.True(data.UnapprovedProducts > 0);
+        Assert.Contains(data.Paid, p => p.Vendor == world.Vendor && !p.Approved);
+    }
+
+    [SkippableFact]
+    public async Task An_approved_vendor_is_not_a_violation()
+    {
+        Skip.IfNot(_fx.Available);
+
+        var world = await SeedAsync();
+        await SetPolicyAsync(world, paid: new PaidComponentRules
+        {
+            RequireApproval = true,
+            // Cased differently on purpose: an approval typed by hand should
+            // not fail on capitalisation.
+            ApprovedVendors = [world.Vendor.ToUpperInvariant()],
+        });
+
+        using var scope = _fx.Scope();
+        var costs = scope.ServiceProvider.GetRequiredService<CostsAndLicensesQuery>();
+
+        var data = await costs.LoadAsync(world.ProjectId, world.AsOf);
+
+        Assert.True(Assert.Single(data.Paid, p => p.Vendor == world.Vendor).Approved);
+    }
+
+    [SkippableFact]
+    public async Task Unapproved_products_sort_above_expensive_ones()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // A policy violation outranks how much anything costs.
+        var world = await SeedAsync();
+        await SetPolicyAsync(world, paid: new PaidComponentRules
+        {
+            RequireApproval = true,
+            ApprovedVendors = [world.Vendor],
+        });
+
+        using var scope = _fx.Scope();
+        var registry = scope.ServiceProvider.GetRequiredService<PaidComponentRegistry>();
+        var costs = scope.ServiceProvider.GetRequiredService<CostsAndLicensesQuery>();
+
+        // The approved vendor is the expensive one; the unapproved one is free.
+        await registry.UpdateCostAsync(world.Admin, world.RegistryId, 9999m, "USD", null, true, world.AsOf);
+
+        var data = await costs.LoadAsync(world.ProjectId, world.AsOf);
+
+        Assert.False(data.Paid[0].Approved);
+    }
+
+    [SkippableFact]
+    public async Task A_policy_denylist_reclassifies_a_permissive_licence()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // The screen and the score have to agree, and both now read the policy.
+        var world = await SeedAsync();
+        await SetPolicyAsync(world, licenses: new LicenseRules { Deny = ["MIT"] });
+
+        using var scope = _fx.Scope();
+        var costs = scope.ServiceProvider.GetRequiredService<CostsAndLicensesQuery>();
+
+        var data = await costs.LoadAsync(world.ProjectId, world.AsOf);
+
+        Assert.Contains(data.Obligations,
+            o => o.License == "MIT" && o.Tier == LicensePolicy.Tier.Denied);
+    }
+
+    [SkippableFact]
+    public async Task A_policy_allowlist_clears_a_licence_the_table_denies()
+    {
+        Skip.IfNot(_fx.Available);
+
+        var world = await SeedAsync();
+        await SetPolicyAsync(world, licenses: new LicenseRules { Allow = ["AGPL-3.0"] });
+
+        using var scope = _fx.Scope();
+        var costs = scope.ServiceProvider.GetRequiredService<CostsAndLicensesQuery>();
+
+        var data = await costs.LoadAsync(world.ProjectId, world.AsOf);
+
+        // Cleared to permissive, so it drops out of the obligations list
+        // entirely — permissive licences are tallied, not listed.
+        Assert.DoesNotContain(data.Obligations, o => o.Purl == world.SharedAgplPurl);
+    }
+
+    /// <summary>
+    /// Point this world's project at a policy carrying these rules.
+    /// </summary>
+    private async Task SetPolicyAsync(
+        World world, LicenseRules? licenses = null, PaidComponentRules? paid = null)
+    {
+        using var scope = _fx.Scope();
+        var db = _fx.Db(scope);
+
+        var policy = new RiskPolicy
+        {
+            Name = $"cost-policy-{Guid.NewGuid():N}",
+            Config = new RiskPolicyConfig
+            {
+                Licenses = licenses ?? new LicenseRules(),
+                PaidComponents = paid ?? new PaidComponentRules(),
+            },
+        };
+        db.RiskPolicies.Add(policy);
+
+        var project = await db.Projects.SingleAsync(p => p.Id == world.ProjectId);
+        project.RiskPolicyId = policy.Id;
+
+        await db.SaveChangesAsync();
     }
 
     // ---- Seed ----------------------------------------------------------------

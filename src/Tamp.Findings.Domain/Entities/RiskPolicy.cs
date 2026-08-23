@@ -42,6 +42,74 @@ public sealed class RiskPolicyConfig
     // ingested severity). Surfaces in the policy editor as one dropdown
     // per scanner.
     public Dictionary<string, ScannerOverride> ScannerOverrides { get; set; } = new();
+
+    // TFND-10 / F9.3: the licence allow- and denylist, as POLICY rather than
+    // as a table compiled into the product.
+    //
+    // The built-in classification stays — it is a reasonable default and most
+    // adopters will never touch it — but it is now the FALLBACK. Which licences
+    // an organisation can live with is a legal position, not a fact about
+    // software, and two adopters can hold opposite ones about the same licence
+    // and both be right. A hardcoded table quietly makes that decision for
+    // them.
+    public LicenseRules Licenses { get; set; } = new();
+
+    // TFND-10 / F9.3: paid-component approval.
+    public PaidComponentRules PaidComponents { get; set; } = new();
+}
+
+/// <summary>
+/// Licences this policy explicitly permits or refuses (F9.3).
+///
+/// Layered OVER the built-in classification rather than replacing it, so an
+/// adopter states the handful they care about instead of re-entering the SPDX
+/// list. Deny wins over Allow: a licence named in both is a mistake, and the
+/// safe reading of a mistake on this particular question is the strict one.
+/// </summary>
+public sealed class LicenseRules
+{
+    /// <summary>SPDX ids to treat as permissive whatever the built-in table says.</summary>
+    public List<string> Allow { get; set; } = new();
+
+    /// <summary>SPDX ids to treat as denied whatever the built-in table says.</summary>
+    public List<string> Deny { get; set; } = new();
+
+    /// <summary>
+    /// Treat a licence nobody could classify as denied rather than as unknown.
+    ///
+    /// Off by default, because on a real SBOM the unknown pile is large and
+    /// mostly benign — turning it on would make every policy fail on day one,
+    /// and a policy that always fails is a policy people learn to ignore. On,
+    /// for an organisation that genuinely cannot ship an unidentified licence.
+    /// </summary>
+    public bool DenyUnknown { get; set; }
+}
+
+/// <summary>
+/// Whether paid components need approving, and which are approved (F9.3).
+///
+/// The registry (TFND-8) knows which packages cost money. This is the separate
+/// question of whether THIS organisation has agreed to that spend — a licence
+/// somebody has to buy, appearing in a build nobody approved it for, is a
+/// procurement problem before it is a security one.
+/// </summary>
+public sealed class PaidComponentRules
+{
+    /// <summary>
+    /// Off by default. On, any matched paid vendor not in
+    /// <see cref="ApprovedVendors"/> is a policy violation.
+    /// </summary>
+    public bool RequireApproval { get; set; }
+
+    /// <summary>
+    /// Vendor names, matched case-insensitively against the registry.
+    ///
+    /// Vendor rather than package, because these vendors ship dozens of
+    /// packages under one subscription — approving the spend is a decision
+    /// about the vendor, and an approval list of package names would be out of
+    /// date by the next release.
+    /// </summary>
+    public List<string> ApprovedVendors { get; set; } = new();
 }
 
 public sealed class ScannerOverride
