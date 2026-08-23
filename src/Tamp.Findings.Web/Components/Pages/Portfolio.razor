@@ -1,6 +1,10 @@
 @* Portfolio does NOT claim "/" while the React SPA still serves the root — an
    explicit Blazor route would shadow index.html. At cutover (TFND-128) add
    `@page "/"` here and update Routes.Portfolio. *@
+@* TFND-128: the root belongs to Blazor now. Both routes are kept — /portfolio
+   is in links, bookmarks and this repo's own docs, and breaking them to save a
+   line would be a gratuitous 404. *@
+@page "/"
 @page "/portfolio"
 @attribute [Authorize]
 @rendermode InteractiveServer
@@ -70,7 +74,15 @@
                                 <td style="font-family: var(--font-heading); font-weight: 600; font-size: var(--text-emphasis)">
                                     @row.ProjectName
                                 </td>
-                                <td>@row.ClientName</td>
+                                <td>
+                                    @* The client tier is navigable from here,
+                                       which is what stops it being a gap in a
+                                       hierarchy the product calls load-bearing.
+                                       stopPropagation: the row itself opens the
+                                       project. *@
+                                    <a href="@Routes.Client(row.ClientName)"
+                                       @onclick:stopPropagation="true">@row.ClientName</a>
+                                </td>
                                 <td class="num align-end">@(row.Score?.ToString("F1") ?? "—")</td>
                                 <td>
                                     @if (row.Band is { } band)

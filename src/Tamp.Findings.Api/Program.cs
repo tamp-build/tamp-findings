@@ -255,17 +255,10 @@ app.UseStatusCodePages();
 
 app.UseCors();
 
-// Serve the bundled SPA from wwwroot/ in prod. In dev the SPA runs
-// under Vite at :5173 and proxies /api/* to this host, so the
-// API never needs to serve static files locally. In the container
-// build the Dockerfile copies web/dist/ into wwwroot/ before
-// `dotnet publish`, so UseStaticFiles + MapFallbackToFile is the
-// pair that takes us from "white screen" to "SPA loads".
+// Static assets: stylesheets, fonts and the Blazor framework script.
 //
-// UseDefaultFiles rewrites `/` requests to `/index.html` BEFORE
-// UseStaticFiles so the root URL hits the file middleware. Both
-// middlewares are no-ops when wwwroot/ is missing (dev runs).
-app.UseDefaultFiles();
+// TFND-128 retired the React SPA, so UseDefaultFiles is gone with it — there is
+// no index.html to rewrite `/` to, and Blazor's Portfolio page owns the root.
 app.UseStaticFiles();
 // NOTE: deliberately UseStaticFiles rather than MapStaticAssets.
 //
@@ -388,7 +381,11 @@ app.MapRazorComponents<App>()
     // real gate is the Application layer (ADR 0002), not this endpoint.
     .AllowAnonymous();
 
-app.MapFallbackToFile("index.html").AllowAnonymous();
+// TFND-128: no SPA fallback. Every route Blazor does not recognise now reaches
+// Blazor's own NotFound, which renders inside the shell with the reader's
+// navigation intact — rather than silently serving index.html for a URL nothing
+// answers, which is how a typo used to look like a working page that failed to
+// load.
 
 app.Run();
 
