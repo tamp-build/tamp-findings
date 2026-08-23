@@ -25,6 +25,61 @@ public class HealthEndpointTests : IClassFixture<TestApiFactory>
         Assert.Equal("tamp.findings.api", body.Service);
     }
 
+    [Fact]
+    public async Task Liveness_stays_ok_with_the_database_unreachable()
+    {
+        // THE point of having two probes. This fixture points at a closed port,
+        // so the database genuinely is down — and liveness must still say ok.
+        // A failing liveness probe restarts the container, and restarting an
+        // application because Postgres is down turns an outage into a crash
+        // loop that recovers more slowly and destroys the logs explaining it.
+        var client = _factory.CreateClient();
+
+        var resp = await client.GetAsync("/health");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Readiness_is_503_with_the_database_unreachable()
+    {
+        // Readiness says "not now" so an orchestrator pulls this instance out
+        // of the load balancer rather than sending it traffic that will 500.
+        var client = _factory.CreateClient();
+
+        var resp = await client.GetAsync("/ready");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Readiness_says_why_rather_than_returning_a_bare_503()
+    {
+        // A bare 503 from a readiness probe is the least actionable thing an
+        // operator can be handed at three in the morning.
+        var client = _factory.CreateClient();
+
+        var resp = await client.GetAsync("/ready");
+        var body = await resp.Content.ReadAsStringAsync();
+
+        Assert.Contains("not-ready", body, StringComparison.Ordinal);
+        Assert.Contains("reason", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Readiness_does_not_leak_the_connection_string()
+    {
+        // A connection-string exception message carries a host and a username,
+        // and this endpoint is anonymous.
+        var client = _factory.CreateClient();
+
+        var body = await (await client.GetAsync("/ready")).Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("Password", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Username", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("127.0.0.1", body, StringComparison.Ordinal);
+    }
+
     private sealed record HealthResponse(string Status, string Service);
 }
 

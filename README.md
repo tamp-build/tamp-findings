@@ -142,6 +142,12 @@ Everything the totals do is bounded by what the product actually knows:
 - Currencies are reported separately, never converted at a rate this product invented.
 - A figure older than a year is flagged stale, and re-saving it unchanged does not refresh the date.
 
+## Operating it
+
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md) covers the operational surface: the two health probes and why liveness deliberately does not check the database, `pg_dump` cadence and restore (storage is BYO Postgres, so the image does not own the backup story), the retention window and what it refuses to delete, and which log lines are worth alerting on.
+
+Two probes, and the difference matters: `GET /health` answers "is the process alive" and never touches the database — a failing liveness probe restarts the container, and restarting an application because Postgres is down turns an outage into a crash loop. `GET /ready` checks the database and returns 503 with a reason, so an orchestrator pulls the instance out of the load balancer instead.
+
 ## Federal-readiness coverage
 
 | NIST SSDF (SP 800-218) practice | Evidence |
