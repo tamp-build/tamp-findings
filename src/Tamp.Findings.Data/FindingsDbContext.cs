@@ -160,6 +160,13 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
         b.Entity<InstanceSettings>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.InstanceUrl).HasMaxLength(512);
+            e.Property(x => x.SmtpHost).HasMaxLength(256);
+            e.Property(x => x.SmtpFrom).HasMaxLength(256);
+            // Native text[]: the list is short, read whole, and never queried
+            // by element, so a join table would be three tables of ceremony
+            // for no gain.
+            e.Property(x => x.ExpectedScanners).HasColumnType("text[]");
         });
 
         b.Entity<AuditEntry>(e =>

@@ -1,14 +1,20 @@
-@* Instance-level. Outside any client or project scope, which is why the nav
-   separates it and the tab strip marks it differently.
+@* Instance-level administration (TFND-110 … TFND-114).
 
-   Named SystemAdmin, not System: a component's class name is its file name,
-   and a class called System shadows the System NAMESPACE for every other file
-   in the assembly — "@using System.Net.Http" then fails to resolve. *@
+   Outside any client or project scope, which is why the nav separates it and
+   the tab strip marks it differently. Everything here affects every tenant on
+   this deployment, and the heading says so on every panel.
+
+   Named SystemAdmin, not System: a component's class name is its file name, and
+   a class called System shadows the System NAMESPACE for every other file in
+   the assembly — "@using System.Net.Http" then fails to resolve. *@
 @page "/system"
 @page "/system/{Panel}"
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject RouteScope Scope
 @inject NavigationManager Nav
+@inject SystemAdminService Admin
+@inject CurrentUser Me
 
 <PageTitle>System — tamp.findings</PageTitle>
 
@@ -26,8 +32,429 @@
 }
 else
 {
-    <Placeholder Title="@Heading" Ticket="TFND-110 … TFND-114"
-                 Description="Instance-wide settings — outside any client or project scope. Changes here affect every tenant on this deployment." />
+    <div class="stack">
+        <div>
+            <div class="kicker">Instance-wide · outside any client or project scope</div>
+            <h1>System</h1>
+            <p class="field__help">Changes here affect every tenant on this deployment.</p>
+        </div>
+
+        <div class="tabs settings-tabs">
+            @foreach (var panel in SystemPanels.All)
+            {
+                <a class="tab tab--system @(panel == Current ? "tab--active" : null)"
+                   href="@Routes.System(panel)">@PanelLabel(panel)</a>
+            }
+        </div>
+
+        @if (_error is not null)
+        {
+            <Card>
+                <div class="row">
+                    <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                    <span>Could not load instance administration.</span>
+                </div>
+                <p class="field__help">
+                    An empty user list would read as "nobody has access here", which is a claim this
+                    screen cannot currently make. @_error
+                </p>
+            </Card>
+        }
+        else if (!_canAdminister.Allowed)
+        {
+            @* Read-only rather than hidden. Someone who cannot administer the
+               instance can still legitimately need to see who has access. *@
+            <Card>
+                <div class="row" style="gap: var(--space-3)">
+                    <Chip Label="READ ONLY" Tone="var(--color-neutral-500)" Style="Chip.ChipStyle.Outlined" />
+                    <span>@_canAdminister.Reason</span>
+                </div>
+            </Card>
+        }
+
+        @if (_error is null)
+        {
+        @switch (Current)
+        {
+            case SystemPanels.Users:
+                <Card Padded="false">
+                    <div class="card-body">
+                        <h2>Users &amp; RBAC</h2>
+                        <p class="field__help">
+                            Roles are ADDITIVE — a user holds any number and effective access is the
+                            union. Assignments resolve at the NARROWEST tier holding anything, so a
+                            project-level grant hides a client-level one entirely rather than adding
+                            to it.
+                        </p>
+                    </div>
+
+                    @if (_users.Count == 0)
+                    {
+                        <div class="card-body"><p class="muted">No users yet.</p></div>
+                    }
+                    else
+                    {
+                        <ScrollBox Label="Users">
+                            <table class="table table--rows">
+                                <thead>
+                                    <tr>
+                                        <th>User</th><th>State</th><th class="align-end">Roles</th>
+                                        <th>Last seen</th><th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var user in _users)
+                                    {
+                                        <tr class="@(user.Id == _selectedUser ? "is-selected" : null)"
+                                            @onclick="() => SelectUser(user.Id)">
+                                            <td>
+                                                <div>@user.DisplayName</div>
+                                                <div class="mono muted" style="font-size: var(--text-secondary)">
+                                                    @user.Login@(user.Email is { Length: > 0 } e ? $" · {e}" : "")
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span class="row" style="gap: var(--space-1)">
+                                                    @if (!user.IsApproved)
+                                                    {
+                                                        <Chip Label="PENDING" Tone="var(--color-high)"
+                                                              Style="Chip.ChipStyle.Solid" />
+                                                    }
+                                                    else if (user.IsAdmin)
+                                                    {
+                                                        <Chip Label="ADMIN" Tone="var(--color-accent)"
+                                                              Style="Chip.ChipStyle.Solid" />
+                                                    }
+                                                    else if (user.AssignmentCount == 0)
+                                                    {
+                                                        @* A real state, not a gap: read access is
+                                                           often exactly what someone should have. *@
+                                                        <Chip Label="VIEWER" Tone="var(--color-neutral-500)"
+                                                              Style="Chip.ChipStyle.Outlined" />
+                                                    }
+                                                    @if (user.HasSodConflict)
+                                                    {
+                                                        <Chip Label="SoD" Tone="var(--color-high)"
+                                                              Style="Chip.ChipStyle.Outlined" />
+                                                    }
+                                                </span>
+                                            </td>
+                                            <td class="num align-end">@user.AssignmentCount</td>
+                                            <td class="mono">
+                                                @(user.LastLoginAt?.ToString("yyyy-MM-dd") ?? "never")
+                                            </td>
+                                            <td>
+                                                @if (!user.IsApproved)
+                                                {
+                                                    <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
+                                                            Disabled="@(!_canAdminister.Allowed)"
+                                                            DisabledReason="@_canAdminister.Reason"
+                                                            OnClick="() => Approve(user, true)">approve</Button>
+                                                }
+                                                else
+                                                {
+                                                    <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
+                                                            Class="btn--danger"
+                                                            Disabled="@(!_canAdminister.Allowed)"
+                                                            DisabledReason="@_canAdminister.Reason"
+                                                            OnClick="() => Approve(user, false)">suspend</Button>
+                                                }
+                                                <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
+                                                        Disabled="@(!_canAdminister.Allowed)"
+                                                        DisabledReason="@_canAdminister.Reason"
+                                                        OnClick="() => SetAdmin(user, !user.IsAdmin)">
+                                                    @(user.IsAdmin ? "remove admin" : "make admin")
+                                                </Button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </ScrollBox>
+                    }
+
+                    @if (_actionError is not null)
+                    {
+                        <div class="card-body"><p style="color: var(--color-critical)">@_actionError</p></div>
+                    }
+                </Card>
+
+                @if (_selectedUser is not null)
+                {
+                    <Card Padded="false">
+                        <div class="card-body">
+                            <h3>Role assignments</h3>
+                            <p class="field__help">
+                                Narrowest first — that is the tier that wins.
+                            </p>
+                        </div>
+                        @if (_assignments.Count == 0)
+                        {
+                            <div class="card-body">
+                                <p class="muted">No role assignments. This user is a Viewer everywhere.</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <ScrollBox Label="Role assignments">
+                                <table class="table">
+                                    <thead>
+                                        <tr><th>Role</th><th>Tier</th><th>Scope</th><th>Granted</th><th>SoD</th><th></th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var assignment in _assignments)
+                                        {
+                                            <tr>
+                                                <td>@assignment.Role</td>
+                                                <td>@assignment.Tier</td>
+                                                <td>@assignment.ScopeName</td>
+                                                <td class="mono">@assignment.CreatedAt.ToString("yyyy-MM-dd")</td>
+                                                <td>
+                                                    @if (assignment.SodConflict is { Length: > 0 } conflict)
+                                                    {
+                                                        @* Recorded at grant time so an assessor can
+                                                           see it was a deliberate choice rather than
+                                                           an oversight. *@
+                                                        <span style="color: var(--color-high)">@conflict</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="muted">—</span>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <Button Variant="Button.ButtonVariant.Text" Class="btn--danger"
+                                                            Disabled="@(!_canAdminister.Allowed)"
+                                                            DisabledReason="@_canAdminister.Reason"
+                                                            OnClick="() => Revoke(assignment.Id)">revoke</Button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </ScrollBox>
+                        }
+                    </Card>
+                }
+                break;
+
+            case SystemPanels.Authentication:
+                <Card>
+                    <h2>Authentication</h2>
+                    <p>
+                        This deployment authenticates through the provider configured at startup.
+                        Identity-provider registration, per-role MFA and allowed email domains are
+                        <strong>not implemented</strong>.
+                    </p>
+                    <p class="field__help">
+                        Stated rather than shown as an empty registry: a panel listing zero providers
+                        would read as "no provider is configured", which is the opposite of true —
+                        sign-in works. Tracked as TFND-111's remaining scope.
+                    </p>
+                    <dl class="stamp">
+                        <dt>New users default to</dt>
+                        <dd>Viewer — read access, no role, pending approval</dd>
+                        <dt>Session lifetime</dt>
+                        <dd class="mono">@_settings.SessionLifetimeHours h</dd>
+                        <dt>First-run admin</dt>
+                        <dd>Claimed once, with the setup token printed at container start</dd>
+                    </dl>
+                </Card>
+                break;
+
+            case SystemPanels.Scanners:
+                <Card Padded="false">
+                    <div class="card-body row row--between">
+                        <div>
+                            <h2>Scanners &amp; ingest</h2>
+                            <p class="field__help">
+                                Marking a scanner EXPECTED is what makes "no scan" distinguishable from
+                                "clean". Without it, a scanner that silently stopped reporting looks
+                                exactly like one that was never in the pipeline.
+                            </p>
+                        </div>
+                        <Button Variant="Button.ButtonVariant.Primary"
+                                Disabled="@(!_canAdminister.Allowed || !_scannersDirty)"
+                                DisabledReason="@(_canAdminister.Allowed ? "Nothing has changed." : _canAdminister.Reason)"
+                                OnClick="SaveScanners">Save expectations</Button>
+                    </div>
+                    <ScrollBox Label="Scanners">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Expected</th><th>Scanner</th><th>Class</th>
+                                    <th class="align-end">Runs</th><th>Last received</th><th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var scanner in _scanners)
+                                {
+                                    var kind = scanner.Kind;
+                                    <tr>
+                                        <td>
+                                            <input type="checkbox" checked="@_expected.Contains(kind)"
+                                                   disabled="@(!_canAdminister.Allowed)"
+                                                   @onchange="e => ToggleExpected(kind, e)" />
+                                        </td>
+                                        <td class="mono">@kind</td>
+                                        <td>@scanner.Class</td>
+                                        <td class="num align-end">@scanner.Runs</td>
+                                        <td class="mono">
+                                            @(scanner.LastReceived?.ToString("yyyy-MM-dd") ?? "never")
+                                        </td>
+                                        <td>
+                                            @if (scanner.Silent)
+                                            {
+                                                <Chip Label="SILENT" Tone="var(--color-critical)"
+                                                      Style="Chip.ChipStyle.Solid" />
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </ScrollBox>
+                    @if (_actionError is not null)
+                    {
+                        <div class="card-body"><p style="color: var(--color-critical)">@_actionError</p></div>
+                    }
+                </Card>
+                break;
+
+            case SystemPanels.Settings:
+                <Card>
+                    <h2>Instance settings</h2>
+
+                    <TextField Label="Instance URL" Mono="true" @bind-Value="_instanceUrl"
+                               Disabled="@(!_canAdminister.Allowed)"
+                               Help="How this deployment refers to itself in anything that leaves it. Inferred from the request when blank, which is wrong the moment a reverse proxy is involved." />
+
+                    <TextField Label="Session lifetime (hours)" Type="number" Mono="true"
+                               Disabled="@(!_canAdminister.Allowed)"
+                               Value="@_sessionHours" ValueChanged="v => _sessionHours = v"
+                               Help="How long a sign-in lasts." />
+
+                    <TextField Label="Finding retention (days)" Type="number" Mono="true"
+                               Disabled="@(!_canAdminister.Allowed)"
+                               Value="@_findingRetention" ValueChanged="v => _findingRetention = v"
+                               Help="Blank keeps findings forever — the honest default. An attestation signed three years ago cites findings from three years ago, and deleting them makes the signature unverifiable." />
+
+                    <TextField Label="Build retention (days)" Type="number" Mono="true"
+                               Disabled="@(!_canAdminister.Allowed)"
+                               Value="@_buildRetention" ValueChanged="v => _buildRetention = v"
+                               Help="Blank keeps builds forever." />
+
+                    <TextField Label="Outbound SMTP host" Mono="true" @bind-Value="_smtpHost"
+                               Disabled="@(!_canAdminister.Allowed)"
+                               Help="Blank means no mail is sent at all — notifications are dropped rather than queued, and the product would rather say so than pretend." />
+
+                    <CheckField Label="Enforce separation of duties"
+                                Disabled="@(!_canAdminister.Allowed)"
+                                @bind-Checked="_enforceSod" />
+                    <p class="field__help">
+                        Off by default, deliberately: a three-person team genuinely needs one person to
+                        hold two conflicting roles, and refusing by default would make the product
+                        unusable for exactly the organisation it is aimed at. On, the advisory becomes
+                        a refusal.
+                    </p>
+
+                    <div class="row" style="gap: var(--space-2); margin-top: var(--space-3)">
+                        <Button Variant="Button.ButtonVariant.Primary"
+                                Disabled="@(!_canAdminister.Allowed)" DisabledReason="@_canAdminister.Reason"
+                                OnClick="SaveSettings">Save settings</Button>
+                    </div>
+
+                    @if (_actionError is not null)
+                    {
+                        <p style="color: var(--color-critical)">@_actionError</p>
+                    }
+                    @if (_settingsSaved)
+                    {
+                        <p style="color: var(--color-pass)">Saved.</p>
+                    }
+
+                    <dl class="stamp" style="margin-top: var(--space-4)">
+                        <dt>Telemetry</dt>
+                        @* Not a preference. A compliance tool that phoned home
+                           would be reporting its customers' security posture to
+                           a third party. *@
+                        <dd>Off. Self-hosted means self-hosted — there is no switch.</dd>
+                        <dt>Version</dt>
+                        <dd class="mono">@_version</dd>
+                    </dl>
+                </Card>
+                break;
+
+            case SystemPanels.Audit:
+                <Card Padded="false">
+                    <div class="card-body row row--between">
+                        <div>
+                            <h2>Audit log</h2>
+                            <p class="field__help">
+                                Append-only. Risk acceptance, role grants and key changes are what an
+                                assessor reads first, which is why they are classes rather than search
+                                terms.
+                            </p>
+                        </div>
+                        <div class="row" style="gap: var(--space-2)">
+                            @foreach (var filter in AuditFilters)
+                            {
+                                <span @onclick="() => SetAuditFilter(filter.Key)" style="cursor: pointer">
+                                    <Chip Label="@filter.Value" Tone="@AuditTone(filter.Key)"
+                                          Style="@(_auditFilter == filter.Key ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                                </span>
+                            }
+                        </div>
+                    </div>
+
+                    @if (_audit.Count == 0)
+                    {
+                        <div class="card-body">
+                            <p class="muted">Nothing recorded@(_auditFilter is null ? "" : " in this class").</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <ScrollBox Label="Audit log">
+                            <table class="table">
+                                <thead>
+                                    <tr><th>When</th><th>Actor</th><th>Action</th><th>Scope</th><th>Class</th><th>Detail</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var entry in _audit)
+                                    {
+                                        <tr>
+                                            <td class="mono">@entry.At.ToString("yyyy-MM-dd HH:mm")</td>
+                                            <td>
+                                                @entry.ActorLogin
+                                                @if (entry.ActorWasAdmin)
+                                                {
+                                                    <span class="muted"> (admin)</span>
+                                                }
+                                                else if (entry.ActorRole is { } role)
+                                                {
+                                                    <span class="muted"> (@role)</span>
+                                                }
+                                            </td>
+                                            <td class="mono">@entry.Action</td>
+                                            <td>@entry.Scope</td>
+                                            <td>
+                                                <Chip Label="@entry.Class.ToString().ToLowerInvariant()"
+                                                      Tone="@AuditTone(entry.Class)"
+                                                      Style="Chip.ChipStyle.Outlined" />
+                                            </td>
+                                            <td class="muted" style="font-size: var(--text-secondary)">@entry.Detail</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </ScrollBox>
+                    }
+                </Card>
+                break;
+        }
+        }
+    </div>
 }
 
 @code {
@@ -35,9 +462,199 @@ else
 
     private static readonly string KnownPanels = string.Join(", ", SystemPanels.All);
 
-    private string Heading => $"System · {Panel ?? SystemPanels.Users}";
+    private static readonly KeyValuePair<AuditClass?, string>[] AuditFilters =
+    [
+        new(null, "all"),
+        new(AuditClass.Risk, "risk"),
+        new(AuditClass.Access, "access"),
+        new(AuditClass.Other, "other"),
+    ];
+
+    private string Current => Panel ?? SystemPanels.Users;
+
+    private AuthorizationDecision _canAdminister = AuthorizationDecision.Deny("Checking…");
+    private string? _error, _actionError;
+
+    private IReadOnlyList<UserRow> _users = [];
+    private IReadOnlyList<AssignmentRow> _assignments = [];
+    private Guid? _selectedUser;
+
+    private IReadOnlyList<ScannerRow> _scanners = [];
+    private HashSet<ScannerKind> _expected = [];
+    private bool _scannersDirty;
+
+    private InstanceSettings _settings = new();
+    private string? _instanceUrl, _sessionHours, _findingRetention, _buildRetention, _smtpHost;
+    private bool _enforceSod, _settingsSaved;
+
+    private IReadOnlyList<AuditRow> _audit = [];
+    private AuditClass? _auditFilter;
+
+    private static readonly string _version =
+        typeof(SystemAdminService).Assembly.GetName().Version?.ToString() ?? "unknown";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.Clear();
+        _error = null;
+
+        if (Panel is not null && !SystemPanels.IsValid(Panel)) return;
+
+        try
+        {
+            // Instance scope: only the admin flag grants anything here, because
+            // every ProjectRoleAssignment is scoped to at least a client.
+            _canAdminister = await Me.CanAsync(Capability.AssignRoles, ScopeTarget.Instance);
+            _settings = await Admin.SettingsAsync();
+
+            switch (Current)
+            {
+                case SystemPanels.Users:
+                    _users = await Admin.UsersAsync();
+                    if (_selectedUser is { } id) _assignments = await Admin.AssignmentsAsync(id);
+                    break;
+
+                case SystemPanels.Scanners:
+                    _scanners = await Admin.ScannersAsync(DateTimeOffset.UtcNow);
+                    if (!_scannersDirty)
+                    {
+                        _expected = _scanners.Where(s => s.Expected).Select(s => s.Kind).ToHashSet();
+                    }
+                    break;
+
+                case SystemPanels.Settings:
+                    _instanceUrl = _settings.InstanceUrl;
+                    _sessionHours = _settings.SessionLifetimeHours.ToString();
+                    _findingRetention = _settings.FindingRetentionDays?.ToString();
+                    _buildRetention = _settings.BuildRetentionDays?.ToString();
+                    _smtpHost = _settings.SmtpHost;
+                    _enforceSod = _settings.EnforceSeparationOfDuties;
+                    break;
+
+                case SystemPanels.Audit:
+                    _audit = await Admin.AuditAsync(_auditFilter);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetType().Name;
+        }
+    }
 
     private void GoToUsers() => Nav.NavigateTo(Routes.System());
 
-    protected override void OnParametersSet() => Scope.Clear();
+    private static string PanelLabel(string panel) => panel switch
+    {
+        SystemPanels.Users => "Users & RBAC",
+        SystemPanels.Authentication => "Authentication",
+        SystemPanels.Scanners => "Scanners & ingest",
+        SystemPanels.Settings => "Instance settings",
+        _ => "Audit log",
+    };
+
+    private async Task SelectUser(Guid id)
+    {
+        _selectedUser = _selectedUser == id ? null : id;
+        _assignments = _selectedUser is { } selected
+            ? await Admin.AssignmentsAsync(selected)
+            : [];
+    }
+
+    private async Task Approve(UserRow user, bool approved)
+    {
+        _actionError = null;
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _actionError = "You are not signed in."; return; }
+
+        var result = await Admin.ApproveAsync(actor, user.Id, approved);
+        if (!result.Success) { _actionError = result.Error; return; }
+
+        _users = await Admin.UsersAsync();
+    }
+
+    private async Task SetAdmin(UserRow user, bool isAdmin)
+    {
+        _actionError = null;
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _actionError = "You are not signed in."; return; }
+
+        var result = await Admin.SetAdminAsync(actor, user.Id, isAdmin);
+        if (!result.Success) { _actionError = result.Error; return; }
+
+        _users = await Admin.UsersAsync();
+    }
+
+    private async Task Revoke(Guid assignmentId)
+    {
+        _actionError = null;
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _actionError = "You are not signed in."; return; }
+
+        var result = await Admin.RevokeAsync(actor, assignmentId);
+        if (!result.Success) { _actionError = result.Error; return; }
+
+        _users = await Admin.UsersAsync();
+        if (_selectedUser is { } id) _assignments = await Admin.AssignmentsAsync(id);
+    }
+
+    private void ToggleExpected(ScannerKind kind, ChangeEventArgs e)
+    {
+        if (e.Value is true) _expected.Add(kind); else _expected.Remove(kind);
+        _scannersDirty = true;
+    }
+
+    private async Task SaveScanners()
+    {
+        _actionError = null;
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _actionError = "You are not signed in."; return; }
+
+        var result = await Admin.SetExpectedScannersAsync(actor, _expected.ToArray());
+        if (!result.Success) { _actionError = result.Error; return; }
+
+        _scannersDirty = false;
+        _scanners = await Admin.ScannersAsync(DateTimeOffset.UtcNow);
+    }
+
+    private async Task SaveSettings()
+    {
+        _actionError = null;
+        _settingsSaved = false;
+
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _actionError = "You are not signed in."; return; }
+
+        var proposed = new InstanceSettings
+        {
+            InstanceUrl = _instanceUrl,
+            SessionLifetimeHours = int.TryParse(_sessionHours, out var hours) ? hours : 0,
+            FindingRetentionDays = int.TryParse(_findingRetention, out var findings) ? findings : null,
+            BuildRetentionDays = int.TryParse(_buildRetention, out var builds) ? builds : null,
+            SmtpHost = _smtpHost,
+            SmtpPort = _settings.SmtpPort,
+            SmtpFrom = _settings.SmtpFrom,
+            EnforceSeparationOfDuties = _enforceSod,
+        };
+
+        var result = await Admin.SaveSettingsAsync(actor, proposed);
+        if (!result.Success) { _actionError = result.Error; return; }
+
+        _settingsSaved = true;
+        _settings = await Admin.SettingsAsync();
+    }
+
+    private async Task SetAuditFilter(AuditClass? @class)
+    {
+        _auditFilter = @class;
+        _audit = await Admin.AuditAsync(@class);
+    }
+
+    private static string AuditTone(AuditClass? @class) => @class switch
+    {
+        AuditClass.Risk => "var(--color-high)",
+        AuditClass.Access => "var(--color-accent)",
+        AuditClass.Other => "var(--color-neutral-500)",
+        _ => "var(--color-neutral-600)",
+    };
 }
