@@ -218,7 +218,9 @@ class Build : SecurityPipelineBuild
             // injection, jwt) catch patterns that aren't language-specific.
             var plan = OpenGrepCli.Scan(s => s
                 .AddTarget((RootDirectory / "src").Value)
-                .AddTarget((RootDirectory / "web" / "src").Value)
+                // web/ was retired with the SPA (TFND-128). The target stayed
+                // behind pointing at a directory that no longer exists — which
+                // OpenGrep tolerates silently, so nothing said so.
                 .AddConfig("auto")
                 .AddConfig("p/security-audit")
                 .AddConfig("p/owasp-top-ten")
