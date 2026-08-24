@@ -12,6 +12,7 @@
 @layout SignInLayout
 @inject NavigationManager Nav
 @inject SetupToken Setup
+@inject ISignInOptions SignInOptions
 @rendermode InteractiveServer
 
 <PageTitle>Sign in — tamp.findings</PageTitle>
@@ -57,12 +58,42 @@
             </p>
         }
 
-        @* A plain link, not a Blazor navigation: this leaves the app entirely
+        @* One button per configured provider (TFND-111 shipped the registry;
+           this page only ever offered the built-in GitHub scheme, so a
+           provider added through the admin screen had a working endpoint and
+           no way to reach it).
+
+           A plain link, not a Blazor navigation: this leaves the app entirely
            and hands off to the OAuth handler, which has to be a full request. *@
-        <a class="btn btn--primary" href="@LoginHref">
-            <Icon Name="lock" Size="14" />
-            <span>Continue with GitHub</span>
-        </a>
+        @if (_options is null)
+        {
+            <p class="muted">Loading sign-in options…</p>
+        }
+        else if (_options.Count == 0)
+        {
+            @* Said out loud rather than rendered as a card with no buttons.
+               No provider is configured, so NOBODY can sign in — including
+               whoever needs to sign in to fix it. That is an operator problem
+               and the page should name it, not look merely empty. *@
+            <div class="row" style="margin: var(--space-3) 0">
+                <Chip Label="No providers" Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" Glyph="✕" />
+                <span>This instance has no identity provider configured, so there is no way to sign in.</span>
+            </div>
+            <p class="field__help">
+                An operator has to add one — either the built-in GitHub OAuth credentials in the
+                environment, or a provider in the system administration screen.
+            </p>
+        }
+        else
+        {
+            foreach (var option in _options)
+            {
+                <a class="btn btn--primary" href="@Href(option)">
+                    <Icon Name="lock" Size="14" />
+                    <span>Continue with @option.DisplayName</span>
+                </a>
+            }
+        }
 
         <p class="field__help">
             New accounts start with read access and no role. An administrator grants roles per
@@ -80,30 +111,43 @@
 
     private string? _setupToken;
 
-    private string LoginHref
+    /// <summary>
+    /// Null until loaded — distinct from an empty list, which means no provider
+    /// is configured. The page renders those two states differently and must
+    /// never show "nobody can sign in" merely because the query has not
+    /// returned yet.
+    /// </summary>
+    private IReadOnlyList<SignInOption>? _options;
+
+    protected override async Task OnInitializedAsync() =>
+        _options = await SignInOptions.AvailableAsync();
+
+    private string Href(SignInOption option)
     {
-        get
+        // Only a LOCAL path is ever forwarded. An absolute URL here would
+        // make this an open redirect — a phisher could send someone a
+        // tamp.findings sign-in link that lands them somewhere else
+        // afterwards, having just typed a password into a real login page.
+        var target = ReturnUrl is { Length: > 0 } r && r.StartsWith('/') && !r.StartsWith("//")
+            ? r
+            : Routes.Portfolio;
+
+        var href = $"{option.LoginPath}?returnUrl={Uri.EscapeDataString(target)}";
+
+        // Only sent while the instance is unclaimed. Appending it once an
+        // admin exists would put a useless secret-shaped value in browser
+        // history and proxy logs for no reason.
+        //
+        // Offered on EVERY provider, not just the first: the claim is of the
+        // instance, not of a particular way in, and whoever is holding the
+        // startup log may not have an account with the provider that happens
+        // to be listed first.
+        if (Setup.IsRequired && !string.IsNullOrWhiteSpace(_setupToken))
         {
-            // Only a LOCAL path is ever forwarded. An absolute URL here would
-            // make this an open redirect — a phisher could send someone a
-            // tamp.findings sign-in link that lands them somewhere else
-            // afterwards, having just typed a password into a real login page.
-            var target = ReturnUrl is { Length: > 0 } r && r.StartsWith('/') && !r.StartsWith("//")
-                ? r
-                : Routes.Portfolio;
-
-            var href = $"/auth/login/github?returnUrl={Uri.EscapeDataString(target)}";
-
-            // Only sent while the instance is unclaimed. Appending it once an
-            // admin exists would put a useless secret-shaped value in browser
-            // history and proxy logs for no reason.
-            if (Setup.IsRequired && !string.IsNullOrWhiteSpace(_setupToken))
-            {
-                href += $"&setupToken={Uri.EscapeDataString(_setupToken)}";
-            }
-
-            return href;
+            href += $"&setupToken={Uri.EscapeDataString(_setupToken)}";
         }
+
+        return href;
     }
 
     private string ReasonText => Reason switch

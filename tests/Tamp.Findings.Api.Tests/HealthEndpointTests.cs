@@ -107,6 +107,19 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
     {
         Environment.SetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE", "true");
         Environment.SetEnvironmentVariable("TAMP_FINDINGS_DB", UnreachableDatabase);
+
+        // A configured identity provider, because every real deployment has
+        // one and the sign-in page now renders from the set that exists rather
+        // than from a hardcoded button. Without this the host offers no way in
+        // at all, and tests about the sign-in page would be asserting against
+        // a misconfiguration rather than against the page.
+        //
+        // The values are never exchanged with GitHub — no test completes an
+        // OAuth round-trip. They exist so the scheme registers, which is the
+        // condition the page actually reads.
+        Environment.SetEnvironmentVariable("GITHUB_CLIENT_ID", "test-client-id");
+        Environment.SetEnvironmentVariable("GITHUB_CLIENT_SECRET", "test-client-secret");
+
         return base.CreateHost(builder);
     }
 }

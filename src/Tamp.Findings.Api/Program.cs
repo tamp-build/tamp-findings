@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.Authentication;
 using Tamp.Findings.Application.Ingest;
 using Tamp.Findings.Application;
 using Tamp.Findings.Web.Components;
@@ -147,6 +148,12 @@ builder.Services.AddSingleton<DynamicSchemeRegistry>();
 builder.Services.AddSingleton<IConfigureOptions<OAuthOptions>, DynamicOAuthOptions>();
 builder.Services.AddSingleton<IConfigureOptions<OpenIdConnectOptions>, DynamicOidcOptions>();
 builder.Services.AddHostedService<IdentityProviderStartup>();
+
+// What the sign-in page renders a button for. Scoped because it asks the
+// scheme provider, and the set of schemes changes when a provider is added or
+// disabled without a redeploy — a singleton would cache the answer past the
+// change it exists to reflect.
+builder.Services.AddScoped<ISignInOptions, SignInOptionsProvider>();
 
 // Lets /_framework through the authorization gate so an anonymous visitor can
 // boot the circuit that renders the sign-in page. See the type for the two
