@@ -225,20 +225,34 @@ jobs:
         continue-on-error: true
         run: |
           corepack enable
-          pnpm install --dir build/tools/node
-
-          # Force chromedriver's postinstall — the step that DOWNLOADS the
-          # driver binary. pnpm blocks lifecycle scripts by default and the
-          # package.json onlyBuiltDependencies declaration did not take, so the
-          # package installs and the binary it exists to provide does not. axe
-          # then launches chrome-headless successfully and dies on
+          # chromedriver's postinstall is what DOWNLOADS the driver binary,
+          # and pnpm 10 refuses lifecycle scripts — including on `rebuild` —
+          # with ERR_PNPM_IGNORED_BUILDS unless explicitly allowed. Without the
+          # binary axe launches chrome-headless fine and then dies on
           # "spawn .../chromedriver ENOENT".
-          #
-          # `rebuild` is the documented way to run them regardless of policy.
-          pnpm -C build/tools/node rebuild chromedriver || echo "::warning::chromedriver rebuild failed"
+          pnpm install --dir build/tools/node --config.dangerouslyAllowAllBuilds=true             || pnpm install --dir build/tools/node
 
-          # Prove the binary is actually there before the scan claims it ran.
-          find build/tools/node -name 'chromedriver' -type f -perm -u+x 2>/dev/null | head -2             || echo "::warning::no chromedriver binary found after install"
+          # Whatever pnpm decided, the runner already ships a chromedriver.
+          # Link it into the path the package resolves, so the scan does not
+          # depend on a package manager's script policy.
+          DRIVER_DIR=$(find build/tools/node -type d -path '*chromedriver/lib/chromedriver' | head -1)
+          if [ -n "${DRIVER_DIR:-}" ] && [ ! -x "$DRIVER_DIR/chromedriver" ]; then
+            SYS_DRIVER=$(command -v chromedriver || true)
+            if [ -n "$SYS_DRIVER" ]; then
+              ln -sf "$SYS_DRIVER" "$DRIVER_DIR/chromedriver"
+              echo "linked system chromedriver: $SYS_DRIVER"
+            fi
+          fi
+
+          # Prove the binary exists before a scan can claim it ran. "Installed
+          # the package" and "has the binary" have been different things three
+          # times running here, and the difference was only visible from the
+          # scan failing minutes later.
+          if [ -x "${DRIVER_DIR:-/nonexistent}/chromedriver" ]; then
+            echo "chromedriver present: $DRIVER_DIR/chromedriver"
+          else
+            echo "::warning::no chromedriver binary — the accessibility scan will fail"
+          fi
 
       # ZAP and Nuclei as SEPARATE steps, not the ScanDast aggregate. Nuke
       # aborts a target chain on the first failure, so when ZAP could not reach
