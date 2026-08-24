@@ -131,6 +131,13 @@ jobs:
             echo "::warning::could not resolve a nuclei release asset"
           fi
 
+          # Nuclei ships no templates and the scan passes -duc (disable update
+          # check) on purpose, so it will never fetch them itself — "Could not
+          # run nuclei: no templates provided for scan". Fetching them here
+          # keeps the deliberate-pin intent while giving the scan something to
+          # run.
+          nuclei -update-templates -silent 2>&1 | tail -2 || echo "::warning::nuclei template fetch failed"
+
           echo "--- installed ---"
           syft version        2>/dev/null | head -2 || echo "syft: MISSING"
           grype version       2>/dev/null | head -2 || echo "grype: MISSING"
@@ -233,7 +240,14 @@ jobs:
           # localhost, and its failure mode is a clean report for a target it
           # never reached. The target's own pre-flight check refuses that.
           TAMP_FINDINGS_DAST_TARGET_URL: http://127.0.0.1:5080
-        run: dotnet run --project build -- SecurityScanZap --configuration Release
+        run: |
+          # ZAP runs as a non-root user INSIDE its container and writes the
+          # report into the mounted artifacts directory, which is owned by the
+          # runner user. Without this the scan completes — 38 URLs spidered —
+          # and then dies on "AccessDeniedException /zap/wrk/zap.sarif.json",
+          # which reads as a scan failure when the scan was fine.
+          mkdir -p artifacts/security && chmod -R a+rwX artifacts/security
+          dotnet run --project build -- SecurityScanZap --configuration Release
 
       - name: Dynamic scan (Nuclei)
         if: steps.creds.outputs.configured == 'true' && steps.app.outputs.up == 'true'
