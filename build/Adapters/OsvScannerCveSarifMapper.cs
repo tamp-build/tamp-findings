@@ -25,7 +25,10 @@ public static class OsvScannerCveSarifMapper
     {
         if (!File.Exists(sarifPath)) return [];
         SarifLog log;
-        try { log = SarifReader.LoadFromFile(AbsolutePath.Create(sarifPath)); }
+        // TFND-136: see SarifResultKindFilter. osv-scanner does not emit
+        // positive results today, but this is the shared read path and a
+        // scanner that starts doing so should not quietly become CVEs.
+        try { log = SarifResultKindFilter.LoadFailuresOnly(AbsolutePath.Create(sarifPath), out _); }
         catch { return []; }
 
         // Index rules by id so we can pull title / help-uri per finding.

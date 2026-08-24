@@ -21,7 +21,10 @@ public static class ScanRunReceiptBuilder
         if (!File.Exists(sarifPath)) yield break;
         SarifLog? log = null;
         ScanRunReceiptDto? failureReceipt = null;
-        try { log = SarifReader.LoadFromFile(AbsolutePath.Create(sarifPath)); }
+        // TFND-136: the receipt counts FINDINGS, so passing and not-applicable
+        // results must not inflate it — the count feeds the SSDF attestation
+        // evidence, not just the dashboard.
+        try { log = SarifResultKindFilter.LoadFailuresOnly(AbsolutePath.Create(sarifPath), out _); }
         catch
         {
             failureReceipt = new ScanRunReceiptDto(
