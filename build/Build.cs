@@ -358,10 +358,33 @@ class Build : SecurityPipelineBuild
                 return;
             }
 
+            // TODO(TAM-283): pass SecurityJsonAxeCoreFile directly once the
+            // wrapper exposes --dir (or splits a rooted path itself).
+            //
+            // An ABSOLUTE --save path can never be written. @axe-core/cli does
+            // `path.join(dir, fileName)` with dir defaulting to cwd, and
+            // path.join CONCATENATES an absolute second segment instead of
+            // resetting to it — so an absolute output file became
+            // <cwd>/<abs path>, whose parent directories do not exist, and the
+            // write failed with a single line of stderr: "Unable to save
+            // file!". It guards path.isAbsolute for `dir` but not for the
+            // filename.
+            //
+            // This cost a full CI cycle to see, because the scan itself is
+            // fine: it launches the browser, drives the page, finds real
+            // violations, prints them — and then discards them. The exit code
+            // is 1, which for this CLI already means "violations found", so a
+            // broken invocation is shaped exactly like a successful one. The
+            // file-existence check below is what separates them.
+            //
+            // A path relative to the working directory joins correctly, and
+            // the target directory is created above.
+            var axeOutput = Path.GetRelativePath(NodeToolsDir.Value, SecurityJsonAxeCoreFile.Value);
+
             var scanPlan = AxeCoreCli.Scan(s => s
                 .SetWorkingDirectory(NodeToolsDir.Value)
                 .AddUrl(url)
-                .SetOutputFile(SecurityJsonAxeCoreFile.Value)
+                .SetOutputFile(axeOutput)
                 .AddTag("wcag2a").AddTag("wcag2aa").AddTag("wcag21aa").AddTag("best-practice")
                 // NO SetBrowser, deliberately. @axe-core/cli's parseBrowser
                 // defaults to 'chrome-headless' when nothing is passed, which
@@ -392,7 +415,8 @@ class Build : SecurityPipelineBuild
             if (!File.Exists(SecurityJsonAxeCoreFile.Value))
             {
                 throw new Exception(
-                    $"axe-core exited {scanRc} but wrote no results to {SecurityJsonAxeCoreFile.Value}. "
+                    $"axe-core exited {scanRc} but wrote no results to {SecurityJsonAxeCoreFile.Value} "
+                  + $"(--save {axeOutput}, relative to {NodeToolsDir}). "
                   + "That is a tool error, not a clean scan — check the arguments above.");
             }
 
