@@ -1,13 +1,36 @@
-^\.git/
-.*/\.git/
-^node_modules/
-.*/node_modules/
-^artifacts/
-.*/artifacts/
-.*/bin/
-.*/obj/
-^web/dist/
-.*/dist/
-^\.vs/
-.*/\.vs/
+# Paths TruffleHog must not walk. Passed via --exclude-paths.
+#
+# These are REGEXES matched against the path as the OS reports it, so every
+# separator is written [\\/] to match both. Writing them with a forward slash
+# only — which is how this file started — makes every exclusion silently inert
+# on Windows: TruffleHog reports `.git\objects\...`, `^\.git/` does not match
+# it, and the scan walks everything.
+#
+# The failure is invisible. You get findings, not an error, and they look
+# plausible until you read the paths. It produced 99 "secrets" here, every one
+# of them a compressed git blob, a third-party file under node_modules, or a
+# Postgres WAL segment.
+
+# Git internals. Compressed object blobs are effectively random bytes, and
+# random bytes match credential detectors at a steady rate.
+(^|[\\/])\.git[\\/]
+
+# Third-party code. Not ours to fix, and the tree is enormous.
+(^|[\\/])node_modules[\\/]
+
+# Our own scan output — findings about findings.
+(^|[\\/])artifacts[\\/]
+
+# Build output.
+(^|[\\/])(bin|obj|dist)[\\/]
+(^|[\\/])\.vs[\\/]
+
+# The LOCAL DATABASE. docker/.data is the dev Postgres volume: data files, WAL
+# segments, the lot. Scanning it is noise at best — and if a detector ever did
+# match, the finding would be reporting the CONTENTS of the dev database as a
+# secret in the repository, which is both wrong and a rather unfortunate thing
+# to file into a compliance tool.
+(^|[\\/])docker[\\/]\.data[\\/]
+
+# Lock files: hashes, not credentials.
 .*\.lock\.json$
