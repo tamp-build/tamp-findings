@@ -227,6 +227,19 @@ jobs:
           corepack enable
           pnpm install --dir build/tools/node
 
+          # Force chromedriver's postinstall — the step that DOWNLOADS the
+          # driver binary. pnpm blocks lifecycle scripts by default and the
+          # package.json onlyBuiltDependencies declaration did not take, so the
+          # package installs and the binary it exists to provide does not. axe
+          # then launches chrome-headless successfully and dies on
+          # "spawn .../chromedriver ENOENT".
+          #
+          # `rebuild` is the documented way to run them regardless of policy.
+          pnpm -C build/tools/node rebuild chromedriver || echo "::warning::chromedriver rebuild failed"
+
+          # Prove the binary is actually there before the scan claims it ran.
+          find build/tools/node -name 'chromedriver' -type f -perm -u+x 2>/dev/null | head -2             || echo "::warning::no chromedriver binary found after install"
+
       # ZAP and Nuclei as SEPARATE steps, not the ScanDast aggregate. Nuke
       # aborts a target chain on the first failure, so when ZAP could not reach
       # the target on the first CI run it took Nuclei down with it — Nuclei runs
