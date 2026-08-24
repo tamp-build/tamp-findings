@@ -29,6 +29,17 @@
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
             <NotAuthorized>
+                @* Both router fallbacks need their own PageTitle. They are
+                   rendered INSTEAD of the page component, so the page's
+                   <PageTitle> never runs and HeadOutlet emits nothing at all
+                   — an untitled document, which is WCAG 2.4.2 Page Titled.
+                   Our own axe-core leg caught this on the anonymous root.
+
+                   It is not a corner case: this is what every signed-out
+                   visitor following a deep link sees, and an untitled tab
+                   reads as the bare URL to a screen reader and to anyone
+                   with more than a few tabs open. *@
+                <PageTitle>Not signed in — tamp.findings</PageTitle>
                 @* Carries the current URL through, so signing in returns the
                    reader to the deep link they followed rather than dumping
                    them on the portfolio. That is the whole point of having
@@ -50,6 +61,10 @@
            mistyped or stale deep link — someone who still has somewhere to
            go. *@
         <LayoutView Layout="@typeof(MainLayout)">
+            @* See the note on NotAuthorized above — same reason. NotFoundPage
+               carries its own title, but this inline fallback is a separate
+               render path and does not inherit it. *@
+            <PageTitle>Nothing at this address — tamp.findings</PageTitle>
             <div class="stack">
                 <h1>Nothing at this address</h1>
                 <Card>
