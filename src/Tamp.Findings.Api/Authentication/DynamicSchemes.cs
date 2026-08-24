@@ -270,6 +270,10 @@ public sealed class DynamicOidcOptions : IConfigureNamedOptions<OpenIdConnectOpt
         options.Events = new OpenIdConnectEvents
         {
             OnTokenValidated = AuthExtensions.HandleOidcTicket,
+            // The same last gate the GitHub scheme uses. Both providers refuse
+            // through one guard, checked against the principal itself, rather
+            // than depending on two different handlers' Fail() semantics.
+            OnTicketReceived = AuthExtensions.HandleTicketReceived,
             OnRemoteFailure = ctx =>
             {
                 ctx.Response.Redirect($"/signin?error={AuthExtensions.FailureReason(ctx.Failure)}");

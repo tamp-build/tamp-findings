@@ -33,6 +33,12 @@ public static class AuthExtensions
     public const string SetupTokenItem = "tamp.setupToken";
     public const string TampIsAdminClaim = "urn:tamp.findings:isAdmin";
 
+    /// <summary>
+    /// Why the sign-in was refused, carried on the authentication properties
+    /// from the point of decision to the point the cookie would be written.
+    /// </summary>
+    private const string RefusedItem = "tamp.signin.refused";
+
     public static IServiceCollection AddTampFindingsAuth(this IServiceCollection services, IConfiguration config)
     {
         // Config layering:
@@ -127,6 +133,7 @@ public static class AuthExtensions
                     // happened, because they are holding the right token and
                     // being refused — arrived as a generic failure.
                     OnRemoteFailure = HandleRemoteFailure,
+                    OnTicketReceived = HandleTicketReceived,
                 };
             });
 
@@ -239,6 +246,20 @@ public static class AuthExtensions
 
         if (!outcome.Ok)
         {
+            // BOTH, and the second one is the one that works.
+            //
+            // OAuthHandler.CreateTicketAsync ignores the result set by Fail()
+            // — it builds the ticket from context.Principal regardless. So a
+            // refused sign-in was still issued a cookie, carrying the raw
+            // OAuth identity: authenticated, with no name and no user row.
+            // Every [Authorize] page then admitted it, because it genuinely
+            // was authenticated. A wrong setup token got you the portfolio.
+            //
+            // The marker rides on the properties to HandleTicketReceived,
+            // which runs immediately before SignInAsync and can actually stop
+            // it. Fail() stays because it is correct for the OIDC path and
+            // costs nothing here.
+            ctx.Properties.Items[RefusedItem] = outcome.Reason;
             ctx.Fail(outcome.Reason!);
             return;
         }
@@ -296,6 +317,11 @@ public static class AuthExtensions
 
         if (!outcome.Ok)
         {
+            // OpenIdConnectHandler DOES honour Fail() here, so this path was
+            // never issuing a cookie it should not have. The marker is set
+            // anyway so both providers refuse through one guard rather than
+            // relying on two different framework behaviours staying true.
+            ctx.Properties!.Items[RefusedItem] = outcome.Reason;
             ctx.Fail(outcome.Reason!);
             return;
         }
@@ -323,6 +349,45 @@ public static class AuthExtensions
         user.IsApproved = true;
         user.IsAdmin = true;
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The last gate before a cookie exists.
+    ///
+    /// Runs immediately before SignInAsync, and HandleResponse() here returns
+    /// from HandleRequestAsync BEFORE the sign-in call — which is what makes
+    /// this able to stop a ticket that the per-provider events could not.
+    ///
+    /// Two conditions refuse:
+    ///
+    ///   1. An explicit refusal recorded by the provider's ticket handler.
+    ///
+    ///   2. A principal with no <see cref="TampUserIdClaim"/>. That claim is
+    ///      only ever set from a real user row, so its absence means the
+    ///      identity did not come from ExternalSignIn — no approved account
+    ///      stands behind it. Checking the invariant rather than trusting the
+    ///      event is the point: this holds whether or not a given handler's
+    ///      Fail() is honoured, and it is exactly what was missing when a
+    ///      rejected setup token still produced a signed-in session.
+    /// </summary>
+    internal static Task HandleTicketReceived(TicketReceivedContext ctx)
+    {
+        // Declared up front: with the null-conditional call the compiler cannot
+        // see it as definitely assigned, and properties genuinely can be null.
+        string? refused = null;
+        ctx.Properties?.Items.TryGetValue(RefusedItem, out refused);
+
+        var identified = ctx.Principal?.HasClaim(c => c.Type == TampUserIdClaim) == true;
+        if (refused is null && identified) return Task.CompletedTask;
+
+        // Never let a refusal fall through as a generic error: "remote_failure"
+        // on a wrong setup token is precisely the message that sent someone
+        // hunting the wrong problem.
+        var reason = refused ?? "remote_failure";
+
+        ctx.Response.Redirect($"/signin?error={reason}");
+        ctx.HandleResponse();
+        return Task.CompletedTask;
     }
 
     /// <summary>
