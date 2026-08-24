@@ -44,10 +44,13 @@ public class PageTitleTests
         // in production until axe-core flagged it.
         var routes = File.ReadAllText(Path.Combine(WebRoot(), "Components", "Routes.razor"));
 
-        var block = Regex.Match(routes, $@"<{section}>(.*?)</{section}>", RegexOptions.Singleline);
+        // Tolerates attributes on the opening tag: <NotAuthorized Context="authState">.
+        // Matching only the bare tag made this fail the moment the block needed
+        // to know whether the visitor was signed in.
+        var block = Regex.Match(routes, $@"<{section}(\s[^>]*)?>(.*?)</{section}>", RegexOptions.Singleline);
         Assert.True(block.Success, $"<{section}> block not found in Routes.razor — was the router restructured?");
 
-        Assert.True(block.Groups[1].Value.Contains("<PageTitle", StringComparison.Ordinal),
+        Assert.True(block.Groups[2].Value.Contains("<PageTitle", StringComparison.Ordinal),
             $"The <{section}> router fallback renders without a <PageTitle>, so it produces an "
             + "untitled document. It replaces the page component, so the page's own title does not apply.");
     }

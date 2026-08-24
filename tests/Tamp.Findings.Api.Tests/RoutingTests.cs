@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc.Testing;
 using System.Net;
 using Tamp.Findings.Web.Routing;
 
@@ -124,12 +125,16 @@ public class RoutingTests : IClassFixture<TestApiFactory>
     {
         // A page that matches everything is the easiest place to accidentally
         // publish the application chrome to someone who has not signed in.
-        var client = _factory.CreateClient();
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var body = await client.GetStringAsync("/definitely-not-a-route");
+        var resp = await client.GetAsync("/definitely-not-a-route");
 
-        Assert.DoesNotContain("Nothing at this address", body, StringComparison.Ordinal);
-        Assert.Contains("Not signed in", body, StringComparison.Ordinal);
+        // The catch-all carries [Authorize], so an anonymous visitor is sent to
+        // sign in rather than shown the shell. They learn nothing about whether
+        // the address exists, which is the correct amount for someone with no
+        // session to learn.
+        Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
+        Assert.Equal("/signin", resp.Headers.Location!.AbsolutePath);
     }
 
     [Fact]
@@ -139,12 +144,15 @@ public class RoutingTests : IClassFixture<TestApiFactory>
         // [Authorize]), not at the endpoint — an endpoint gate also blocks the
         // framework script and answers a browser with JSON. What matters is
         // that the screen body does not reach an anonymous reader.
-        var client = _factory.CreateClient();
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var body = await client.GetStringAsync("/c/brewingcoder/p/tamp/build/179fe8b");
+        var resp = await client.GetAsync("/c/brewingcoder/p/tamp/build/179fe8b");
 
-        Assert.Contains("not signed in", body, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Project hub", body, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
+        Assert.Equal("/signin", resp.Headers.Location!.AbsolutePath);
+
+        // Nothing of the screen itself was written on the way out.
+        Assert.DoesNotContain("Project hub", await resp.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
     // ------------------------------------------------------------------

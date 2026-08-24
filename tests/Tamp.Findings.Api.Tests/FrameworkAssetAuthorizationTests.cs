@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc.Testing;
 using System.Net;
 
 namespace Tamp.Findings.Api.Tests;
@@ -56,14 +57,26 @@ public class FrameworkAssetAuthorizationTests : IClassFixture<TestApiFactory>
     }
 
     [Fact]
-    public async Task Project_screens_still_render_nothing_to_an_anonymous_visitor()
+    public async Task Project_screens_send_an_anonymous_visitor_to_sign_in()
     {
-        var client = _factory.CreateClient();
+        // Redirected now, not answered with a signed-out shell. Rendering the
+        // chrome to someone who can see nothing in it makes every panel look
+        // empty rather than closed, which is indistinguishable from an
+        // instance that simply has no data.
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var body = await client.GetStringAsync("/c/brewingcoder/p/tamp/build/179fe8b");
+        var resp = await client.GetAsync("/c/brewingcoder/p/tamp/build/179fe8b");
 
-        Assert.Contains("Not signed in", body, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Project hub", body, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
+
+        // Location comes back absolute, so compare the path rather than the
+        // whole string.
+        var location = resp.Headers.Location!;
+        Assert.Equal("/signin", location.AbsolutePath);
+
+        // The deep link survives, so signing in returns them to the page they
+        // asked for rather than the portfolio.
+        Assert.Contains(Uri.EscapeDataString("/c/brewingcoder/p/tamp/build/179fe8b"), location.Query, StringComparison.Ordinal);
     }
 
     [Fact]

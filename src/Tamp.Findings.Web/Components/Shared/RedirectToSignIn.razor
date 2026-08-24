@@ -1,0 +1,31 @@
+@* Sends an anonymous visitor to the sign-in screen instead of rendering a
+   signed-out shell.
+
+   Rendering the chrome for someone who cannot see any data in it is a worse
+   answer than a login page: every panel reads as empty rather than as
+   forbidden, which looks exactly like an instance with nothing in it. The
+   distinction between "no data" and "not allowed to see the data" is one this
+   product cannot afford to blur.
+
+   Redirects rather than rendering, so no layout is sent at all. Under static
+   SSR NavigateTo raises a NavigationException that the framework turns into a
+   real redirect response before any markup is written; under interactive
+   rendering it navigates the circuit. Both end up on /signin having shown
+   nothing in between.
+
+   Only ever for the UNAUTHENTICATED case. Someone who is signed in and simply
+   lacks a role must be told that, not bounced to a login page that would sign
+   them into the account they are already using. *@
+@inject NavigationManager Nav
+
+@code {
+    protected override void OnInitialized()
+    {
+        // The deep link they actually followed, so signing in returns them to
+        // it. Relative and rebuilt from the base path — never the absolute Uri,
+        // which would ride through as an open-redirect parameter.
+        var target = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+
+        Nav.NavigateTo($"/signin?returnUrl={Uri.EscapeDataString(target)}");
+    }
+}
