@@ -1,3 +1,4 @@
+using Tamp.Findings.Application.SystemAdmin;
 using Tamp.Findings.Application.Authentication;
 using Tamp.Findings.Application.Ingest;
 using Tamp.Findings.Application;
@@ -131,6 +132,12 @@ builder.Services.AddCors(options =>
 });
 
 // TFND-4 OIDC sign-in. Cookie session + GitHub OAuth challenge.
+// Durable key ring, BEFORE auth (TFND-137). The cookie handler reads data
+// protection when it is configured, and an ephemeral ring means every restart
+// signs out every user — and a second replica cannot read the first one's
+// cookies at all.
+builder.Services.AddTampFindingsDataProtection();
+
 builder.Services.AddTampFindingsAuth(builder.Configuration);
 
 // TFND-111: identity providers configured in the DATABASE, registered at

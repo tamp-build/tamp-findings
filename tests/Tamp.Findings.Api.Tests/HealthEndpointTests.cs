@@ -1,3 +1,9 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.DataProtection.Repositories;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using System.Xml.Linq;
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -121,5 +127,39 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("GITHUB_CLIENT_SECRET", "test-client-secret");
 
         return base.CreateHost(builder);
+    }
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+        // The host keeps its data-protection keys in the database (TFND-137),
+        // and this factory points at a database that is not there — on purpose,
+        // so rendering can be tested without Postgres.
+        //
+        // Left alone, every page that renders antiforgery state 500s while
+        // reaching for a key ring it cannot load, and roughly a hundred tests
+        // fail for a reason that has nothing to do with what they assert.
+        //
+        // So the tests get a ring in memory. Registered through
+        // ConfigureTestServices, which runs after the application's own
+        // registrations and therefore wins. Production is untouched, and
+        // HostDataProtectionTests covers the real configuration directly rather
+        // than through this host.
+        builder.ConfigureTestServices(services =>
+            services.AddOptions<KeyManagementOptions>()
+                .Configure(o => o.XmlRepository = new InMemoryXmlRepository()));
+
+    /// <summary>A key ring that lives and dies with the test host.</summary>
+    private sealed class InMemoryXmlRepository : IXmlRepository
+    {
+        private readonly List<XElement> _elements = [];
+
+        public IReadOnlyCollection<XElement> GetAllElements()
+        {
+            lock (_elements) return _elements.ToArray();
+        }
+
+        public void StoreElement(XElement element, string friendlyName)
+        {
+            lock (_elements) _elements.Add(element);
+        }
     }
 }
