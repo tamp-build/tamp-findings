@@ -220,39 +220,32 @@ jobs:
 
       # axe-core needs its Node tooling. Separate from the binary installs
       # because it is the only leg that wants a package manager.
+      # axe-core needs its Node tooling AND a matched Chrome/ChromeDriver
+      # pair. Separate from the binary installs because it is the only leg that
+      # wants a package manager.
       - name: Install axe-core tooling
         if: steps.creds.outputs.configured == 'true' && steps.app.outputs.up == 'true'
         continue-on-error: true
         run: |
           corepack enable
-          # chromedriver's postinstall is what DOWNLOADS the driver binary,
-          # and pnpm 10 refuses lifecycle scripts — including on `rebuild` —
-          # with ERR_PNPM_IGNORED_BUILDS unless explicitly allowed. Without the
-          # binary axe launches chrome-headless fine and then dies on
-          # "spawn .../chromedriver ENOENT".
-          pnpm install --dir build/tools/node --config.dangerouslyAllowAllBuilds=true             || pnpm install --dir build/tools/node
+          pnpm install --dir build/tools/node
 
-          # Whatever pnpm decided, the runner already ships a chromedriver.
-          # Link it into the path the package resolves, so the scan does not
-          # depend on a package manager's script policy.
-          DRIVER_DIR=$(find build/tools/node -type d -path '*chromedriver/lib/chromedriver' | head -1)
-          if [ -n "${DRIVER_DIR:-}" ] && [ ! -x "$DRIVER_DIR/chromedriver" ]; then
-            SYS_DRIVER=$(command -v chromedriver || true)
-            if [ -n "$SYS_DRIVER" ]; then
-              ln -sf "$SYS_DRIVER" "$DRIVER_DIR/chromedriver"
-              echo "linked system chromedriver: $SYS_DRIVER"
-            fi
-          fi
+          # The chromedriver npm package pins a version (152) that will not
+          # match whatever Chrome the runner happens to ship (151 today), and
+          # ChromeDriver refuses to drive a different major: "session not
+          # created: This version of ChromeDriver only supports Chrome version
+          # 152". Pinning either side just moves the mismatch.
+          #
+          # browser-driver-manager installs a MATCHED pair and writes
+          # ~/.browser-driver-manager/.env, which is where @axe-core/cli reads
+          # CHROME_TEST_PATH and CHROMEDRIVER_TEST_PATH from — so this is the
+          # mechanism the tool is built around rather than a workaround.
+          npx -y browser-driver-manager install chrome             || echo "::warning::browser-driver-manager failed — the accessibility scan will likely fail"
 
-          # Prove the binary exists before a scan can claim it ran. "Installed
-          # the package" and "has the binary" have been different things three
-          # times running here, and the difference was only visible from the
-          # scan failing minutes later.
-          if [ -x "${DRIVER_DIR:-/nonexistent}/chromedriver" ]; then
-            echo "chromedriver present: $DRIVER_DIR/chromedriver"
-          else
-            echo "::warning::no chromedriver binary — the accessibility scan will fail"
-          fi
+          # Prove it before a scan can claim to have run. "Installed the
+          # package" and "can actually drive a browser" have been different
+          # things at every attempt here.
+          cat "$HOME/.browser-driver-manager/.env" 2>/dev/null || echo "::warning::no browser-driver-manager env written"
 
       # ZAP and Nuclei as SEPARATE steps, not the ScanDast aggregate. Nuke
       # aborts a target chain on the first failure, so when ZAP could not reach
