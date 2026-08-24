@@ -227,8 +227,15 @@ jobs:
         if: steps.creds.outputs.configured == 'true' && steps.app.outputs.up == 'true'
         continue-on-error: true
         run: |
+          # `set +e` and an explicit tolerate: pnpm exits 1 on
+          # ERR_PNPM_IGNORED_BUILDS (it refuses chromedriver's postinstall),
+          # and this step runs under `bash -e`. So the install "failing" killed
+          # the step before browser-driver-manager could run at all — which is
+          # why the driver kept disappearing. The ignored build is harmless
+          # here precisely BECAUSE the driver comes from browser-driver-manager
+          # below.
           corepack enable
-          pnpm install --dir build/tools/node
+          pnpm install --dir build/tools/node || echo "(pnpm reported ignored build scripts — expected)"
 
           # The chromedriver npm package pins a version (152) that will not
           # match whatever Chrome the runner happens to ship (151 today), and
