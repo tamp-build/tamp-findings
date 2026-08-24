@@ -55,6 +55,31 @@ RUN dotnet publish src/Tamp.Findings.Api/Tamp.Findings.Api.csproj \
 # -----------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 
+# ICU. The alpine runtime images ship WITHOUT it and set
+# DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1, under which constructing any named
+# culture throws — including the "en" this app sets as its default request
+# culture (Program.cs, TFND-67). The container exited 139 on startup with
+# "Only the invariant culture is supported in globalization-invariant mode".
+#
+# It had been broken since the localisation work landed and nothing noticed,
+# because CI built the image but never RAN it. Building an image proves it
+# compiles; starting it is a different claim.
+#
+# icu-data-full rather than the default slice: the pseudo-locale (qps-ploc)
+# used to verify ~40% string expansion is not in the trimmed data set, so a
+# partial install would swap a hard crash for a feature that silently does not
+# work.
+#
+# Must run BEFORE the USER line below — apk needs root.
+#
+# krb5-libs is for Npgsql, which probes for GSSAPI at startup and logs
+# "Error: Error loading shared library libgssapi_krb5.so.2" without it. The
+# app runs fine either way — but a permanent, harmless line reading "Error:"
+# in the startup log of a compliance tool is how operators learn to skim past
+# errors, and the fix is one package.
+RUN apk add --no-cache icu-libs icu-data-full tzdata krb5-libs
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
+
 # Non-root user — Kubernetes pod security standards "restricted" profile
 # expects pods to run as a non-root UID. The aspnet:10.0-alpine base
 # image already ships an `app` user / group; we reuse it rather than

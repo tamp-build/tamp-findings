@@ -9,9 +9,15 @@ name: Dogfood scan + ingest
 #   TAMP_FINDINGS_URL            e.g. https://tamp-findings.brewingcoder.com
 #   TAMP_FINDINGS_INGEST_TOKEN   a cli_/prj_ token minted in the app
 #
-# DAST (ZAP + Nuclei) is not run here. ScanAll and ScanDast are mutually
-# exclusive by nature — ScanAll rebuilds with NoIncremental and needs the API
-# stopped, DAST needs a deployed running target. DAST stays on its own path.
+# ONE job, in order, because the dynamic scans need something the static ones
+# do not: a running instance. ScanAll goes first (its Roslyn leg rebuilds with
+# NoIncremental and wants nothing holding the DLLs), then the image is built
+# and started against a Postgres service, then ZAP / Nuclei / axe-core scan it.
+#
+# Every scan step is continue-on-error. A scanner that fails to install or
+# errors out must not read as a code failure — and it must not read as a clean
+# scan either, which is what the scan-run receipts are for: a scanner with no
+# receipt shows as "never ran" on the dashboard rather than as green.
 
 on:
   push:
@@ -33,7 +39,24 @@ jobs:
   scan:
     name: Scan and ingest
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+
+    # The app under dynamic scan needs a database. Reachable on localhost
+    # because the app container below runs with --network host.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: tamp_findings
+          POSTGRES_USER: tamp
+          POSTGRES_PASSWORD: tamp
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,19 +89,55 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('Directory.Packages.props', '**/packages.lock.json') }}
           restore-keys: nuget-${{ runner.os }}-
 
-      # The Tamp wrappers resolve these from PATH (Build.cs uses
-      # [FromPath("grype")] / [FromPath("trufflehog")]) and the targets
-      # .Requires() them, so a missing binary fails the leg rather than
-      # skipping it quietly.
+      # The Tamp wrappers resolve these from PATH and the targets .Requires()
+      # them, so a missing binary fails its leg rather than skipping it quietly.
+      #
+      # Each installer is separately best-effort: one upstream install script
+      # having a bad day should cost that scanner's leg, not the whole run. The
+      # version dump at the end is the record of what actually made it.
       - name: Install scanners
         if: steps.creds.outputs.configured == 'true'
+        continue-on-error: true
         run: |
-          set -euo pipefail
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh  | sh -s -- -b /usr/local/bin
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
-          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin
-          syft version && grype version && trivy --version && trufflehog --version
+          set -uo pipefail
+          B=/usr/local/bin
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh  | sh -s -- -b $B || echo "::warning::syft install failed"
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b $B || echo "::warning::grype install failed"
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $B || echo "::warning::trivy install failed"
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b $B || echo "::warning::trufflehog install failed"
+
+          # OpenGrep — the primary SAST leg. Without it the sast gate has
+          # nothing behind it.
+          curl -sSfL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash || echo "::warning::opengrep install failed"
+          echo "$HOME/.opengrep/cli/latest" >> "$GITHUB_PATH"
+
+          # OSV-Scanner — cross-ecosystem CVE rows that Grype's SBOM pass can
+          # miss (TFND-16 reconciles the two).
+          curl -sSfL -o $B/osv-scanner \
+            https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 \
+            && chmod +x $B/osv-scanner || echo "::warning::osv-scanner install failed"
+
+          # Nuclei — template-driven DAST against the container started below.
+          # The asset filename carries the version, so
+          # `releases/latest/download/<fixed-name>` 404s the moment upstream
+          # ships a release — it was pinned to 3.3.7 while latest was 3.11.1.
+          # Resolve the real asset from the API instead.
+          NUCLEI_URL=$(curl -sSfL https://api.github.com/repos/projectdiscovery/nuclei/releases/latest \
+            | grep -oE 'https://[^"]+nuclei_[0-9.]+_linux_amd64\.zip' | head -1)
+          if [ -n "${NUCLEI_URL:-}" ]; then
+            curl -sSfL -o /tmp/nuclei.zip "$NUCLEI_URL" \
+              && unzip -oq /tmp/nuclei.zip -d $B && chmod +x $B/nuclei || echo "::warning::nuclei install failed"
+          else
+            echo "::warning::could not resolve a nuclei release asset"
+          fi
+
+          echo "--- installed ---"
+          syft version        2>/dev/null | head -2 || echo "syft: MISSING"
+          grype version       2>/dev/null | head -2 || echo "grype: MISSING"
+          trivy --version     2>/dev/null | head -1 || echo "trivy: MISSING"
+          trufflehog --version 2>&1        | head -1 || echo "trufflehog: MISSING"
+          osv-scanner --version 2>/dev/null | head -1 || echo "osv-scanner: MISSING"
+          nuclei -version     2>&1         | head -2 || echo "nuclei: MISSING"
 
       # Grype's first run downloads its vulnerability database (~5 min per the
       # ScanAll target description). Cached across runs by date.
@@ -90,14 +149,99 @@ jobs:
           key: grype-db-${{ github.run_id }}
           restore-keys: grype-db-
 
-      - name: Scan
+      # Tests and coverage are NOT part of ScanAll, so before this step the
+      # dogfood run posted neither — leaving the coverage gate permanently
+      # Unknown and the test-failure gate with nothing to read. A failing test
+      # is data for this product, not a reason to stop: continue-on-error, and
+      # the failure gets ingested like any other finding.
+      - name: Test and coverage
         if: steps.creds.outputs.configured == 'true'
-        # Best effort. A scanner that fails to download or errors out must not
-        # read as a code failure — but it must also not read as a clean scan,
-        # which is what the ingest step's receipts are for.
+        continue-on-error: true
+        run: dotnet run --project build -- Coverage --configuration Release
+
+      - name: Static scans
+        if: steps.creds.outputs.configured == 'true'
         continue-on-error: true
         run: dotnet run --project build -- ScanAll --configuration Release
 
+      # ---- the dynamic half needs something running -----------------------
+
+      - name: Build the image
+        if: steps.creds.outputs.configured == 'true'
+        continue-on-error: true
+        run: dotnet run --project build -- DockerBuildImage --configuration Release
+
+      - name: Start the app for dynamic scanning
+        id: app
+        if: steps.creds.outputs.configured == 'true'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          # Exactly the first 7 characters, matching Build.cs's
+          # ImageTag => Git.Commit[..7]. `git rev-parse --short=7` returns the
+          # shortest UNIQUE prefix of at least 7, which can be longer — and
+          # then the tag would not be the one the build just created.
+          SHA=$(git rev-parse HEAD | cut -c1-7)
+
+          # --network host so the container reaches the Postgres service on
+          # localhost and the runner reaches the app on localhost.
+          docker run -d --name tamp-findings-dast --network host \
+            -e TAMP_FINDINGS_DB="Host=localhost;Port=5432;Database=tamp_findings;Username=tamp;Password=tamp" \
+            -e ASPNETCORE_URLS="http://0.0.0.0:5080" \
+            "registry.home.local/tamp-findings:${SHA}" || {
+              echo "::warning::could not start the app container — dynamic scans will be skipped"
+              echo "up=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            }
+
+          # Wait on /ready, not /health. Liveness answers "the process is up"
+          # without touching the database — scanning an instance that cannot
+          # serve a request would produce a clean DAST result for an app that
+          # is not working.
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:5080/ready >/dev/null 2>&1; then
+              echo "app ready after ${i}s"
+              echo "up=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::warning::app did not become ready — dynamic scans will be skipped"
+          docker logs tamp-findings-dast 2>&1 | tail -40
+          echo "up=false" >> "$GITHUB_OUTPUT"
+
+      # axe-core needs its Node tooling. Separate from the binary installs
+      # because it is the only leg that wants a package manager.
+      - name: Install axe-core tooling
+        if: steps.creds.outputs.configured == 'true' && steps.app.outputs.up == 'true'
+        continue-on-error: true
+        run: |
+          corepack enable
+          pnpm install --dir build/tools/node
+
+      - name: Dynamic scans (ZAP + Nuclei)
+        if: steps.creds.outputs.configured == 'true' && steps.app.outputs.up == 'true'
+        continue-on-error: true
+        env:
+          # 127.0.0.1 rather than localhost: nuclei does not always resolve
+          # localhost, and its failure mode is a clean report for a target it
+          # never reached. The target's own pre-flight check refuses that.
+          TAMP_FINDINGS_DAST_TARGET_URL: http://127.0.0.1:5080
+        run: dotnet run --project build -- ScanDast --configuration Release
+
+      - name: Accessibility scan (axe-core)
+        if: steps.creds.outputs.configured == 'true' && steps.app.outputs.up == 'true'
+        continue-on-error: true
+        env:
+          TAMP_FINDINGS_AXE_TARGET_URL: http://127.0.0.1:5080
+        run: dotnet run --project build -- SecurityScanAxeCore --configuration Release
+
+      # ---- and post the lot -----------------------------------------------
+
+      # Static findings, SBOM, coverage, tests, receipts — and axe-core, which
+      # rides here rather than with the DAST ingest because it describes the
+      # browser surface ("web"), not the deployed target.
       - name: Ingest
         if: steps.creds.outputs.configured == 'true'
         env:
@@ -106,10 +250,42 @@ jobs:
           CI_BUILD_ID: ${{ github.run_id }}
         run: dotnet run --project build -- Ingest --configuration Release
 
+      # ZAP + Nuclei, under the "deployed" flavor. Its own target because the
+      # full Ingest would file them against the wrong flavor.
+      - name: Ingest dynamic findings
+        if: steps.creds.outputs.configured == 'true' && steps.app.outputs.up == 'true'
+        continue-on-error: true
+        env:
+          TAMP_FINDINGS_URL: ${{ secrets.TAMP_FINDINGS_URL }}
+          TAMP_FINDINGS_INGEST_TOKEN: ${{ secrets.TAMP_FINDINGS_INGEST_TOKEN }}
+          CI_BUILD_ID: ${{ github.run_id }}
+        run: dotnet run --project build -- IngestDast --configuration Release
+
+      # TFND-134. The base image behind the artefact, read remotely so a stale
+      # local copy cannot answer with the wrong publish date.
+      - name: Ingest container image metadata
+        if: steps.creds.outputs.configured == 'true'
+        continue-on-error: true
+        env:
+          TAMP_FINDINGS_URL: ${{ secrets.TAMP_FINDINGS_URL }}
+          TAMP_FINDINGS_INGEST_TOKEN: ${{ secrets.TAMP_FINDINGS_INGEST_TOKEN }}
+          CI_BUILD_ID: ${{ github.run_id }}
+        run: dotnet run --project build -- InspectContainerImage --configuration Release
+
+      - name: App logs
+        if: always() && steps.app.outputs.up == 'true'
+        continue-on-error: true
+        run: docker logs tamp-findings-dast 2>&1 | tail -60
+
       - name: Upload scan artifacts
         if: always() && steps.creds.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: security-artifacts
-          path: artifacts/security/
+          # Test results too: when a leg fails, the question is almost always
+          # "what did the scanner actually emit", and artifacts/security alone
+          # cannot answer it for the coverage and test legs.
+          path: |
+            artifacts/security/
+            artifacts/test-results/
           if-no-files-found: warn
