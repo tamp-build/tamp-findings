@@ -28,29 +28,49 @@
 <Router AppAssembly="@typeof(Routes).Assembly">
     <Found Context="routeData">
         <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
-            <NotAuthorized>
-                @* Both router fallbacks need their own PageTitle. They are
-                   rendered INSTEAD of the page component, so the page's
-                   <PageTitle> never runs and HeadOutlet emits nothing at all
-                   — an untitled document, which is WCAG 2.4.2 Page Titled.
-                   Our own axe-core leg caught this on the anonymous root.
+            <NotAuthorized Context="authState">
+                @* Two different failures wear the same name here, and they need
+                   opposite answers.
 
-                   It is not a corner case: this is what every signed-out
-                   visitor following a deep link sees, and an untitled tab
-                   reads as the bare URL to a screen reader and to anyone
-                   with more than a few tabs open. *@
-                <PageTitle>Not signed in — tamp.findings</PageTitle>
-                @* Carries the current URL through, so signing in returns the
-                   reader to the deep link they followed rather than dumping
-                   them on the portfolio. That is the whole point of having
-                   addressable URLs. *@
-                <div class="stack">
-                    <h1>Not signed in</h1>
-                    <Card>
-                        <p>You need to sign in to see this.</p>
-                        <a class="btn btn--primary" href="@SignInHref">Sign in</a>
-                    </Card>
-                </div>
+                   NOT SIGNED IN: go to the sign-in screen. Rendering the app
+                   chrome for someone with no session shows a shell where every
+                   panel is empty, which is indistinguishable from an instance
+                   that has no data — the one confusion this product must not
+                   introduce.
+
+                   SIGNED IN, NO ROLE: say so. Redirecting would send them to
+                   sign in as the account they are already using, which either
+                   loops or silently returns them to the same wall. Their
+                   problem is a missing grant and only an administrator can
+                   fix it, so the page has to name that. *@
+                @if (authState.User.Identity?.IsAuthenticated is true)
+                {
+                    @* Both router fallbacks need their own PageTitle. They are
+                       rendered INSTEAD of the page component, so the page's
+                       <PageTitle> never runs and HeadOutlet emits nothing at
+                       all — an untitled document, which is WCAG 2.4.2 Page
+                       Titled. Our own axe-core leg caught this. *@
+                    <PageTitle>No access — tamp.findings</PageTitle>
+                    <div class="stack">
+                        <h1>No access</h1>
+                        <Card>
+                            <p>
+                                You are signed in as <strong>@(authState.User.Identity?.Name)</strong>,
+                                but that account has no role covering this.
+                            </p>
+                            <p class="field__help">
+                                Roles are granted per client, project or component. An administrator
+                                has to grant one — until then this address stays closed, and nothing
+                                you can do on this screen will change that.
+                            </p>
+                            <a class="btn btn--primary" href="@PortfolioHref">Back to the portfolio</a>
+                        </Card>
+                    </div>
+                }
+                else
+                {
+                    <RedirectToSignIn />
+                }
             </NotAuthorized>
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
@@ -87,6 +107,4 @@
     // to the component rather than to the URL scheme.
     private static string PortfolioHref => Tamp.Findings.Web.Routing.Routes.Portfolio;
 
-    private string SignInHref =>
-        $"/signin?returnUrl={Uri.EscapeDataString("/" + Nav.ToBaseRelativePath(Nav.Uri))}";
 }
