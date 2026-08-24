@@ -1352,7 +1352,20 @@ class Build : SecurityPipelineBuild
             Console.WriteLine($"[ingest] {label,-10} — file not found at {path.Value}, skipping");
             return;
         }
-        var log = SarifReader.LoadFromFile(path);
+        // TFND-136: only FAILURES are findings. axe-core reports what it
+        // checked as well as what it found — a clean page produced 221 results,
+        // 164 kind=pass and 57 kind=notApplicable, and every one of them was
+        // ingested as an accessibility finding. That is the product's own
+        // thesis inverted: a count of zero means nobody looked, and a count of
+        // 221 that means everything passed sends a reader to the worst-looking
+        // screen on the board to find nothing wrong.
+        //
+        // Filtered here rather than in the mapper so the receipt builder cannot
+        // disagree with the findings about what the scan produced.
+        var log = SarifResultKindFilter.LoadFailuresOnly(path, out var notFailures);
+        if (notFailures > 0)
+            Console.WriteLine($"[ingest] {label,-10} — {notFailures} passing/not-applicable result(s) are not findings, skipped");
+
         var totalPosted = 0;
         foreach (var payload in SarifIngestMapper.Map(log, ctx))
         {

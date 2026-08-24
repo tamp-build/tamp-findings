@@ -23,4 +23,14 @@
     <ProjectReference Include="..\..\src\Tamp.Findings.Api\Tamp.Findings.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- TFND-136. The pure half of the build's SARIF kind filter, compiled in
+         directly rather than via a ProjectReference to the Nuke build: that
+         would pull its MSBuild transitives (which carry known advisories) into
+         a repo that builds with TreatWarningsAsErrors. The logic decides what
+         counts as a finding, so it needs a test more than it needs a tidy
+         project graph. -->
+    <Compile Include="$(MSBuildThisFileDirectory)../../build/Adapters/SarifResultKindFilter.cs"
+             Link="Build/SarifResultKindFilter.cs" />
+  </ItemGroup>
 </Project>
