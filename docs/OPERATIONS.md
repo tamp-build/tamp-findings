@@ -105,6 +105,79 @@ Then start the instance. It runs any pending migrations on boot, so restoring an
 
 ---
 
+## Wiping an instance
+
+Emptying a test or demo instance to start clean. **This revokes credentials**, which is the
+part that surprises people — the data goes, and so does the instance's ability to be talked
+to.
+
+### Take a dump first, even for data you do not want
+
+```bash
+kubectl exec -n <ns> <postgres-pod> --   pg_dump -U <user> -d <db> --clean --if-exists > preclaim-backup.sql
+grep -c "PostgreSQL database dump complete" preclaim-backup.sql   # must print 1
+```
+
+Costs seconds and makes the wipe reversible. Check the terminator: a dump that was cut off
+mid-write still looks like a file.
+
+### The wipe
+
+```sql
+DO $$
+DECLARE tables text;
+BEGIN
+    SELECT string_agg(format('%I.%I', schemaname, tablename), ', ')
+      INTO tables FROM pg_tables
+     WHERE schemaname = 'public' AND tablename <> '__EFMigrationsHistory';
+    EXECUTE format('TRUNCATE TABLE %s RESTART IDENTITY CASCADE', tables);
+END $$;
+```
+
+`__EFMigrationsHistory` is kept deliberately: the schema then still matches the running image
+and startup migrations stay a no-op. Dropping it instead makes the app re-run every migration
+against tables that already exist.
+
+Restart the app afterwards. The setup token is armed at startup and only when the user count
+is zero, so an instance wiped while running stays unclaimable until it restarts.
+
+### What a wipe revokes
+
+Each of these is a table, so `TRUNCATE` takes it. None of them announce themselves.
+
+| Table | What stops working |
+|---|---|
+| `IngestTokens` | **Every CI pipeline posting to this instance starts returning 401.** The token is stored as a SHA-256 hash; wiping the row does not invalidate the secret your pipeline holds, it just makes it match nothing. |
+| `Clients`, `Projects`, `Components` | The hierarchy tokens are scoped to. A token cannot be re-minted until its client exists again. |
+| `DataProtectionKeys` | Every existing session cookie. Also every encrypted identity-provider secret — though after a full wipe there are none left to decrypt. |
+| `IdentityProviders` | Google/Entra/other configured sign-in methods. The built-in GitHub scheme survives because it is configured through environment variables, not the database — which is the only reason a wiped instance is still reachable at all. |
+| `Users` | The admin seat. This is usually the point: the instance becomes claimable again. |
+
+### Checklist after a wipe
+
+1. **Restart** the deployment so the setup token arms, and read it from the startup log.
+2. **Claim the admin seat** — sign in and enter that token. It disarms the moment it succeeds.
+3. **Recreate the client** the pipeline posts under.
+4. **Mint a new ingest token** and update wherever CI keeps it. Mint it through the API or the
+   settings screen rather than with SQL, so it goes through the authorization path and is
+   recorded:
+
+   ```bash
+   # as an authenticated admin
+   curl -X POST "$URL/clients/$CLIENT_ID/tokens"         -H 'Content-Type: application/json'         -d '{"Name":"ci · <what it is for>"}'
+   # plaintext is in the response ONCE and is never recoverable
+   gh secret set TAMP_FINDINGS_INGEST_TOKEN < token.txt && rm token.txt
+   ```
+
+5. **Re-add identity providers** if the instance had any beyond the built-in GitHub scheme.
+6. **Run the pipeline** and confirm the ingest returns 2xx rather than 401.
+
+Skipping step 4 is the common one. The scans all still run and pass — it is only the step that
+*reports* them that fails, so the pipeline looks broken in a way that has nothing to do with
+scanning, and the receipts silently stop arriving.
+
+---
+
 ## Pointing a build at an instance
 
 `TAMP_FINDINGS_URL` decides where the Nuke ingest targets post. **Leave it unset locally** — the build then defaults to `http://localhost:5080`.
