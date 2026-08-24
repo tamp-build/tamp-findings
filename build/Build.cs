@@ -363,10 +363,15 @@ class Build : SecurityPipelineBuild
                 .AddUrl(url)
                 .SetOutputFile(SecurityJsonAxeCoreFile.Value)
                 .AddTag("wcag2a").AddTag("wcag2aa").AddTag("wcag21aa").AddTag("best-practice")
-                // "chrome-headless", not "chromium": @axe-core/cli 4.13 throws
-                // "Unknown browser chromium" outright. Headless because CI has
-                // no display, and the GitHub runners ship Chrome.
-                .SetBrowser("chrome-headless")
+                // NO SetBrowser, deliberately. @axe-core/cli's parseBrowser
+                // defaults to 'chrome-headless' when nothing is passed, which
+                // is exactly what CI wants — and it is the only way to GET
+                // headless: the switch matches against
+                // 'chrome'.substring(0, input.length), so any value longer
+                // than "chrome" can never match. Both "chromium" and
+                // "chrome-headless" throw "Unknown browser"; passing "chrome"
+                // would work but asks for a headed browser, which has no
+                // display on a runner.
                 // No SetNoSandbox: @axe-core/cli 4.10 rejects --no-sandbox
                 // outright ("error: unknown option"). It exited 1, which the
                 // check below used to read as "violations found", so a
