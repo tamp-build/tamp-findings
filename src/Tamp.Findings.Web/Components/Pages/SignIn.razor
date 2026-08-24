@@ -103,8 +103,16 @@
 </div>
 
 @code {
-    /// <summary>Set by /auth/denied so the reason survives the redirect.</summary>
-    [SupplyParameterFromQuery] public string? Reason { get; set; }
+    /// <summary>
+    /// Why the last attempt failed, if it did.
+    ///
+    /// Bound to "error" because that is the name every producer actually
+    /// sends — OnRemoteFailure on both the OAuth and OIDC paths, and the
+    /// unknown-provider redirect. Unnamed, this bound to "reason" and so was
+    /// never populated by anything: the page has had a written explanation for
+    /// a rejected setup token this whole time and no way to reach it.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "error")] public string? Reason { get; set; }
 
     /// <summary>Where to return after signing in. Defaults to the portfolio.</summary>
     [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
@@ -150,6 +158,9 @@
         return href;
     }
 
+    // Every value FailureReason can produce is answered here. Anything it can
+    // emit that this does not name renders as the generic message, which tells
+    // the reader nothing they can act on.
     private string ReasonText => Reason switch
     {
         "not_approved" =>
@@ -158,7 +169,17 @@
             "Your identity provider did not share an email address, which this instance requires.",
         "setup_token" =>
             "That setup token was wrong, so no account was created. The instance is still unclaimed — "
-            + "check the startup log and try again.",
+            + "check the startup log and try again. Surrounding whitespace is ignored, so a stray "
+            + "newline from copying it is not the problem.",
+        "domain_not_allowed" =>
+            "This instance only registers accounts from specific email domains, and yours is not one "
+            + "of them. An administrator sets that list.",
+        "mfa_required" =>
+            "This instance requires multi-factor authentication for your role, and your identity "
+            + "provider did not assert that you used it.",
+        "unknown_provider" =>
+            "That sign-in method is not configured on this instance any more. Use one of the options "
+            + "below.",
         _ => "Sign-in did not complete. Try again, or ask an administrator to check the logs.",
     };
 }

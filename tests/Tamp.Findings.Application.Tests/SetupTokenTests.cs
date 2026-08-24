@@ -127,4 +127,60 @@ public class SetupTokenTests
             Environment.SetEnvironmentVariable(SetupToken.EnvironmentVariable, null);
         }
     }
+
+    [Theory]
+    [InlineData("  {0}")]
+    [InlineData("{0}  ")]
+    [InlineData("\n{0}\n")]
+    [InlineData("\r\n{0}")]
+    [InlineData("\t{0} ")]
+    public void Whitespace_around_a_pasted_token_is_ignored(string template)
+    {
+        // The token is 40 hex characters, so surrounding whitespace can only
+        // have come from the clipboard — and copying it out of a startup banner
+        // or a `kubectl logs` line picks up a newline remarkably often.
+        //
+        // Without this the rejection is indistinguishable from a wrong token:
+        // the operator is looking at the correct value on screen, pastes it,
+        // and is refused with nothing to see. That is exactly how the first
+        // real claim attempt against the cluster failed.
+        var token = new SetupToken();
+        token.Arm(0);
+        var real = token.ValueForStartupLog!;
+
+        Assert.True(token.Validate(string.Format(template, real)));
+    }
+
+    [Fact]
+    public void Whitespace_cannot_make_a_wrong_token_right()
+    {
+        // Trimming is a convenience, not a loosening. Only the surrounding
+        // whitespace is discarded; the value still has to match exactly.
+        var token = new SetupToken();
+        token.Arm(0);
+
+        Assert.False(token.Validate("  not-the-token  "));
+        Assert.False(token.Validate("   "));
+        Assert.False(token.Validate(token.ValueForStartupLog![..^1] + " "));
+    }
+
+    [Fact]
+    public void A_pinned_token_tolerates_a_trailing_newline_from_its_source()
+    {
+        // A Kubernetes secret, a .env file or a shell heredoc all ship one
+        // easily, and the operator never sees it.
+        Environment.SetEnvironmentVariable(SetupToken.EnvironmentVariable, "pinned-value-for-iac\n");
+        try
+        {
+            var token = new SetupToken();
+            token.Arm(0);
+
+            Assert.Equal("pinned-value-for-iac", token.ValueForStartupLog);
+            Assert.True(token.Validate("pinned-value-for-iac"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(SetupToken.EnvironmentVariable, null);
+        }
+    }
 }
