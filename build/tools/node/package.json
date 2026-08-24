@@ -5,5 +5,10 @@
   "devDependencies": {
     "@axe-core/cli": "^4.10.1",
     "axe-sarif-converter": "^2.11.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "chromedriver"
+    ]
   }
 }
