@@ -114,22 +114,19 @@ public static class AuthExtensions
                 o.Events = new OAuthEvents
                 {
                     OnCreatingTicket = HandleGitHubTicket,
-                    OnRemoteFailure = ctx =>
-                    {
-                        // Land the user back on the SPA root with an error
-                        // query param. SignInView reads ?error= and renders
-                        // the appropriate message — keeps the user inside
-                        // the SPA shell instead of bouncing to a standalone
-                        // HTML page. /auth/denied stays as a no-SPA fallback.
-                        var reason = ctx.Failure?.Message switch
-                        {
-                            "not_approved" => "not_approved",
-                            _ => "remote_failure",
-                        };
-                        ctx.Response.Redirect($"/?error={reason}");
-                        ctx.HandleResponse();
-                        return Task.CompletedTask;
-                    },
+                    // Same handler as the OIDC path. This used to be an
+                    // inline copy that redirected to "/" — written for the
+                    // React SPA, whose SignInView read ?error= off the root.
+                    // TFND-128 retired that SPA and the handler outlived it,
+                    // so a refused GitHub sign-in landed on the application
+                    // root instead of the sign-in page.
+                    //
+                    // It also collapsed everything except not_approved into
+                    // "remote_failure", so a rejected setup token — the one
+                    // case where the reader most needs to be told what
+                    // happened, because they are holding the right token and
+                    // being refused — arrived as a generic failure.
+                    OnRemoteFailure = HandleRemoteFailure,
                 };
             });
 

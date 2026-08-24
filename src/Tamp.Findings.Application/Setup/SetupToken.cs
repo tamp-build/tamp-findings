@@ -63,7 +63,11 @@ public sealed class SetupToken
             return;
         }
 
-        _value = Environment.GetEnvironmentVariable(EnvironmentVariable) is { Length: > 0 } pinned
+        // Trimmed: an operator setting this through a Kubernetes secret, a
+        // .env file or a shell heredoc very easily ships a trailing newline,
+        // and a token that differs from the one they typed by an invisible
+        // character is the worst kind of wrong.
+        _value = Environment.GetEnvironmentVariable(EnvironmentVariable)?.Trim() is { Length: > 0 } pinned
             ? pinned
             // 160 bits. Well past guessable, and short enough that someone can
             // copy it out of a terminal without wrapping.
@@ -80,7 +84,19 @@ public sealed class SetupToken
     /// </summary>
     public bool Validate(string? candidate)
     {
-        if (_value is null || string.IsNullOrEmpty(candidate)) return false;
+        if (_value is null) return false;
+
+        // Surrounding whitespace is never part of the token — it is 40 hex
+        // characters — so it can only have come from the clipboard. Copying it
+        // out of a terminal banner or a `kubectl logs` line picks up a trailing
+        // newline or a leading space remarkably often, and the resulting
+        // rejection is indistinguishable from a wrong token: the operator sees
+        // the right value on screen, pastes it, and is refused.
+        //
+        // Trimming loses nothing. Whitespace carries no entropy and cannot make
+        // a wrong token right.
+        candidate = candidate?.Trim();
+        if (string.IsNullOrEmpty(candidate)) return false;
 
         var expected = System.Text.Encoding.UTF8.GetBytes(_value);
         var actual = System.Text.Encoding.UTF8.GetBytes(candidate);
