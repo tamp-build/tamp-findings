@@ -420,12 +420,55 @@ class Build : SecurityPipelineBuild
                   + "That is a tool error, not a clean scan — check the arguments above.");
             }
 
-            var sarifPlan = AxeCoreCli.ConvertToSarif(s => s
-                .SetWorkingDirectory(NodeToolsDir.Value)
-                .SetInputFile(SecurityJsonAxeCoreFile.Value)
-                .SetOutputFile(SecuritySarifAxeCoreFile.Value));
+            // TODO(TAM-284): go back to AxeCoreCli.ConvertToSarif once the
+            // wrapper emits the flags.
+            //
+            // It passes both paths POSITIONALLY, and axe-sarif-converter takes
+            // neither that way — -i and -o are both declared required, so every
+            // invocation fails its argument check, prints its whole help text
+            // and exits 1. The method cannot ever have worked; there is no
+            // other code path through it.
+            //
+            // The cost of that landed here as a missing receipt: the scan ran,
+            // found a real WCAG violation, wrote its JSON, and the finding was
+            // thrown away one step later. On our own dashboard a missing
+            // receipt reads as "nobody looked", which is precisely the failure
+            // this product exists to make visible.
+            var converter = AxeCoreBinaryResolver.TryResolveSarifConverter(NodeToolsDir.Value)
+                ?? throw new Exception(
+                    $"axe-sarif-converter could not be resolved under {NodeToolsDir}. "
+                  + "IsAvailable passed above, so this means the scan tool is installed and the "
+                  + "converter is not — run: pnpm install --dir build/tools/node");
+
+            var sarifPlan = new CommandPlan
+            {
+                Executable = converter.Executable,
+                Arguments =
+                [
+                    .. converter.PrefixArguments,
+                    "-i", SecurityJsonAxeCoreFile.Value,
+                    "-o", SecuritySarifAxeCoreFile.Value,
+                    // Without --force the converter refuses to overwrite, so
+                    // the second run on any machine that keeps its artifacts
+                    // fails on a file the first run wrote.
+                    "--force",
+                ],
+                WorkingDirectory = NodeToolsDir.Value,
+            };
             var convertRc = ProcessRunner.Execute(sarifPlan, Console.Out, Console.Error);
             if (convertRc != 0) throw new Exception($"axe-sarif-converter exited with {convertRc}");
+
+            // Same reasoning as the scan guard above: the exit code is not the
+            // evidence, the file is. A converter that writes nowhere useful
+            // still leaves the ingest step with nothing to post, and that is
+            // indistinguishable from a leg that never ran.
+            if (!File.Exists(SecuritySarifAxeCoreFile.Value))
+            {
+                throw new Exception(
+                    $"axe-sarif-converter exited 0 but wrote no SARIF to {SecuritySarifAxeCoreFile.Value}.");
+            }
+
+            Console.WriteLine($"[security] AxeCore → {SecuritySarifAxeCoreFile.Value}");
         });
 
     // TFND-38 / TAM-278: ZAP DAST via Tamp.Zap 0.1.0.
