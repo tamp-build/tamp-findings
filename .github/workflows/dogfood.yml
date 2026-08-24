@@ -220,7 +220,12 @@ jobs:
           corepack enable
           pnpm install --dir build/tools/node
 
-      - name: Dynamic scans (ZAP + Nuclei)
+      # ZAP and Nuclei as SEPARATE steps, not the ScanDast aggregate. Nuke
+      # aborts a target chain on the first failure, so when ZAP could not reach
+      # the target on the first CI run it took Nuclei down with it — Nuclei runs
+      # on the host and would have been fine. One scanner failing must not
+      # silently remove another.
+      - name: Dynamic scan (ZAP)
         if: steps.creds.outputs.configured == 'true' && steps.app.outputs.up == 'true'
         continue-on-error: true
         env:
@@ -228,7 +233,14 @@ jobs:
           # localhost, and its failure mode is a clean report for a target it
           # never reached. The target's own pre-flight check refuses that.
           TAMP_FINDINGS_DAST_TARGET_URL: http://127.0.0.1:5080
-        run: dotnet run --project build -- ScanDast --configuration Release
+        run: dotnet run --project build -- SecurityScanZap --configuration Release
+
+      - name: Dynamic scan (Nuclei)
+        if: steps.creds.outputs.configured == 'true' && steps.app.outputs.up == 'true'
+        continue-on-error: true
+        env:
+          TAMP_FINDINGS_DAST_TARGET_URL: http://127.0.0.1:5080
+        run: dotnet run --project build -- SecurityScanNuclei --configuration Release
 
       - name: Accessibility scan (axe-core)
         if: steps.creds.outputs.configured == 'true' && steps.app.outputs.up == 'true'

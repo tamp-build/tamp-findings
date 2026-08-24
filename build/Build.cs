@@ -154,6 +154,10 @@ class Build : SecurityPipelineBuild
     // deployed app — that's the point of the dashboard being multi-tenant.
     // Set these to file a scan of an external target under its own hierarchy
     // instead of silently attributing it to this repo.
+    [Parameter("Docker --network for the ZAP container. Defaults to 'host' on Linux; unset elsewhere.",
+        EnvironmentVariable = "TAMP_FINDINGS_ZAP_NETWORK")]
+    readonly string? ZapNetworkMode;
+
     [Parameter("Ingest client name override", EnvironmentVariable = "TAMP_FINDINGS_INGEST_CLIENT")]
     readonly string? IngestClientOverride;
 
@@ -342,13 +346,29 @@ class Build : SecurityPipelineBuild
                 .SetOutputFile(SecurityJsonAxeCoreFile.Value)
                 .AddTag("wcag2a").AddTag("wcag2aa").AddTag("wcag21aa").AddTag("best-practice")
                 .SetBrowser("chromium")
-                .SetNoSandbox()
+                // No SetNoSandbox: @axe-core/cli 4.10 rejects --no-sandbox
+                // outright ("error: unknown option"). It exited 1, which the
+                // check below used to read as "violations found", so a
+                // rejected argument looked like a completed scan.
                 .SetTimeoutSeconds(60)
                 .SetLoadDelayMs(2000));
             var scanRc = ProcessRunner.Execute(scanPlan, Console.Out, Console.Error);
             // axe-core: 0 = no violations, 1 = violations found (still a
             // successful scan), 2+ = tool error. Mirrors ESLint posture.
             if (scanRc > 1) throw new Exception($"axe-core exited with {scanRc}");
+
+            // Exit code alone is not enough. A CLI that rejects an argument
+            // also exits 1, and "1" here is supposed to mean "violations
+            // found" — so the only trustworthy evidence that a scan happened
+            // is the file it was asked to write. Without this, a broken
+            // invocation reads as a clean run and the converter is handed
+            // nothing, which is exactly how this failed in CI.
+            if (!File.Exists(SecurityJsonAxeCoreFile.Value))
+            {
+                throw new Exception(
+                    $"axe-core exited {scanRc} but wrote no results to {SecurityJsonAxeCoreFile.Value}. "
+                  + "That is a tool error, not a clean scan — check the arguments above.");
+            }
 
             var sarifPlan = AxeCoreCli.ConvertToSarif(s => s
                 .SetWorkingDirectory(NodeToolsDir.Value)
@@ -403,9 +423,26 @@ class Build : SecurityPipelineBuild
                     ? ZapAutomationPlan.Active(DastTargetUrl!, SecuritySarifZapFile.Name, excludePaths: excludes)
                     : ZapAutomationPlan.Anonymous(DastTargetUrl!, SecuritySarifZapFile.Name, excludePaths: excludes));
 
+            // ZAP runs in a CONTAINER, so 127.0.0.1 inside it is ZAP's own
+            // loopback — not the host. Against a target on the build machine
+            // that is a flat "Connection refused", which is how the first CI
+            // run failed even though the app was up and answering.
+            //
+            // On Linux, --network host puts ZAP in the host's namespace and
+            // 127.0.0.1 means what the caller meant. Elsewhere (Docker Desktop)
+            // there is no host networking and the target should be addressed
+            // as host.docker.internal instead, so the mode is left unset.
+            var networkMode = string.IsNullOrWhiteSpace(ZapNetworkMode)
+                ? (OperatingSystem.IsLinux() ? "host" : null)
+                : ZapNetworkMode;
+
+            if (networkMode is not null)
+                Console.WriteLine($"[security] ZAP container network: {networkMode}");
+
             var plan = ZapCli.Automation(s => s
                 .SetWorkingDirectory(RootDirectory)
                 .SetWorkDirectory(workDir)
+                .SetNetworkMode(networkMode)
                 .SetPlanFile(planFile));
 
             var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
