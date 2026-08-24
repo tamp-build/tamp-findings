@@ -248,6 +248,24 @@ class Build : SecurityPipelineBuild
                 .SetDisableVersionCheck(true)
                 .SetWorkingDirectory(RootDirectory.Value));
             var rc = ProcessRunner.Execute(plan, Console.Out, Console.Error);
+
+            // A clean scan still has to leave evidence it happened.
+            //
+            // Nuclei writes no SARIF when it finds nothing, so the receipt
+            // builder — which reads receipts OUT of the SARIF — produced
+            // nothing either, and the dashboard showed Nuclei as "never ran".
+            // That is the precise defect this product exists to make visible,
+            // occurring in its own pipeline: a scan that ran clean and a scan
+            // that never happened looked identical.
+            //
+            // Writing the empty-but-valid report is how every other scanner in
+            // the chain already behaves (OpenGrep reports 0 findings and gets a
+            // receipt saying so).
+            if (rc == 0 && !File.Exists(SecuritySarifNucleiFile.Value))
+            {
+                Console.WriteLine("[security] Nuclei found nothing — writing an empty SARIF so the run still gets a receipt.");
+                File.WriteAllText(SecuritySarifNucleiFile.Value, EmptySarif("nuclei"));
+            }
             // opengrep exits 0 = clean, 1 = findings reported, both fine for ingest.
             if (rc != 0 && rc != 1) throw new Exception($"opengrep exited with {rc}");
         });
@@ -345,7 +363,10 @@ class Build : SecurityPipelineBuild
                 .AddUrl(url)
                 .SetOutputFile(SecurityJsonAxeCoreFile.Value)
                 .AddTag("wcag2a").AddTag("wcag2aa").AddTag("wcag21aa").AddTag("best-practice")
-                .SetBrowser("chromium")
+                // "chrome-headless", not "chromium": @axe-core/cli 4.13 throws
+                // "Unknown browser chromium" outright. Headless because CI has
+                // no display, and the GitHub runners ship Chrome.
+                .SetBrowser("chrome-headless")
                 // No SetNoSandbox: @axe-core/cli 4.10 rejects --no-sandbox
                 // outright ("error: unknown option"). It exited 1, which the
                 // check below used to read as "violations found", so a
@@ -390,6 +411,25 @@ class Build : SecurityPipelineBuild
     // nothing outside the intended public allow-list answers without
     // credentials. The authenticated + active profiles need a disposable
     // target and a session/token, which is a separate opt-in target.
+    /// <summary>
+    /// A valid SARIF 2.1.0 log with no results.
+    ///
+    /// For scanners that write nothing when they find nothing. The receipt is
+    /// built from the SARIF, so "no file" and "no findings" are the same thing
+    /// downstream — and they must not be, because one of them means nobody
+    /// looked.
+    /// </summary>
+    static string EmptySarif(string toolName) =>
+        """
+        {
+          "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+          "version": "2.1.0",
+          "runs": [
+            { "tool": { "driver": { "name": "TOOL_NAME" } }, "results": [] }
+          ]
+        }
+        """.Replace("TOOL_NAME", toolName);
+
     Target SecurityScanZap => _ => _
         .Description("ZAP DAST (anonymous baseline) against the deployed app; SARIF for /ingest/findings. Requires Docker.")
         .Executes(() =>
