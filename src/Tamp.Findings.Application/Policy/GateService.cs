@@ -62,8 +62,16 @@ public sealed class GateService
             .ToArray();
     }
 
+    /// <summary>This project's enforcement-mode override, or null when it inherits.</summary>
+    public async Task<EnforcementMode?> EnforcementOverrideAsync(Guid projectId, CancellationToken ct = default) =>
+        (await _db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => p.GatesConfig)
+            .SingleOrDefaultAsync(ct))?.EnforcementMode;
+
     public async Task<Result<int>> SaveAsync(
         Principal actor, ScopeTarget scope, Guid projectId, IReadOnlyList<GateRow> gates,
+        EnforcementMode? enforcementMode = null,
         CancellationToken ct = default)
     {
         var decision = _capabilities.Evaluate(actor, Capability.EditGates);
@@ -90,10 +98,18 @@ public sealed class GateService
             };
         }
 
+        // Per-project enforcement override (TFND-148). Null → inherit
+        // (Client → Instance). A locked instance floor still wins at evaluation
+        // time (EnforcementResolution), so storing advisory here is honest even
+        // when it will be overridden upward.
+        after.EnforcementMode = enforcementMode;
+
         // The audit detail names what CHANGED, not the whole config. An
         // assessor asking "when did criticalDast get turned off?" should be
         // able to read the answer, not diff two blobs.
         var changes = Describe(before, after);
+        if (before.EnforcementMode != after.EnforcementMode)
+            changes.Add($"enforcement {after.EnforcementMode?.ToString().ToLowerInvariant() ?? "inherit"}");
 
         // A no-op save writes no audit entry. An entry that says nothing
         // changed dilutes the log an assessor reads first.

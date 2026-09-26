@@ -15,8 +15,13 @@ namespace Tamp.Findings.Application.Risk;
 public sealed class EnforcementResolver
 {
     private readonly FindingsDbContext _db;
+    private readonly InstanceEnforcementPolicy _policy;
 
-    public EnforcementResolver(FindingsDbContext db) => _db = db;
+    public EnforcementResolver(FindingsDbContext db, InstanceEnforcementPolicy policy)
+    {
+        _db = db;
+        _policy = policy;
+    }
 
     public async Task<EnforcementMode> ForProjectAsync(Guid projectId, CancellationToken ct = default)
     {
@@ -25,9 +30,11 @@ public sealed class EnforcementResolver
             .Select(s => new { s.EnforcementMode, s.EnforcementLocked })
             .SingleOrDefaultAsync(ct);
 
-        // No settings row yet → advisory/unlocked, the safe default.
-        var instanceMode = settings?.EnforcementMode ?? EnforcementMode.Advisory;
-        var instanceLocked = settings?.EnforcementLocked ?? false;
+        // No settings row yet → advisory/unlocked, the safe default. The config
+        // lock (if any) overrides the stored values.
+        var (instanceMode, instanceLocked) = _policy.Effective(
+            settings?.EnforcementMode ?? EnforcementMode.Advisory,
+            settings?.EnforcementLocked ?? false);
 
         var proj = await _db.Projects.AsNoTracking()
             .Where(p => p.Id == projectId)
