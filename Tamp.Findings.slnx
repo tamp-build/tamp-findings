@@ -17,6 +17,7 @@
     <Project Path="src/Tamp.Findings.Web/Tamp.Findings.Web.csproj" />
     <Project Path="src/Tamp.Findings.Workflows/Tamp.Findings.Workflows.csproj" />
     <Project Path="src/Tamp.Findings.Api/Tamp.Findings.Api.csproj" />
+    <Project Path="src/Tamp.Findings.Gate/Tamp.Findings.Gate.csproj" />
     <Project Path="src/Tamp.Findings.Mcp/Tamp.Findings.Mcp.csproj" />
   </Folder>
   <Folder Name="/build/">
