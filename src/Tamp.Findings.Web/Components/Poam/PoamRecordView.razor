@@ -82,21 +82,48 @@
     </div>
 
     <div class="card-body row" style="gap: var(--space-2)">
-        @* Every terminal action is disabled while a decision is pending. A
-           pending item cannot have its terminal action triggered a second
-           time — that is TFND-116's acceptance criterion, and doing it here as
-           well as in ApprovalService means the reader is told rather than
-           refused. *@
-        <Button Disabled="@(!CanEdit.Allowed || IsPending)" DisabledReason="@Reason(CanEdit)"
-                OnClick="() => OnEdit.InvokeAsync()">Edit</Button>
-        <Button Disabled="@(!CanComplete.Allowed || IsPending || Record.Status == PoamStatus.Completed)"
-                DisabledReason="@Reason(CanComplete)"
-                OnClick="() => OnTransition.InvokeAsync(PoamStatus.Completed)">Mark completed</Button>
-        <Button Disabled="@(!CanAccept.Allowed || IsPending || Record.Status == PoamStatus.RiskAccepted)"
-                DisabledReason="@Reason(CanAccept)"
-                OnClick="() => OnTransition.InvokeAsync(PoamStatus.RiskAccepted)">Risk accepted</Button>
-        <Button Disabled="@(!CanEdit.Allowed || IsPending)" DisabledReason="@Reason(CanEdit)"
-                OnClick="() => OnExtend.InvokeAsync()">Request AO extension</Button>
+        @if (AwaitingApprovalId is { } awaitingId)
+        {
+            @* This item's risk acceptance is waiting on YOU — a different person
+               than the requester (ApprovalService refuses self-approval). The
+               decision is an action here, not a notification in a separate
+               inbox. *@
+            <Button Variant="Button.ButtonVariant.Primary"
+                    OnClick="() => OnApprove.InvokeAsync(awaitingId)">Approve risk acceptance</Button>
+            <Button Class="btn--danger" OnClick="() => OnReject.InvokeAsync(awaitingId)">Reject</Button>
+        }
+        else
+        {
+            @* Every terminal action is disabled while a decision is pending. A
+               pending item cannot have its terminal action triggered a second
+               time — that is TFND-116's acceptance criterion, and doing it here
+               as well as in ApprovalService means the reader is told rather than
+               refused. *@
+            <Button Disabled="@(!CanEdit.Allowed || IsPending)" DisabledReason="@Reason(CanEdit)"
+                    OnClick="() => OnEdit.InvokeAsync()">Edit</Button>
+            <Button Disabled="@(!CanComplete.Allowed || IsPending || Record.Status == PoamStatus.Completed)"
+                    DisabledReason="@Reason(CanComplete)"
+                    OnClick="() => OnTransition.InvokeAsync(PoamStatus.Completed)">Mark completed</Button>
+
+            @* Risk acceptance (TFND-117) — two controlled paths, never a bare
+               status flip. When the instance does NOT enforce separation of
+               duties, an AO may accept the risk themselves by signing for it;
+               when it does, only the request path is offered and a second AO
+               decides. Both are always available to request. *@
+            @if (Record.Status != PoamStatus.RiskAccepted)
+            {
+                @if (!SodEnforced)
+                {
+                    <Button Disabled="@(!CanAccept.Allowed || IsPending)" DisabledReason="@Reason(CanAccept)"
+                            OnClick="() => OnAcceptSigned.InvokeAsync()">Risk accepted…</Button>
+                }
+                <Button Disabled="@(!CanEdit.Allowed || IsPending)" DisabledReason="@Reason(CanEdit)"
+                        OnClick="() => OnRequestAccept.InvokeAsync()">Request risk acceptance</Button>
+            }
+
+            <Button Disabled="@(!CanEdit.Allowed || IsPending)" DisabledReason="@Reason(CanEdit)"
+                    OnClick="() => OnExtend.InvokeAsync()">Request AO extension</Button>
+        }
     </div>
 
     @if (Pending is { } pending)
@@ -108,7 +135,10 @@
                 {
                     <text> Their reason: @why</text>
                 }
-                Until it is answered, the actions above would change what the approver was asked about.
+                @if (AwaitingApprovalId is null)
+                {
+                    <text> Until it is answered, the actions above would change what the approver was asked about.</text>
+                }
             </p>
         </div>
     }
@@ -186,9 +216,25 @@
     [Parameter] public AuthorizationDecision CanEdit { get; set; } = AuthorizationDecision.Deny("Checking…");
     [Parameter] public AuthorizationDecision CanComplete { get; set; } = AuthorizationDecision.Deny("Checking…");
     [Parameter] public AuthorizationDecision CanAccept { get; set; } = AuthorizationDecision.Deny("Checking…");
+
+    /// <summary>True when the instance requires a second approver for risk
+    /// acceptance (separation of duties enforced) — the signed self-serve path
+    /// is then hidden and only the request path is offered.</summary>
+    [Parameter] public bool SodEnforced { get; set; }
+    /// <summary>Set when THIS item's risk acceptance is awaiting the current
+    /// user's decision; carries the approval id to decide. Shows Approve/Reject
+    /// in place of the ordinary actions.</summary>
+    [Parameter] public Guid? AwaitingApprovalId { get; set; }
+
     [Parameter] public EventCallback OnEdit { get; set; }
     [Parameter] public EventCallback OnExtend { get; set; }
     [Parameter] public EventCallback<PoamStatus> OnTransition { get; set; }
+    /// <summary>Open the two-person request path (a justification, then RequestAsync).</summary>
+    [Parameter] public EventCallback OnRequestAccept { get; set; }
+    /// <summary>Open the signed self-serve path (agree and sign, then AcceptRiskDirectlyAsync).</summary>
+    [Parameter] public EventCallback OnAcceptSigned { get; set; }
+    [Parameter] public EventCallback<Guid> OnApprove { get; set; }
+    [Parameter] public EventCallback<Guid> OnReject { get; set; }
 
     private bool IsPending => Pending is not null;
 

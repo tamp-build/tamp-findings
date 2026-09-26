@@ -206,9 +206,14 @@ else
         {
             <PoamRecordView Record="record" Project="_project" Pending="@Pending(record.Id)"
                             CanEdit="_canCreate" CanComplete="_canComplete" CanAccept="_canAccept"
+                            SodEnforced="_sodEnforced" AwaitingApprovalId="@AwaitingApprovalId(record.Id)"
                             OnEdit="() => StartEdit(record.Id)"
                             OnExtend="StartExtend"
-                            OnTransition="Transition" />
+                            OnTransition="Transition"
+                            OnRequestAccept="StartRequestAccept"
+                            OnAcceptSigned="StartSign"
+                            OnApprove="id => StartDecide(id, true)"
+                            OnReject="id => StartDecide(id, false)" />
         }
     </div>
 }
@@ -296,6 +301,99 @@ else
     </Footer>
 </Dialog>
 
+@* ---- Request risk acceptance (the two-person path, TFND-117) ----------- *@
+<Dialog Open="_requestingAccept" OpenChanged="v => _requestingAccept = v"
+        Title="Request risk acceptance" Width="620">
+    <ChildContent>
+        <p class="field__help">
+            This does not accept the risk. It asks an Authorizing Official to — and it must be a
+            different person than you, so a risk acceptance always has a second reviewer.
+        </p>
+        <TextField Label="Why accept this risk?" Multiline="true" Rows="3" @bind-Value="_requestJustification"
+                   Help="The case the AO will read: why the weakness is tolerable, and for how long. Recorded with the request." />
+        @if (_dialogError is not null)
+        {
+            <p style="color: var(--color-critical)">@_dialogError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="RequestAccept">Send request</Button>
+        <Button OnClick="() => _requestingAccept = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+@* ---- Accept risk yourself, signed (the self-serve path, TFND-117) ------ *@
+<Dialog Open="_signing" OpenChanged="v => _signing = v" Title="Accept the residual risk" Width="640">
+    <ChildContent>
+        @if (_record is { } rec)
+        {
+            <p>
+                You are accepting the residual risk of <strong>@rec.Title</strong> on behalf of the
+                Authorizing Official. The weakness remains; this records that it is a documented,
+                accepted living risk rather than an open one.
+            </p>
+            <p class="field__help">
+                This instance does not require a second approver, so you may accept it yourself — but
+                only by signing. Type your username to sign; it is recorded verbatim in the audit trail
+                the AO reads.
+            </p>
+            <TextField Label="Signature" Mono="true" @bind-Value="_signature"
+                       Help="@($"Type {_myLogin} to sign.")" />
+            @if (_dialogError is not null)
+            {
+                <p style="color: var(--color-critical)">@_dialogError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="Sign">Sign &amp; accept risk</Button>
+        <Button OnClick="() => _signing = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+@* ---- Decide a risk-acceptance request (the approver's action) ---------- *@
+<Dialog Open="_deciding" OpenChanged="v => _deciding = v"
+        Title="@(_decideApprove ? "Approve risk acceptance" : "Reject risk acceptance")" Width="640">
+    <ChildContent>
+        @if (_decideRow is { } row)
+        {
+            <p>
+                <strong>@row.RequestedBy</strong> asked to accept the risk on this item on
+                <span class="mono">@row.RequestedAt.ToString("yyyy-MM-dd")</span>.
+            </p>
+            @if (row.Justification is { Length: > 0 } why)
+            {
+                <p class="field__help">Their reason: @why</p>
+            }
+            @if (_decideApprove)
+            {
+                <p class="field__help">
+                    Approving moves the item to Risk accepted. The weakness remains but stops counting
+                    against the past-due gate — acceptance is a terminal state.
+                </p>
+            }
+            <TextField Label="@(_decideApprove ? "Note (optional)" : "Reason for rejecting")"
+                       Multiline="true" Rows="3" @bind-Value="_decideNote"
+                       Help="Recorded with the decision. A rejection needs a reason the requester can act on." />
+            @if (_dialogError is not null)
+            {
+                <p style="color: var(--color-critical)">@_dialogError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        @if (_decideApprove)
+        {
+            <Button Variant="Button.ButtonVariant.Primary" OnClick="ConfirmDecide">Approve</Button>
+        }
+        else
+        {
+            <Button Variant="Button.ButtonVariant.Danger" OnClick="ConfirmDecide">Reject</Button>
+        }
+        <Button OnClick="() => _deciding = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
 @* ---- Delete, which steers away from itself ----------------------------- *@
 <Dialog Open="_deleting is not null" OpenChanged="v => { if (!v) _deleting = null; }"
         Title="Delete POA&amp;M item" Width="660">
@@ -344,6 +442,19 @@ else
     private Guid? _editingId;
     private PoamRow? _deleting;
 
+    // Risk acceptance (TFND-117). _sodEnforced decides which path the record
+    // view offers; the three dialogs drive request / sign / decide.
+    private bool _sodEnforced;
+    private bool _requestingAccept, _signing, _deciding;
+    private string? _requestJustification, _signature, _decideNote;
+    // The signed-in user's login, for the signature prompt. Captured from the
+    // resolved principal rather than the claims so it matches exactly what
+    // AcceptRiskDirectlyAsync compares the typed signature against.
+    private string? _myLogin;
+    private Guid? _decideApprovalId;
+    private bool _decideApprove;
+    private AwaitingRow? _decideRow;
+
     private string? _draftTitle, _draftWeakness, _draftPlan, _draftResources, _draftReference, _draftScheduled;
     private Severity _draftSeverity = Severity.Medium;
     private PoamStatus _draftStatus = PoamStatus.Open;
@@ -385,6 +496,8 @@ else
 
             if (await Me.AtAsync(Here) is { } principal)
             {
+                _myLogin = principal.Login;
+
                 var awaiting = await Approvals.AwaitingAsync(
                     principal, target => Me.AtAsync(target));
 
@@ -394,12 +507,14 @@ else
             }
             else
             {
+                _myLogin = null;
                 _awaitingYou = [];
             }
 
             _canCreate = await Me.CanAsync(Capability.CreatePoamItem, Here);
             _canComplete = await Me.CanAsync(Capability.CompletePoamItem, Here);
             _canAccept = await Me.CanAsync(Capability.AcceptRisk, Here);
+            _sodEnforced = await Service.RiskAcceptanceRequiresApprovalAsync();
         }
         catch (Exception ex)
         {
@@ -409,6 +524,15 @@ else
 
     private PendingState? Pending(Guid id) =>
         _pending.TryGetValue(id, out var state) ? state : null;
+
+    // The approval id of a risk-acceptance request on this item that is awaiting
+    // the CURRENT user's decision — null when nothing here is theirs to decide.
+    // Drives the Approve/Reject affordance on the record view.
+    private Guid? AwaitingApprovalId(Guid subjectId)
+    {
+        var row = _awaitingYou.FirstOrDefault(a => a.SubjectId == subjectId);
+        return row is null ? null : row.ApprovalId;
+    }
 
     private IEnumerable<PoamRow> VisibleItems =>
         _onlyAwaitingYou
@@ -520,6 +644,86 @@ else
         if (actor is null) return;
 
         await Service.TransitionAsync(actor, Here, _project.ProjectId, _record.Id, target);
+        await OnParametersSetAsync();
+    }
+
+    // ---- Risk acceptance (TFND-117) --------------------------------------
+
+    private void StartRequestAccept()
+    {
+        _requestJustification = null;
+        _dialogError = null;
+        _requestingAccept = true;
+    }
+
+    private async Task RequestAccept()
+    {
+        if (_project is null || _record is null) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Approvals.RequestAsync(
+            actor, Here, ApprovalKind.PoamRiskAcceptance, "PoamItem", _record.Id, _requestJustification);
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _requestingAccept = false;
+        await OnParametersSetAsync();
+    }
+
+    private void StartSign()
+    {
+        _signature = null;
+        _dialogError = null;
+        _signing = true;
+    }
+
+    private async Task Sign()
+    {
+        if (_project is null || _record is null) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Service.AcceptRiskDirectlyAsync(
+            actor, Here, _project.ProjectId, _record.Id, _signature ?? "");
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _signing = false;
+        await OnParametersSetAsync();
+    }
+
+    private void StartDecide(Guid approvalId, bool approve)
+    {
+        _decideApprovalId = approvalId;
+        _decideApprove = approve;
+        _decideRow = _awaitingYou.FirstOrDefault(a => a.ApprovalId == approvalId);
+        _decideNote = null;
+        _dialogError = null;
+        _deciding = true;
+    }
+
+    private async Task ConfirmDecide()
+    {
+        if (_decideApprovalId is not { } id) return;
+        _dialogError = null;
+
+        // A rejection with no reason gives the requester nothing to act on.
+        if (!_decideApprove && string.IsNullOrWhiteSpace(_decideNote))
+        {
+            _dialogError = "A rejection needs a reason the requester can act on.";
+            return;
+        }
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Approvals.DecideAsync(actor, id, _decideApprove, _decideNote);
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _deciding = false;
         await OnParametersSetAsync();
     }
 

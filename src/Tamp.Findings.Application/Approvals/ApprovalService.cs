@@ -28,12 +28,18 @@ public sealed class ApprovalService
     private readonly FindingsDbContext _db;
     private readonly CapabilityEvaluator _capabilities;
     private readonly AuditLog _audit;
+    private readonly IReadOnlyDictionary<ApprovalKind, IApprovalEffect> _effects;
 
-    public ApprovalService(FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit)
+    public ApprovalService(
+        FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit,
+        IEnumerable<IApprovalEffect> effects)
     {
         _db = db;
         _capabilities = capabilities;
         _audit = audit;
+        // One effect per kind. A duplicate registration is a wiring bug, not a
+        // runtime choice, so let the dictionary throw rather than pick a winner.
+        _effects = effects.ToDictionary(e => e.Kind);
     }
 
     /// <summary>
@@ -152,6 +158,13 @@ public sealed class ApprovalService
             subjectId: approval.SubjectId, subjectKind: approval.SubjectKind,
             detail: $"{approval.Kind} requested by {approval.RequestedByLogin}"
                   + (approval.DecisionNote is null ? "" : $" — {approval.DecisionNote}"));
+
+        // The consequence of a YES. Applied in THIS transaction, before the
+        // single SaveChanges below, so the approval and its effect (a POA&M
+        // moving to Risk accepted, say) commit together or not at all. A
+        // rejection has no effect to apply — nobody said yes.
+        if (approve && _effects.TryGetValue(approval.Kind, out var effect))
+            await effect.ApplyAsync(approval, actor, ct);
 
         await _db.SaveChangesAsync(ct);
         return Result<ApprovalState>.Ok(approval.State);

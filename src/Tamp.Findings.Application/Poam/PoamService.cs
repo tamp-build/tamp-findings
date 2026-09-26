@@ -114,6 +114,17 @@ public sealed class PoamService
         Principal actor, ScopeTarget scope, Guid projectId, Guid itemId, PoamStatus target,
         CancellationToken ct = default)
     {
+        // Risk acceptance is not a plain status change (TFND-117). It is either a
+        // signed self-attestation (AcceptRiskDirectlyAsync) or a second person's
+        // approval of a request — never a silent one-click flip, because "the AO
+        // accepted this risk" with no signature and no second reviewer is exactly
+        // the control this record exists to make real. Both controlled paths end
+        // at RiskAccepted; this generic one refuses it.
+        if (target == PoamStatus.RiskAccepted)
+            return Result<PoamStatus>.Invalid(
+                "Accept risk by signing for it, or by approving a risk-acceptance request — "
+                + "not by changing the status directly.");
+
         var capability = target switch
         {
             PoamStatus.RiskAccepted => Capability.AcceptRisk,
@@ -148,6 +159,68 @@ public sealed class PoamService
 
         await _db.SaveChangesAsync(ct);
         return Result<PoamStatus>.Ok(target);
+    }
+
+    /// <summary>
+    /// Self-serve risk acceptance — one Authorizing Official signing for it
+    /// (TFND-117).
+    ///
+    /// <para>
+    /// Refused outright when the instance enforces separation of duties: there
+    /// the decision needs a second person, so the caller is steered to request an
+    /// approval instead (<see cref="Approvals.ApprovalService.RequestAsync"/>).
+    /// </para>
+    /// <para>
+    /// When SoD is NOT enforced, a single AO may accept the risk — but only as a
+    /// deliberate, SIGNED act. The person types their own username to affirm it,
+    /// and that signature is recorded verbatim in the audit trail, which is the
+    /// federal deliverable an assessor reads. A one-click acceptance with no
+    /// signature is precisely the control this replaces.
+    /// </para>
+    /// </summary>
+    public async Task<Result<PoamStatus>> AcceptRiskDirectlyAsync(
+        Principal actor, ScopeTarget scope, Guid projectId, Guid itemId, string signature,
+        CancellationToken ct = default)
+    {
+        var decision = _capabilities.Evaluate(actor, Capability.AcceptRisk);
+        if (!decision.Allowed) return Result<PoamStatus>.Denied(decision.Reason!);
+
+        var sodEnforced = await _db.InstanceSettings.AsNoTracking()
+            .Where(s => s.Id == InstanceSettings.SingletonId)
+            .Select(s => s.EnforceSeparationOfDuties)
+            .FirstOrDefaultAsync(ct);
+
+        if (sodEnforced)
+            return Result<PoamStatus>.Invalid(
+                "This instance requires a second approver for risk acceptance. "
+                + "Request it instead — a different Authorizing Official signs off.");
+
+        // A deliberate act, not a checkbox: the person types their own username
+        // to affirm the acceptance. Matching it to the actor means a stray
+        // keystroke cannot stand in for a signature, and the typed value is what
+        // lands in the record.
+        signature = signature?.Trim() ?? "";
+        if (!string.Equals(signature, actor.Login, StringComparison.OrdinalIgnoreCase))
+            return Result<PoamStatus>.Invalid(
+                "Type your own username to sign. Risk acceptance is recorded under the name that signs it.");
+
+        var item = await _db.PoamItems.SingleOrDefaultAsync(
+            p => p.Id == itemId && p.ProjectId == projectId, ct);
+        if (item is null) return Result<PoamStatus>.Invalid("That POA&M item no longer exists.");
+
+        if (item.Status == PoamStatus.RiskAccepted) return Result<PoamStatus>.Ok(PoamStatus.RiskAccepted);
+
+        var previous = item.Status;
+        item.Status = PoamStatus.RiskAccepted;
+        item.UpdatedAt = DateTimeOffset.UtcNow;
+        StampTerminal(item, PoamStatus.RiskAccepted);
+
+        _audit.Record(actor, AuditActions.PoamRiskAccepted, AuditClass.Risk, scope,
+            subjectId: item.Id, subjectKind: nameof(PoamItem),
+            detail: $"{item.Title}: {previous} → RiskAccepted — self-accepted and signed by {signature}");
+
+        await _db.SaveChangesAsync(ct);
+        return Result<PoamStatus>.Ok(PoamStatus.RiskAccepted);
     }
 
     /// <summary>
@@ -213,6 +286,20 @@ public sealed class PoamService
         await _db.SaveChangesAsync(ct);
         return Result<bool>.Ok(true);
     }
+
+    /// <summary>
+    /// Does this instance require a second approver for risk acceptance?
+    ///
+    /// True when separation of duties is enforced: the signed self-serve path is
+    /// then refused (<see cref="AcceptRiskDirectlyAsync"/>) and the screens offer
+    /// only the request path. The UI reads this to decide which affordances to
+    /// show; the services enforce it regardless of what the UI rendered.
+    /// </summary>
+    public async Task<bool> RiskAcceptanceRequiresApprovalAsync(CancellationToken ct = default) =>
+        await _db.InstanceSettings.AsNoTracking()
+            .Where(s => s.Id == InstanceSettings.SingletonId)
+            .Select(s => s.EnforceSeparationOfDuties)
+            .FirstOrDefaultAsync(ct);
 
     private static void StampTerminal(PoamItem item, PoamStatus status)
     {
