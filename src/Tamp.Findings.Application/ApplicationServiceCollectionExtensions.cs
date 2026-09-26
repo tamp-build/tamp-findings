@@ -55,6 +55,8 @@ public static class ApplicationServiceCollectionExtensions
         // consumer needs it, not in a big bang that would destabilise ingest.
         services.AddScoped<Risk.RiskInputsBuilder>();
         services.AddScoped<Risk.VexResolver>();
+        services.AddScoped<Risk.EnforcementResolver>();
+        services.AddScoped<Risk.GateDecisionService>();
         services.AddScoped<Projects.ProjectHubQuery>();
         services.AddScoped<Projects.ComponentService>();
         services.AddScoped<Projects.PortfolioQuery>();

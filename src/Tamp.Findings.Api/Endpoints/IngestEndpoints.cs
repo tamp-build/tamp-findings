@@ -1,4 +1,6 @@
 using Tamp.Findings.Application.Ingest;
+using Tamp.Findings.Application.Auditing;
+using Tamp.Findings.Application.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
@@ -25,6 +27,7 @@ public static class IngestEndpoints
     private static async Task<IResult> IngestAsync(
         IngestRequest req, HttpContext ctx, FindingsDbContext db,
         CveReconciler reconciler, Tamp.Findings.Api.Services.CheckPublishQueue checks,
+        AuditLog audit,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
@@ -222,6 +225,18 @@ public static class IngestEndpoints
             }
         }
 
+        // TFND-155: an empty findings batch only auto-closes prior Open findings
+        // when a scan-run receipt shows the scanner actually SUCCEEDED. Without
+        // that corroboration an empty post — accidental, or forged by someone
+        // holding the ingest token — would silently retire real findings. A
+        // non-empty batch is itself proof the scanner ran. (Clean runs must post
+        // the scan-run receipt before/with the empty findings batch.)
+        var scannerRan = req.Findings.Count > 0
+            || await db.ScanRunReceipts.AsNoTracking().AnyAsync(
+                r => r.ComponentVersionId == version.Id
+                  && r.Scanner == req.Scanner
+                  && r.Status == ScanRunStatus.Succeeded, ct);
+
         // Auto-close: any existing Open finding for this (componentVersion,
         // scanner) whose hash wasn't in the incoming batch is now Fixed.
         // LastSeen is left untouched so consumers can see when it last
@@ -231,10 +246,25 @@ public static class IngestEndpoints
         {
             if (current.Status == FindingStatus.Open && !incomingHashes.Contains(hash))
             {
+                // Fail-safe: without corroboration that the scanner ran, leave the
+                // finding Open rather than close it on an unverified empty post.
+                if (!scannerRan) continue;
                 current.Status = FindingStatus.Fixed;
                 closed++;
             }
         }
+
+        // TFND-158: per-ingest audit, added in the same transaction as the
+        // findings write so the trail can never diverge from what was stored.
+        // Attributed to the bearer token until identity-bound ingest (TFND-161)
+        // gives ingest a real Principal. The auto-close count is called out
+        // because an empty/partial batch can silently retire real findings.
+        var flavorPart = string.IsNullOrWhiteSpace(req.Flavor) ? "" : $"/{req.Flavor}";
+        var shaPart = string.IsNullOrWhiteSpace(req.CommitSha) ? "" : $" ({req.CommitSha})";
+        audit.RecordIngest(token!.Id, token.Name, AuditActions.IngestReceived,
+            new ScopeTarget(client!.Id, project!.Id, version!.ComponentId),
+            $"{req.Scanner}: {inserted} new, {updated} updated, {reopened} reopened, " +
+            $"{closed} auto-closed, {suppressed} suppressed — {req.Component}{flavorPart}@{req.Version}{shaPart}");
 
         await db.SaveChangesAsync(ct);
         // TFND-16: dependency scanners report CVEs as findings, while Grype

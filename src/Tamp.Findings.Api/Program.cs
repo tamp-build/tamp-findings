@@ -119,6 +119,23 @@ builder.Services.AddHostedService<Tamp.Findings.Api.Services.RetentionWorker>();
 builder.Services.AddScoped<Tamp.Findings.Api.Services.KevFeedSyncService>();
 builder.Services.AddHostedService<Tamp.Findings.Api.Services.KevFeedSyncWorker>();
 
+// TFND-149 / ADR 0004 §3.3: the gate-enforcement lock is sourced from
+// deployment CONFIG, not the database. When the platform team locks it here it
+// overrides the stored InstanceSettings and the in-app admin cannot change it —
+// the lever belongs to whoever controls the deployment. Advisory/unlocked when
+// unset, so a fresh install and the OSS default are unaffected.
+var enforcementLocked =
+    builder.Configuration.GetValue<bool?>("Enforcement:Locked")
+    ?? Environment.GetEnvironmentVariable("TAMP_FINDINGS_ENFORCEMENT_LOCKED") == "true";
+var enforcementModeRaw =
+    builder.Configuration["Enforcement:Mode"]
+    ?? Environment.GetEnvironmentVariable("TAMP_FINDINGS_ENFORCEMENT_MODE");
+var enforcementConfigMode =
+    Enum.TryParse<Tamp.Findings.Domain.Values.EnforcementMode>(enforcementModeRaw, ignoreCase: true, out var cfgMode)
+        ? cfgMode
+        : Tamp.Findings.Domain.Values.EnforcementMode.Enforcing; // locking without a named mode means "enforce"
+builder.Services.AddSingleton(new InstanceEnforcementPolicy(enforcementLocked, enforcementConfigMode));
+
 builder.Services.AddCors(options =>
 {
     // POC dev posture: any origin allowed. The SPA uses Vite's /api proxy
@@ -478,6 +495,7 @@ app.MapScanRunIngest();
 app.MapContainerImageIngest();
 app.MapSbomEnrich();
 app.MapSbomVulnerabilities();
+app.MapGate();
 
 // SPA-facing query endpoints — protected by the fallback policy
 // (RequireAuthenticatedUser; see AuthExtensions) AND, since TFND-133, by the

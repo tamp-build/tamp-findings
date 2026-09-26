@@ -21,12 +21,15 @@ public sealed class SystemAdminService
     private readonly FindingsDbContext _db;
     private readonly CapabilityEvaluator _capabilities;
     private readonly AuditLog _audit;
+    private readonly Risk.InstanceEnforcementPolicy _enforcement;
 
-    public SystemAdminService(FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit)
+    public SystemAdminService(FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit,
+        Risk.InstanceEnforcementPolicy enforcement)
     {
         _db = db;
         _capabilities = capabilities;
         _audit = audit;
+        _enforcement = enforcement;
     }
 
     // ---- Users & RBAC (TFND-110) ------------------------------------------
@@ -380,6 +383,19 @@ public sealed class SystemAdminService
         // it is worded on the screen.
         var mcpChanged = settings.McpEnabled != proposed.McpEnabled;
 
+        // Gate enforcement (ADR 0004). When the deployment config locks
+        // enforcement, it overrides the stored settings and the admin cannot
+        // change it here — so ignore any proposed change rather than writing it.
+        // Only the stored values matter when NOT config-locked.
+        var enforcementChanged = false;
+        if (!_enforcement.ConfigLocked)
+        {
+            enforcementChanged = settings.EnforcementMode != proposed.EnforcementMode
+                || settings.EnforcementLocked != proposed.EnforcementLocked;
+            settings.EnforcementMode = proposed.EnforcementMode;
+            settings.EnforcementLocked = proposed.EnforcementLocked;
+        }
+
         settings.InstanceUrl = Blank(proposed.InstanceUrl);
         settings.FindingRetentionDays = proposed.FindingRetentionDays;
         settings.BuildRetentionDays = proposed.BuildRetentionDays;
@@ -402,11 +418,16 @@ public sealed class SystemAdminService
 
         // Turning SoD enforcement on or off changes who may hold which roles
         // across every tenant. That is an access decision, not housekeeping.
+        // Enforcement change is a risk-posture decision (it changes whether a
+        // build is blocked), so it outranks the access-class sod/mcp changes.
+        var cls = enforcementChanged ? AuditClass.Risk
+            : sodChanged || mcpChanged ? AuditClass.Access
+            : AuditClass.Other;
         _audit.Record(actor, "instance.settings_changed",
-            sodChanged || mcpChanged ? AuditClass.Access : AuditClass.Other,
+            cls,
             ScopeTarget.Instance,
             subjectKind: nameof(InstanceSettings),
-            detail: Describe(proposed, sodChanged, mcpChanged));
+            detail: Describe(proposed, sodChanged, mcpChanged, enforcementChanged));
 
         await _db.SaveChangesAsync(ct);
         return Result<bool>.Ok(true);
@@ -419,7 +440,7 @@ public sealed class SystemAdminService
     /// a change that opened an agent endpoint is technically true and useless
     /// to the person reading the log after an incident.
     /// </summary>
-    private static string Describe(InstanceSettings proposed, bool sodChanged, bool mcpChanged)
+    private static string Describe(InstanceSettings proposed, bool sodChanged, bool mcpChanged, bool enforcementChanged)
     {
         var parts = new List<string>();
 
@@ -428,6 +449,10 @@ public sealed class SystemAdminService
 
         if (mcpChanged)
             parts.Add($"MCP endpoint {(proposed.McpEnabled ? "OPENED" : "CLOSED")}");
+
+        if (enforcementChanged)
+            parts.Add($"gate enforcement {proposed.EnforcementMode.ToString().ToLowerInvariant()}"
+                + (proposed.EnforcementLocked ? " (locked)" : ""));
 
         return parts.Count == 0 ? "instance settings updated" : string.Join("; ", parts);
     }

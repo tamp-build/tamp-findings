@@ -1,3 +1,5 @@
+using Tamp.Findings.Domain.Values;
+
 namespace Tamp.Findings.Domain.Entities;
 
 public sealed class Client
@@ -9,6 +11,10 @@ public sealed class Client
     // Null → fall back to the system default policy. Set → applies to
     // every project under this client unless the project overrides.
     public Guid? RiskPolicyId { get; set; }
+
+    // Null → inherit the instance enforcement mode. Set → applies to every
+    // project under this client unless the project overrides (TFND-148).
+    public EnforcementMode? EnforcementMode { get; set; }
 
     public ICollection<Project> Projects { get; set; } = [];
 }

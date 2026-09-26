@@ -1,6 +1,6 @@
-using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
-using Tamp.Findings.Api.Authentication;
+using Tamp.Findings.Application.Authorization;
+using Tamp.Findings.Application.Poam;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Values;
@@ -51,6 +51,11 @@ public sealed record UpdatePoamItemRequest(
     IReadOnlyList<Guid>? LinkedFindingIds,
     string? ReferenceUrl);
 
+// TFND-156: these writes route through PoamService — the same capability-gated,
+// audited path the Blazor UI uses — rather than an Admin-only, unaudited path.
+// In particular a status change goes through PoamService.TransitionAsync, so
+// moving an item to RiskAccepted needs the InfoSec AcceptRisk capability that
+// Admin deliberately does not hold; the old direct-write PATCH bypassed it.
 public static class PoamItemEndpoints
 {
     public static IEndpointRouteBuilder MapPoamItems(this IEndpointRouteBuilder app)
@@ -60,12 +65,12 @@ public static class PoamItemEndpoints
         g.MapGet("/projects/{projectId:guid}/poam-items", ListAsync)
          .WithSummary("List POA&M items for a project. By default returns live items (ClosedAt is null); pass includeClosed=true to include terminal-status rows.");
         g.MapPost("/projects/{projectId:guid}/poam-items", CreateAsync)
-         .WithSummary("Open a new POA&M entry. Admin only.");
+         .WithSummary("Open a new POA&M entry. Requires the CreatePoamItem capability.");
 
         g.MapPatch("/poam-items/{id:guid}", UpdateAsync)
-         .WithSummary("Edit a POA&M entry. Transitioning into Completed / RiskAccepted / Cancelled stamps ClosedAt automatically.");
+         .WithSummary("Edit a POA&M entry. Field edits need CreatePoamItem; a status change is applied via TransitionAsync, so RiskAccepted needs AcceptRisk (InfoSec) and Completed needs CompletePoamItem.");
         g.MapDelete("/poam-items/{id:guid}", CloseAsync)
-         .WithSummary("Soft-close a POA&M entry (sets Status=Cancelled + ClosedAt). Row stays for audit; use this when an entry was opened in error. Prefer PATCH with Status=Completed when the weakness was actually remediated.");
+         .WithSummary("Soft-close a POA&M entry (Status=Cancelled + ClosedAt). Row stays for audit; use this when an entry was opened in error. Prefer PATCH with Status=Completed when the weakness was actually remediated.");
 
         return app;
     }
@@ -102,97 +107,89 @@ public static class PoamItemEndpoints
     }
 
     private static async Task<IResult> CreateAsync(
-        Guid projectId, CreatePoamItemRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+        Guid projectId, CreatePoamItemRequest req, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals, PoamService poam, CancellationToken ct)
     {
-        var (user, deny) = await RequireAdminAsync(ctx, db, ct);
+        var (actor, scope, deny) = await EndpointActor.ForProjectAsync(ctx, db, principals, projectId, ct);
         if (deny is not null) return deny;
-        if (string.IsNullOrWhiteSpace(req.Title)) return Results.BadRequest("title required");
-        if (string.IsNullOrWhiteSpace(req.WeaknessDescription)) return Results.BadRequest("weaknessDescription required");
-        if (!await db.Projects.AnyAsync(p => p.Id == projectId, ct)) return Results.NotFound("project not found");
 
-        var status = req.Status ?? PoamStatus.Open;
-        var row = new PoamItem
-        {
-            ProjectId = projectId,
-            Title = req.Title.Trim(),
-            WeaknessDescription = req.WeaknessDescription.Trim(),
-            MitigationPlan = NullIfBlank(req.MitigationPlan),
-            ResourcesRequired = NullIfBlank(req.ResourcesRequired),
-            Severity = req.Severity,
-            Status = status,
-            ScheduledCompletionDate = req.ScheduledCompletionDate,
-            LinkedFindingIds = req.LinkedFindingIds?.ToList() ?? new List<Guid>(),
-            ReferenceUrl = NullIfBlank(req.ReferenceUrl),
-            AuthorUserId = user!.Id,
-            ClosedAt = IsTerminal(status) ? DateTimeOffset.UtcNow : null,
-            ActualCompletionDate = status == PoamStatus.Completed ? DateTimeOffset.UtcNow : null,
-        };
-        db.PoamItems.Add(row);
-        await db.SaveChangesAsync(ct);
+        var draft = new PoamDraft(
+            req.Title ?? "",
+            req.WeaknessDescription ?? "",
+            req.MitigationPlan,
+            req.ResourcesRequired,
+            req.ReferenceUrl,
+            req.Severity,
+            req.Status ?? PoamStatus.Open,
+            req.ScheduledCompletionDate,
+            req.LinkedFindingIds?.ToList() ?? []);
+
+        var result = await poam.CreateAsync(actor!, scope, projectId, draft, ct);
+        if (!result.Success) return Fail(result.WasDenied, result.Error);
+
+        var row = await db.PoamItems.AsNoTracking().FirstAsync(p => p.Id == result.Value, ct);
         return Results.Created($"/poam-items/{row.Id}", Project(row, DateTimeOffset.UtcNow));
     }
 
     private static async Task<IResult> UpdateAsync(
-        Guid id, UpdatePoamItemRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+        Guid id, UpdatePoamItemRequest req, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals, PoamService poam, CancellationToken ct)
     {
-        var (_, deny) = await RequireAdminAsync(ctx, db, ct);
+        var item = await db.PoamItems.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
+        if (item is null) return Results.NotFound();
+
+        var (actor, scope, deny) = await EndpointActor.ForProjectAsync(ctx, db, principals, item.ProjectId, ct);
         if (deny is not null) return deny;
-        var row = await db.PoamItems.FirstOrDefaultAsync(p => p.Id == id, ct);
-        if (row is null) return Results.NotFound();
 
-        if (req.Title is not null) row.Title = req.Title.Trim();
-        if (req.WeaknessDescription is not null) row.WeaknessDescription = req.WeaknessDescription.Trim();
-        if (req.MitigationPlan is not null) row.MitigationPlan = NullIfBlank(req.MitigationPlan);
-        if (req.ResourcesRequired is not null) row.ResourcesRequired = NullIfBlank(req.ResourcesRequired);
-        if (req.Severity.HasValue) row.Severity = req.Severity.Value;
-        if (req.ScheduledCompletionDate.HasValue) row.ScheduledCompletionDate = req.ScheduledCompletionDate;
-        if (req.LinkedFindingIds is not null) row.LinkedFindingIds = req.LinkedFindingIds.ToList();
-        if (req.ReferenceUrl is not null) row.ReferenceUrl = NullIfBlank(req.ReferenceUrl);
+        // Field edits keep the current status; a status change is applied
+        // separately via TransitionAsync so the capability matrix decides it.
+        var draft = new PoamDraft(
+            req.Title ?? item.Title,
+            req.WeaknessDescription ?? item.WeaknessDescription,
+            req.MitigationPlan ?? item.MitigationPlan,
+            req.ResourcesRequired ?? item.ResourcesRequired,
+            req.ReferenceUrl ?? item.ReferenceUrl,
+            req.Severity ?? item.Severity,
+            item.Status,
+            req.ScheduledCompletionDate ?? item.ScheduledCompletionDate,
+            req.LinkedFindingIds?.ToList() ?? item.LinkedFindingIds);
 
-        if (req.Status.HasValue && req.Status.Value != row.Status)
+        var upd = await poam.UpdateAsync(actor!, scope, item.ProjectId, id, draft, ct);
+        if (!upd.Success) return Fail(upd.WasDenied, upd.Error);
+
+        if (req.Status.HasValue && req.Status.Value != item.Status)
         {
-            var newStatus = req.Status.Value;
-            row.Status = newStatus;
-            // Terminal status stamps ClosedAt; transitioning OUT of a
-            // terminal status (rare — usually a correction) clears it.
-            if (IsTerminal(newStatus))
-            {
-                row.ClosedAt ??= DateTimeOffset.UtcNow;
-                if (newStatus == PoamStatus.Completed)
-                    row.ActualCompletionDate ??= DateTimeOffset.UtcNow;
-            }
-            else
-            {
-                row.ClosedAt = null;
-                row.ActualCompletionDate = null;
-            }
+            var trans = await poam.TransitionAsync(actor!, scope, item.ProjectId, id, req.Status.Value, ct);
+            if (!trans.Success) return Fail(trans.WasDenied, trans.Error);
         }
 
-        row.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
+        var row = await db.PoamItems.AsNoTracking().FirstAsync(p => p.Id == id, ct);
         return Results.Ok(Project(row, DateTimeOffset.UtcNow));
     }
 
     private static async Task<IResult> CloseAsync(
-        Guid id, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+        Guid id, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals, PoamService poam, CancellationToken ct)
     {
-        var (_, deny) = await RequireAdminAsync(ctx, db, ct);
+        var item = await db.PoamItems.AsNoTracking()
+            .Select(p => new { p.Id, p.ProjectId, p.ClosedAt })
+            .FirstOrDefaultAsync(p => p.Id == id, ct);
+        if (item is null) return Results.NotFound();
+        if (item.ClosedAt is not null) return Results.NoContent();
+
+        var (actor, scope, deny) = await EndpointActor.ForProjectAsync(ctx, db, principals, item.ProjectId, ct);
         if (deny is not null) return deny;
-        var row = await db.PoamItems.FirstOrDefaultAsync(p => p.Id == id, ct);
-        if (row is null) return Results.NotFound();
-        if (row.ClosedAt is not null) return Results.NoContent();
-        row.Status = PoamStatus.Cancelled;
-        row.ClosedAt = DateTimeOffset.UtcNow;
-        row.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
+
+        var result = await poam.TransitionAsync(actor!, scope, item.ProjectId, id, PoamStatus.Cancelled, ct);
+        if (!result.Success) return Fail(result.WasDenied, result.Error);
         return Results.NoContent();
     }
 
-    private static bool IsTerminal(PoamStatus s) =>
-        s == PoamStatus.Completed || s == PoamStatus.RiskAccepted || s == PoamStatus.Cancelled;
-
-    private static string? NullIfBlank(string? s) =>
-        string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    // A capability denial is a 403 carrying the reason; a validation failure is
+    // a 400. (The old path returned a bare 403 with no reason, or 400.)
+    private static IResult Fail(bool denied, string? error) =>
+        denied ? Results.Problem(error, statusCode: StatusCodes.Status403Forbidden)
+               : Results.BadRequest(error);
 
     private static PoamItemDto Project(PoamItem p, DateTimeOffset nowUtc)
     {
@@ -203,15 +200,5 @@ public static class PoamItemEndpoints
             p.ResourcesRequired, p.Severity, p.Status, p.ScheduledCompletionDate,
             p.ActualCompletionDate, p.LinkedFindingIds, p.ReferenceUrl,
             p.AuthorUserId, p.CreatedAt, p.UpdatedAt, p.ClosedAt, isPastDue);
-    }
-
-    private static async Task<(User? user, IResult? deny)> RequireAdminAsync(HttpContext ctx, FindingsDbContext db, CancellationToken ct)
-    {
-        if (!Guid.TryParse(ctx.User.FindFirstValue(AuthExtensions.TampUserIdClaim), out var uid))
-            return (null, Results.Unauthorized());
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == uid, ct);
-        if (user is null || !user.IsApproved) return (null, Results.Unauthorized());
-        if (!user.IsAdmin) return (user, Results.Forbid());
-        return (user, null);
     }
 }

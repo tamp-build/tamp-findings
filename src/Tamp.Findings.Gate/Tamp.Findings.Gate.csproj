@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>tamp-findings-gate</AssemblyName>
+    <RootNamespace>Tamp.Findings.Gate</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Description>CLI acceptance gate for CI (ADR 0004). Reads a build's verdict from a tamp.findings instance over its bearer-token API and exits non-zero on a blocking verdict when the project is enforcing. Fail-closed and air-gap native.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Shares the four-valued verdict, the enforcement mode, and the §4.5
+         decision table (GateExit) so the CLI cannot disagree with the server. -->
+    <ProjectReference Include="..\Tamp.Findings.Domain\Tamp.Findings.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

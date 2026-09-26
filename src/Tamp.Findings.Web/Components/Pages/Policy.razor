@@ -12,6 +12,7 @@
 @page "/c/{Client}/p/{Project}/settings/policy"
 @attribute [Authorize]
 @rendermode InteractiveServer
+@using Tamp.Findings.Domain.Values
 @inject RouteScope Scope
 @inject ProjectHubQuery Hub
 @inject PolicyService Policies
@@ -278,6 +279,22 @@ else
                                     different terms.
                                 </p>
                             </div>
+                            <div class="field" style="margin: var(--space-2) 0">
+                                <label class="field__label" for="proj-enforcement">Enforcement for this project</label>
+                                <select id="proj-enforcement" value="@_projectEnforcement"
+                                        disabled="@(!_canEditGates.Allowed)"
+                                        @onchange="OnEnforcementChanged"
+                                        style="padding: var(--space-1) var(--space-2)">
+                                    <option value="">Inherit (client → instance)</option>
+                                    <option value="Advisory">Advisory — evaluate, never block</option>
+                                    <option value="Enforcing">Enforcing — block on a failing verdict</option>
+                                </select>
+                                <p class="field__help">
+                                    A locked instance floor still wins: if the instance is locked to
+                                    enforcing, choosing advisory here has no effect — the stricter setting
+                                    applies. Enabling a gate and enforcing on it are separate switches.
+                                </p>
+                            </div>
                             <Button Variant="Button.ButtonVariant.Primary"
                                     Disabled="@(!_canEditGates.Allowed || !_gatesDirty)"
                                     DisabledReason="@GateSaveReason"
@@ -490,6 +507,7 @@ else
 
     private List<GateRow> _gates = [];
     private bool _gatesDirty;
+    private string _projectEnforcement = ""; // "" = inherit; else "Advisory" | "Enforcing"
     private string? _gateError;
 
     private PolicyCard? _duplicating, _deleting;
@@ -529,7 +547,11 @@ else
                 // Gates are scoped to the PROJECT, so this capability is
                 // evaluated there rather than at the instance.
                 _canEditGates = await Me.CanAsync(Capability.EditGates, Here);
-                if (!_gatesDirty) _gates = (await Gates.ListAsync(_project.ProjectId)).ToList();
+                if (!_gatesDirty)
+                {
+                    _gates = (await Gates.ListAsync(_project.ProjectId)).ToList();
+                    _projectEnforcement = (await Gates.EnforcementOverrideAsync(_project.ProjectId))?.ToString() ?? "";
+                }
             }
 
             // Default the selection to the policy this project actually scores
@@ -579,11 +601,19 @@ else
         var actor = await Me.AtAsync(Here);
         if (actor is null) { _gateError = "You are not signed in."; return; }
 
-        var result = await Gates.SaveAsync(actor, Here, _project.ProjectId, _gates);
+        EnforcementMode? mode = _projectEnforcement == "" ? null : Enum.Parse<EnforcementMode>(_projectEnforcement);
+        var result = await Gates.SaveAsync(actor, Here, _project.ProjectId, _gates, mode);
         if (!result.Success) { _gateError = result.Error; return; }
 
         _gatesDirty = false;
         _gates = (await Gates.ListAsync(_project.ProjectId)).ToList();
+        _projectEnforcement = (await Gates.EnforcementOverrideAsync(_project.ProjectId))?.ToString() ?? "";
+    }
+
+    private void OnEnforcementChanged(ChangeEventArgs e)
+    {
+        _projectEnforcement = e.Value?.ToString() ?? "";
+        _gatesDirty = true;
     }
 
     private async Task Select(Guid id)

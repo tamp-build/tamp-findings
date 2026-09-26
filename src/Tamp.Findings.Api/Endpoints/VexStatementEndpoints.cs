@@ -1,8 +1,8 @@
-using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
-using Tamp.Findings.Api.Authentication;
+using Tamp.Findings.Application.Authorization;
+using Tamp.Findings.Application.Vex;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 
@@ -40,6 +40,11 @@ public sealed record UpdateVexStatementRequest(
 
 public sealed record CycloneDxVexIngestResponse(int Created, int Updated, int Skipped, int Failed);
 
+// TFND-156: writes route through VexQuery — the same capability-gated, audited
+// path the Blazor UI uses — instead of an Admin-only, unaudited path. Authoring
+// needs AuthorVex; a statement that actually suppresses a CVE needs PublishVex,
+// and VexQuery decides which per statement. The bulk import applies the same
+// check to every statement it writes.
 public static class VexStatementEndpoints
 {
     public static IEndpointRouteBuilder MapVexStatements(this IEndpointRouteBuilder app)
@@ -49,9 +54,9 @@ public static class VexStatementEndpoints
         g.MapGet("/projects/{projectId:guid}/vex-statements", ListAsync)
          .WithSummary("List VEX statements for a project (current + optionally retired).");
         g.MapPost("/projects/{projectId:guid}/vex-statements", CreateAsync)
-         .WithSummary("Author a new VEX statement for a project. Admin only today; TFND-3 role check lands later.");
+         .WithSummary("Author a new VEX statement. Needs AuthorVex; a suppressing status needs PublishVex.");
         g.MapPost("/projects/{projectId:guid}/vex-statements/ingest-cdx", IngestCycloneDxAsync)
-         .WithSummary("Bulk-author VEX statements from a CycloneDX-VEX 1.5+ JSON document. Each `vulnerabilities[]` entry produces one statement per affected component.");
+         .WithSummary("Bulk-author VEX statements from a CycloneDX-VEX 1.5+ JSON document. Each statement is capability-checked and audited individually.");
 
         g.MapPatch("/vex-statements/{id:guid}", UpdateAsync)
          .WithSummary("Edit a VEX statement in place. Bumps UpdatedAt; preserves CreatedAt.");
@@ -71,79 +76,80 @@ public static class VexStatementEndpoints
     }
 
     private static async Task<IResult> CreateAsync(
-        Guid projectId, CreateVexStatementRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+        Guid projectId, CreateVexStatementRequest req, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals, VexQuery vex, CancellationToken ct)
     {
-        var (user, deny) = await RequireAdminAsync(ctx, db, ct);
+        var (actor, scope, deny) = await EndpointActor.ForProjectAsync(ctx, db, principals, projectId, ct);
         if (deny is not null) return deny;
-        if (string.IsNullOrWhiteSpace(req.Purl)) return Results.BadRequest("purl required");
-        if (string.IsNullOrWhiteSpace(req.AdvisoryId)) return Results.BadRequest("advisoryId required");
-        if (!await db.Projects.AnyAsync(p => p.Id == projectId, ct)) return Results.NotFound("project not found");
 
-        var row = new VexStatement
-        {
-            ProjectId = projectId,
-            Purl = req.Purl.Trim(),
-            ComponentVersion = string.IsNullOrWhiteSpace(req.ComponentVersion) ? null : req.ComponentVersion.Trim(),
-            AdvisoryId = req.AdvisoryId.Trim(),
-            Status = req.Status,
-            Justification = req.Justification,
-            ImpactStatement = req.ImpactStatement,
-            ResponseReferenceUrl = req.ResponseReferenceUrl,
-            AuthorUserId = user!.Id,
-        };
-        db.VexStatements.Add(row);
-        await db.SaveChangesAsync(ct);
+        var draft = new VexDraft(
+            req.AdvisoryId ?? "", req.Purl ?? "", req.ComponentVersion,
+            req.Status, req.Justification, req.ImpactStatement, req.ResponseReferenceUrl);
+
+        var result = await vex.SaveAsync(actor!, scope, projectId, id: null, draft, ct);
+        if (!result.Success) return Fail(result.WasDenied, result.Error);
+
+        var row = await db.VexStatements.AsNoTracking().FirstAsync(v => v.Id == result.Value, ct);
         return Results.Created($"/vex-statements/{row.Id}", Project(row));
     }
 
     private static async Task<IResult> UpdateAsync(
-        Guid id, UpdateVexStatementRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+        Guid id, UpdateVexStatementRequest req, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals, VexQuery vex, CancellationToken ct)
     {
-        var (_, deny) = await RequireAdminAsync(ctx, db, ct);
-        if (deny is not null) return deny;
-        var row = await db.VexStatements.FirstOrDefaultAsync(v => v.Id == id, ct);
+        var row = await db.VexStatements.AsNoTracking().FirstOrDefaultAsync(v => v.Id == id, ct);
         if (row is null) return Results.NotFound();
         if (row.RetiredAt is not null) return Results.Conflict("statement retired; create a new one instead");
 
-        if (req.Status.HasValue) row.Status = req.Status.Value;
-        if (req.Justification.HasValue) row.Justification = req.Justification;
-        if (req.ImpactStatement is not null) row.ImpactStatement = string.IsNullOrWhiteSpace(req.ImpactStatement) ? null : req.ImpactStatement;
-        if (req.ResponseReferenceUrl is not null) row.ResponseReferenceUrl = string.IsNullOrWhiteSpace(req.ResponseReferenceUrl) ? null : req.ResponseReferenceUrl;
-        row.UpdatedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
-        return Results.Ok(Project(row));
+        var (actor, scope, deny) = await EndpointActor.ForProjectAsync(ctx, db, principals, row.ProjectId, ct);
+        if (deny is not null) return deny;
+
+        // Advisory + purl are the statement's identity and are not edited here;
+        // a status change may cross from AuthorVex into PublishVex, which
+        // VexQuery.SaveAsync enforces.
+        var draft = new VexDraft(
+            row.AdvisoryId,
+            row.Purl,
+            row.ComponentVersion,
+            req.Status ?? row.Status,
+            req.Justification ?? row.Justification,
+            req.ImpactStatement ?? row.ImpactStatement,
+            req.ResponseReferenceUrl ?? row.ResponseReferenceUrl);
+
+        var result = await vex.SaveAsync(actor!, scope, row.ProjectId, row.Id, draft, ct);
+        if (!result.Success) return Fail(result.WasDenied, result.Error);
+
+        var updated = await db.VexStatements.AsNoTracking().FirstAsync(v => v.Id == id, ct);
+        return Results.Ok(Project(updated));
     }
 
     private static async Task<IResult> RetireAsync(
-        Guid id, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+        Guid id, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals, VexQuery vex, CancellationToken ct)
     {
-        var (_, deny) = await RequireAdminAsync(ctx, db, ct);
+        var projectId = await db.VexStatements.AsNoTracking()
+            .Where(v => v.Id == id).Select(v => (Guid?)v.ProjectId).FirstOrDefaultAsync(ct);
+        if (projectId is null) return Results.NotFound();
+
+        var (actor, scope, deny) = await EndpointActor.ForProjectAsync(ctx, db, principals, projectId.Value, ct);
         if (deny is not null) return deny;
-        var row = await db.VexStatements.FirstOrDefaultAsync(v => v.Id == id, ct);
-        if (row is null) return Results.NotFound();
-        if (row.RetiredAt is not null) return Results.NoContent();
-        row.RetiredAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
+
+        var result = await vex.RetireAsync(actor!, scope, projectId.Value, id, ct);
+        if (!result.Success) return Fail(result.WasDenied, result.Error);
         return Results.NoContent();
     }
 
-    // CycloneDX-VEX 1.5+ JSON body: top-level `vulnerabilities` array,
-    // each entry with `id` (CVE), `analysis.state`, and an `affects`
-    // array of `{ ref: <bom-ref> }` pointing at components. Federal
-    // VEX tooling (semgrep-vexctl, dependency-track-vex, etc.) all
-    // produce this shape.
-    //
-    // Parsing strategy: a CycloneDX-VEX doc usually accompanies an
-    // SBOM and the bom-refs in `affects[].ref` are either component
-    // ids local to the SBOM or full purls. We're permissive — accept
-    // anything that parses as a purl (or has a `purl` sibling on the
-    // ref entry) and persist it as a project-scoped statement.
+    // CycloneDX-VEX 1.5+ JSON body: top-level `vulnerabilities` array, each with
+    // `id` (CVE), `analysis.state`, and an `affects` array of `{ ref }`. Every
+    // statement written goes through VexQuery.SaveAsync, so each is
+    // capability-checked (Author/Publish) and audited — a bulk import is not a
+    // way around the per-statement rules.
     private static async Task<IResult> IngestCycloneDxAsync(
-        Guid projectId, HttpRequest httpReq, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+        Guid projectId, HttpRequest httpReq, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals, VexQuery vex, CancellationToken ct)
     {
-        var (user, deny) = await RequireAdminAsync(ctx, db, ct);
+        var (actor, scope, deny) = await EndpointActor.ForProjectAsync(ctx, db, principals, projectId, ct);
         if (deny is not null) return deny;
-        if (!await db.Projects.AnyAsync(p => p.Id == projectId, ct)) return Results.NotFound("project not found");
 
         JsonDocument doc;
         try { doc = await JsonDocument.ParseAsync(httpReq.Body, cancellationToken: ct); }
@@ -154,12 +160,13 @@ public static class VexStatementEndpoints
                 return Results.BadRequest("expected top-level `vulnerabilities` array");
 
             int created = 0, updated = 0, skipped = 0, failed = 0;
-            // Pre-load existing active statements once so the loop can
-            // upsert in memory without N round-trips.
-            var existing = await db.VexStatements
+
+            // Ids of the active statements, so an upsert reuses the row rather
+            // than duplicating it. Grows as new ones are created in this doc.
+            var idByKey = await db.VexStatements.AsNoTracking()
                 .Where(v => v.ProjectId == projectId && v.RetiredAt == null)
-                .ToListAsync(ct);
-            var byKey = existing.ToDictionary(v => (v.AdvisoryId, v.Purl, v.ComponentVersion), v => v);
+                .Select(v => new { v.Id, v.AdvisoryId, v.Purl, v.ComponentVersion })
+                .ToDictionaryAsync(v => (v.AdvisoryId, v.Purl, v.ComponentVersion), v => v.Id, ct);
 
             foreach (var v in vulnsEl.EnumerateArray())
             {
@@ -185,10 +192,6 @@ public static class VexStatementEndpoints
 
                 if (!v.TryGetProperty("affects", out var affectsEl) || affectsEl.ValueKind != JsonValueKind.Array)
                 {
-                    // CycloneDX-VEX allows a vulnerability without
-                    // explicit affects when the parent BOM context
-                    // disambiguates. We can't act on a project-scoped
-                    // statement without a target — skip with a count.
                     skipped++;
                     continue;
                 }
@@ -199,46 +202,36 @@ public static class VexStatementEndpoints
                     if (string.IsNullOrWhiteSpace(purl)) { skipped++; continue; }
                     var (bare, ver) = SplitPurlVersion(purl);
                     var key = (advisoryId!, bare, ver);
-                    if (byKey.TryGetValue(key, out var row))
+
+                    Guid? existingId = idByKey.TryGetValue(key, out var eid) ? eid : null;
+                    var draft = new VexDraft(advisoryId!, bare, ver, status, justification, impact, null);
+
+                    var r = await vex.SaveAsync(actor!, scope, projectId, existingId, draft, ct);
+                    if (!r.Success)
                     {
-                        row.Status = status;
-                        row.Justification = justification;
-                        row.ImpactStatement = impact ?? row.ImpactStatement;
-                        row.UpdatedAt = DateTimeOffset.UtcNow;
-                        updated++;
+                        // A capability denial aborts the whole import — the actor
+                        // cannot author/publish here, so counting it as a per-row
+                        // failure would hide that.
+                        if (r.WasDenied) return Results.Problem(r.Error, statusCode: StatusCodes.Status403Forbidden);
+                        failed++;
+                        continue;
                     }
-                    else
-                    {
-                        var fresh = new VexStatement
-                        {
-                            ProjectId = projectId,
-                            Purl = bare,
-                            ComponentVersion = ver,
-                            AdvisoryId = advisoryId!,
-                            Status = status,
-                            Justification = justification,
-                            ImpactStatement = impact,
-                            AuthorUserId = user!.Id,
-                        };
-                        db.VexStatements.Add(fresh);
-                        byKey[key] = fresh;
-                        created++;
-                    }
+
+                    if (existingId is null) { created++; idByKey[key] = r.Value; }
+                    else updated++;
                 }
             }
-            await db.SaveChangesAsync(ct);
+
             return Results.Ok(new CycloneDxVexIngestResponse(created, updated, skipped, failed));
         }
     }
 
+    private static IResult Fail(bool denied, string? error) =>
+        denied ? Results.Problem(error, statusCode: StatusCodes.Status403Forbidden)
+               : Results.BadRequest(error);
+
     private static string? ExtractPurl(JsonElement aff)
     {
-        // Two common shapes:
-        // 1. { "ref": "pkg:nuget/Log4Net@2.0.5" } — full purl in ref
-        // 2. { "ref": "<bom-ref>" } + sibling fields (not common in
-        //    pure-VEX). Today we only read the ref if it looks like
-        //    a purl; bom-ref resolution against an external SBOM is
-        //    out of scope until we wire ingest pairing.
         if (aff.TryGetProperty("ref", out var refEl) && refEl.ValueKind == JsonValueKind.String)
         {
             var s = refEl.GetString();
@@ -249,7 +242,6 @@ public static class VexStatementEndpoints
     }
 
     // pkg:nuget/Log4Net@2.0.5 → ("pkg:nuget/Log4Net", "2.0.5")
-    // pkg:nuget/Log4Net      → ("pkg:nuget/Log4Net", null)
     private static (string Bare, string? Version) SplitPurlVersion(string purl)
     {
         var at = purl.LastIndexOf('@');
@@ -289,14 +281,4 @@ public static class VexStatementEndpoints
         v.Id, v.ProjectId, v.Purl, v.ComponentVersion, v.AdvisoryId,
         v.Status, v.Justification, v.ImpactStatement, v.ResponseReferenceUrl,
         v.AuthorUserId, v.CreatedAt, v.UpdatedAt, v.RetiredAt);
-
-    private static async Task<(User? user, IResult? deny)> RequireAdminAsync(HttpContext ctx, FindingsDbContext db, CancellationToken ct)
-    {
-        if (!Guid.TryParse(ctx.User.FindFirstValue(AuthExtensions.TampUserIdClaim), out var uid))
-            return (null, Results.Unauthorized());
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == uid, ct);
-        if (user is null || !user.IsApproved) return (null, Results.Unauthorized());
-        if (!user.IsAdmin) return (user, Results.Forbid());
-        return (user, null);
-    }
 }

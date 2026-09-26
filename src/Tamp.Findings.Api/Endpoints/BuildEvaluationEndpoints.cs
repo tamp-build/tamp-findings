@@ -27,7 +27,12 @@ public sealed record BuildEvaluationResponse(
     int GatesUnknown,
     // Everything that is not a Pass. This is the number the ship verdict
     // reads; GatesFailed alone would let an unscanned build look clear.
-    int GatesBlocking);
+    int GatesBlocking,
+    // The effective enforcement mode for this project (ADR 0004): "Advisory"
+    // or "Enforcing", after Project -> Client -> Instance resolution and the
+    // config lock. The CLI gate reads this to decide whether a blocking verdict
+    // fails the build; the dashboard reads it to say whether it would.
+    string EnforcementMode);
 
 public sealed record BuildPointer(
     string? CommitSha,
@@ -63,90 +68,40 @@ public static class BuildEvaluationEndpoints
 
     private static async Task<IResult> EvaluateAsync(
         Guid projectId,
-        FindingsDbContext db,
-        RiskInputsBuilder inputsBuilder,
+        GateDecisionService decisions,
         CancellationToken ct)
     {
-        var project = await db.Projects.AsNoTracking()
-            .Include(p => p.Client)
-            .FirstOrDefaultAsync(p => p.Id == projectId, ct);
-        if (project is null) return Results.NotFound("project not found");
-
-        // Pull the canonical CV-set per (Component, Flavor) — one row per
-        // most-recent canonical commit's CVs. Plus the SECOND-most-recent
-        // canonical commit's set for delta-aware gates.
-        var canonical = await db.ComponentVersions.AsNoTracking()
-            .Where(v => v.Component!.ProjectId == projectId
-                     && v.PullRequestRef == null
-                     && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))
-            .OrderByDescending(v => v.CreatedAt)
-            .Select(v => new { v.Id, v.CommitSha, v.VersionString, v.CreatedAt, v.ComponentId, v.FlavorId })
-            .ToListAsync(ct);
-        if (canonical.Count == 0)
-            return Results.NotFound("no canonical builds for this project");
-
-        // Group CVs into "build cycles" by commit; latest commit first.
-        var byCommit = canonical
-            .GroupBy(v => v.CommitSha ?? v.VersionString)
-            .Select(g => new
-            {
-                Key = g.Key,
-                CommitSha = g.First().CommitSha,
-                VersionString = g.First().VersionString,
-                Latest = g.Max(v => v.CreatedAt),
-                CvIds = g.Select(v => v.Id).ToList(),
-            })
-            .OrderByDescending(g => g.Latest)
-            .ToList();
-        var currentBuild = byCommit[0];
-        var priorBuild = byCommit.Count > 1 ? byCommit[1] : null;
-
-        // Resolve effective policy: Project > Client > Default.
-        var effectivePolicyId = project.RiskPolicyId ?? project.Client?.RiskPolicyId;
-        RiskPolicy? policy = null;
-        if (effectivePolicyId is { } id)
-            policy = await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
-        policy ??= await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
-        if (policy is null) return Results.Conflict("no default risk policy seeded");
-
-        var currentInputs = await inputsBuilder.BuildAsync(currentBuild.CvIds, policy.Config, projectId, ct);
-        var currentResult = RiskScorer.Compute(policy.Config, currentInputs);
-
-        RiskInputs? priorInputs = null;
-        double? priorScore = null;
-        string? priorBand = null;
-        if (priorBuild is not null)
+        // Canonical resolution + evaluation + enforcement mode live in
+        // GateDecisionService, shared with the bearer-authed CLI gate endpoint
+        // so the two surfaces cannot drift.
+        var (status, r) = await decisions.ForLatestAsync(projectId, ct);
+        return status switch
         {
-            priorInputs = await inputsBuilder.BuildAsync(priorBuild.CvIds, policy.Config, projectId, ct);
-            var priorResult = RiskScorer.Compute(policy.Config, priorInputs);
-            priorScore = Math.Round(priorResult.Score, 1);
-            priorBand = priorResult.Band;
-        }
-
-        var gates = project.GatesConfig ?? ProjectGatesDefaults.Empty();
-        var evaluation = GateEvaluator.Evaluate(
-            gates, currentInputs, currentResult.Score, priorInputs, priorScore);
-
-        return Results.Ok(new BuildEvaluationResponse(
-            Current: new BuildPointer(currentBuild.CommitSha, currentBuild.VersionString, currentBuild.Latest),
-            Prior: priorBuild is null ? null : new BuildPointer(priorBuild.CommitSha, priorBuild.VersionString, priorBuild.Latest),
-            CurrentScore: Math.Round(currentResult.Score, 1),
-            CurrentBand: currentResult.Band,
-            PriorScore: priorScore,
-            PriorBand: priorBand,
-            DeltaPoints: evaluation.DeltaPoints.HasValue ? Math.Round(evaluation.DeltaPoints.Value, 1) : null,
-            PolicyId: policy.Id,
-            PolicyName: policy.Name,
-            Gates: evaluation.Results.Select(g => new GateResultDto(
-                g.Key, g.Enabled, g.Verdict.ToString(), g.Blocks, g.Observed, g.Threshold, g.Reason)).ToList(),
-            // Read straight off the evaluation. Reconstructing this as
-            // Passed + Failed is what produced the "9 gates enabled" line
-            // that contradicted a computed 10, and it silently drops
-            // Unknown and Error.
-            GatesEnabled: evaluation.Enabled,
-            GatesPassed: evaluation.Passed,
-            GatesFailed: evaluation.Failed,
-            GatesUnknown: evaluation.Unknown,
-            GatesBlocking: evaluation.Blocking));
+            GateDecisionStatus.ProjectNotFound => Results.NotFound("project not found"),
+            GateDecisionStatus.NoBuilds => Results.NotFound("no canonical builds for this project"),
+            GateDecisionStatus.NoPolicy => Results.Conflict("no default risk policy seeded"),
+            _ => Results.Ok(new BuildEvaluationResponse(
+                Current: new BuildPointer(r!.Current.CommitSha, r.Current.VersionString, r.Current.LatestCreatedAt),
+                Prior: r.Prior is null ? null : new BuildPointer(r.Prior.CommitSha, r.Prior.VersionString, r.Prior.LatestCreatedAt),
+                CurrentScore: r.CurrentScore,
+                CurrentBand: r.CurrentBand,
+                PriorScore: r.PriorScore,
+                PriorBand: r.PriorBand,
+                DeltaPoints: r.Evaluation.DeltaPoints.HasValue ? Math.Round(r.Evaluation.DeltaPoints.Value, 1) : null,
+                PolicyId: r.PolicyId,
+                PolicyName: r.PolicyName,
+                Gates: r.Evaluation.Results.Select(g => new GateResultDto(
+                    g.Key, g.Enabled, g.Verdict.ToString(), g.Blocks, g.Observed, g.Threshold, g.Reason)).ToList(),
+                // Read straight off the evaluation. Reconstructing this as
+                // Passed + Failed is what produced the "9 gates enabled" line
+                // that contradicted a computed 10, and it silently drops
+                // Unknown and Error.
+                GatesEnabled: r.Evaluation.Enabled,
+                GatesPassed: r.Evaluation.Passed,
+                GatesFailed: r.Evaluation.Failed,
+                GatesUnknown: r.Evaluation.Unknown,
+                GatesBlocking: r.Evaluation.Blocking,
+                EnforcementMode: r.Mode.ToString())),
+        };
     }
 }
