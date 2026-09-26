@@ -102,10 +102,15 @@ COPY src/ src/
 # restore layer that no longer caches across source edits; correctness is worth
 # more than the seconds.
 #
-# --locked-mode would be the durable guard and currently cannot be used: the
-# lock files are generated on Windows, where the SDK adds that implicit
-# reference, and the Linux SDK does not, so locked mode fails with NU1004.
-# TFND-138 tracks closing that gap.
+# --locked-mode would be the durable guard on the RESTORE GRAPH, but it cannot
+# be used here: the lock files are generated on Windows, where the SDK adds
+# Microsoft.AspNetCore.App.Internal.Assets as a Direct reference, and the Linux
+# SDK does not — so locked mode fails with NU1004. Making the reference explicit
+# does not work either: the nuget.org package by that name is an unrelated,
+# ancient one (it drags in EF 1.0.0 / npgsql 3.1.5), not the SDK's synthesised
+# asset entry. TFND-138 tracks that gap. Meanwhile the ARTIFACT check after
+# publish (below) guards the specific failure --locked-mode was wanted for —
+# a missing blazor.web.js — which is the outcome that actually matters.
 RUN dotnet restore src/Tamp.Findings.Api/Tamp.Findings.Api.csproj
 
 RUN dotnet publish src/Tamp.Findings.Api/Tamp.Findings.Api.csproj \
@@ -113,6 +118,20 @@ RUN dotnet publish src/Tamp.Findings.Api/Tamp.Findings.Api.csproj \
     -o /app/publish \
     --no-restore \
     /p:UseAppHost=false
+
+# TFND-138: fail the build if the Blazor script did not make it into the publish
+# output. This is the drift --locked-mode was wanted to catch and currently
+# cannot (see the restore note above): when Microsoft.AspNetCore.App.Internal.Assets
+# is missing from the resolved graph, blazor.web.js is silently absent, no circuit
+# boots, and every interactive component is inert — with nothing failing loudly.
+# The static-web-assets ENDPOINTS MANIFEST is the load-bearing artifact: it is
+# what MapStaticAssets serves from, and it is what was empty when this shipped.
+# Cheap, deterministic, no browser — and it turns a silent runtime outage into a
+# build failure.
+RUN test -f /app/publish/wwwroot/_framework/blazor.web.js \
+    || (echo "FATAL (TFND-138): /wwwroot/_framework/blazor.web.js is missing from the publish output." >&2; exit 1)
+RUN grep -q "blazor.web.js" /app/publish/Tamp.Findings.Api.staticwebassets.endpoints.json \
+    || (echo "FATAL (TFND-138): blazor.web.js is not in the static-web-assets endpoints manifest; MapStaticAssets would serve the catch-all page for it and no Blazor circuit would boot." >&2; exit 1)
 
 # -----------------------------------------------------------------------------
 # Stage 2 — runtime (ASP.NET 10 alpine)
