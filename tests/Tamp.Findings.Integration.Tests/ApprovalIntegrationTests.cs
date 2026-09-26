@@ -442,6 +442,76 @@ public class ApprovalIntegrationTests
         Assert.Empty(db.VexStatements.Where(v => v.AdvisoryId == advisory).ToArray());
     }
 
+    [SkippableFact]
+    public async Task Approving_a_sign_off_signs_the_snapshot_under_the_approvers_name()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // TFND-123: the signature is the APPROVER's act — their name and title
+        // (the decision note) are recorded as the signatory on the frozen snapshot.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var approvals = scope.ServiceProvider.GetRequiredService<ApprovalService>();
+        var db = _fx.Db(scope);
+
+        var snap = new AttestationSnapshot
+        {
+            ProjectId = world.Scope.ProjectId!.Value,
+            CommitSha = $"sha-{Guid.NewGuid():N}"[..16],
+            DocumentJson = "{}",
+            RiskPolicyName = "default",
+            Score = 92,
+            Band = "A",
+            GeneratedByUserId = world.LeadDev.UserId,
+        };
+        db.AttestationSnapshots.Add(snap);
+        await db.SaveChangesAsync();
+
+        var request = await approvals.RequestAsync(
+            world.LeadDev, world.Scope, ApprovalKind.AttestationSignOff,
+            "AttestationSnapshot", snap.Id, justification: "Ready for your signature.");
+        // InfoSec officer holds ExportAttestation and is not the requester.
+        var decision = await approvals.DecideAsync(
+            world.InfoSec, request.Value, approve: true, note: "Jane Smith, ISSO");
+        Assert.True(decision.Success);
+
+        var signed = db.AttestationSnapshots.Single(s => s.Id == snap.Id);
+        Assert.NotNull(signed.SignedAt);
+        Assert.Equal("Jane Smith, ISSO", signed.SignedBy);
+    }
+
+    [SkippableFact]
+    public async Task Rejecting_a_sign_off_leaves_the_snapshot_unsigned()
+    {
+        Skip.IfNot(_fx.Available);
+
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var approvals = scope.ServiceProvider.GetRequiredService<ApprovalService>();
+        var db = _fx.Db(scope);
+
+        var snap = new AttestationSnapshot
+        {
+            ProjectId = world.Scope.ProjectId!.Value,
+            CommitSha = $"sha-{Guid.NewGuid():N}"[..16],
+            DocumentJson = "{}",
+            RiskPolicyName = "default",
+            Score = 80,
+            Band = "B",
+            GeneratedByUserId = world.LeadDev.UserId,
+        };
+        db.AttestationSnapshots.Add(snap);
+        await db.SaveChangesAsync();
+
+        var request = await approvals.RequestAsync(
+            world.LeadDev, world.Scope, ApprovalKind.AttestationSignOff, "AttestationSnapshot", snap.Id);
+        await approvals.DecideAsync(world.InfoSec, request.Value, approve: false, note: "Rebuild first.");
+
+        var after = db.AttestationSnapshots.Single(s => s.Id == snap.Id);
+        Assert.Null(after.SignedAt);
+        Assert.Null(after.SignedBy);
+    }
+
     // ---- Seed ---------------------------------------------------------------
 
     private sealed record World(
