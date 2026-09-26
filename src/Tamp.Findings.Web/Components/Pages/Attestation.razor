@@ -22,6 +22,7 @@
 @inject SsdfAttestationBuilder Builder
 @inject AttestationExporter Exporter
 @inject AttestationSnapshotService Snapshots
+@inject ApprovalService Approvals
 @inject CurrentUser Me
 @inject IJSRuntime Js
 
@@ -105,8 +106,37 @@ else
                 </p>
                 @if (stored.SignedAt is null)
                 {
-                    <Button Disabled="@(!_canExport.Allowed)" DisabledReason="@_canExport.Reason"
-                            OnClick="() => _signing = true">Record signature</Button>
+                    @if (_pending is { } pend)
+                    {
+                        @* A sign-off has been requested (TFND-123). The direct
+                           "Record signature" is withheld while it is pending, so
+                           the second person's decision is not raced. *@
+                        <p class="field__help">
+                            @pend.RequestedBy requested sign-off on @pend.RequestedAt.ToString("yyyy-MM-dd").
+                            @if (pend.Justification is { Length: > 0 } why) { <text> Their note: @why</text> }
+                        </p>
+                        @if (_awaitingId is { } aid)
+                        {
+                            <div class="row" style="gap: var(--space-2)">
+                                <Button Variant="Button.ButtonVariant.Primary"
+                                        OnClick="() => StartDecide(true)">Approve &amp; sign</Button>
+                                <Button Class="btn--danger" OnClick="() => StartDecide(false)">Reject</Button>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="row" style="gap: var(--space-2)">
+                            @* Both paths (like every other approval kind): sign it
+                               yourself, or ask a different officer to. *@
+                            <Button Disabled="@(!_canExport.Allowed)" DisabledReason="@_canExport.Reason"
+                                    OnClick="() => _signing = true">Record signature</Button>
+                            <Button Disabled="@(!_canExport.Allowed)" DisabledReason="@_canExport.Reason"
+                                    OnClick="() => { _requestNote = null; _signError = null; _requesting = true; }">
+                                Request sign-off
+                            </Button>
+                        </div>
+                    }
                 }
             </Card>
         }
@@ -286,6 +316,66 @@ else
     </Footer>
 </Dialog>
 
+@* ---- Request sign-off (the two-person path, TFND-123) ------------------- *@
+<Dialog Open="_requesting" OpenChanged="v => _requesting = v" Title="Request sign-off" Width="620">
+    <ChildContent>
+        <p class="field__help">
+            Ask a different officer to put their name to this frozen attestation. You cannot sign your
+            own request — that is the whole point of routing it through an approval.
+        </p>
+        <TextField Label="Note to the approver (optional)" Multiline="true" Rows="3" @bind-Value="_requestNote"
+                   Help="Anything the signer should know before they sign. Recorded with the request." />
+        @if (_signError is not null)
+        {
+            <p style="color: var(--color-critical)">@_signError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="RequestSignoff">Send request</Button>
+        <Button OnClick="() => _requesting = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+@* ---- Decide a sign-off request (the approver signs, TFND-123) ----------- *@
+<Dialog Open="_deciding" OpenChanged="v => _deciding = v"
+        Title="@(_decideApprove ? "Approve & sign" : "Reject sign-off")" Width="640">
+    <ChildContent>
+        @if (_pending is { } p)
+        {
+            <p><strong>@p.RequestedBy</strong> requested sign-off on this attestation.</p>
+            @if (_decideApprove)
+            {
+                <p class="field__help">
+                    You are the signatory. Your name and title are recorded against the snapshot and, if a
+                    signing key is configured, a key-backed signature is attached to the frozen document.
+                </p>
+                <TextField Label="Your name and title (signature)" @bind-Value="_decideNote"
+                           Help="Recorded as the signatory, exactly as typed." />
+            }
+            else
+            {
+                <TextField Label="Reason for rejecting" Multiline="true" Rows="3" @bind-Value="_decideNote"
+                           Help="Recorded with the decision so the requester knows why." />
+            }
+            @if (_signError is not null)
+            {
+                <p style="color: var(--color-critical)">@_signError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        @if (_decideApprove)
+        {
+            <Button Variant="Button.ButtonVariant.Primary" OnClick="ConfirmDecide">Approve &amp; sign</Button>
+        }
+        else
+        {
+            <Button Variant="Button.ButtonVariant.Danger" OnClick="ConfirmDecide">Reject</Button>
+        }
+        <Button OnClick="() => _deciding = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
 <Dialog Open="_exporting" OpenChanged="v => _exporting = v" Title="Export attestation" Width="660">
     <ChildContent>
         @foreach (var format in AttestationExporter.Formats)
@@ -358,6 +448,13 @@ else
     private StoredAttestation? _stored;
     private bool _exporting, _signing;
     private string? _signatory, _signError;
+
+    // Sign-off approval (TFND-123): a pending request on the frozen snapshot, and
+    // whether the current user is the one who may decide it.
+    private PendingState? _pending;
+    private Guid? _awaitingId;
+    private bool _requesting, _deciding, _decideApprove;
+    private string? _requestNote, _decideNote;
     private AttestationFormat _format = AttestationFormat.Oscal;
     private OscalModel _oscalModel = OscalModel.Bundle;
 
@@ -385,11 +482,77 @@ else
             _doc = _stored?.Document ?? await Builder.BuildAsync(_project.ProjectId, sha);
 
             _canExport = await Me.CanAsync(Capability.ExportAttestation, Here);
+
+            // Only a frozen-but-unsigned snapshot can be awaiting sign-off.
+            _pending = null;
+            _awaitingId = null;
+            if (_stored is { SignedAt: null } unsigned)
+            {
+                _pending = await Approvals.ForSubjectAsync("AttestationSnapshot", unsigned.Id);
+                if (_pending is not null && await Me.AtAsync(Here) is { } principal)
+                {
+                    var awaiting = await Approvals.AwaitingAsync(principal, t => Me.AtAsync(t));
+                    var mine = awaiting.FirstOrDefault(
+                        a => a.Kind == ApprovalKind.AttestationSignOff && a.SubjectId == unsigned.Id);
+                    _awaitingId = mine is null ? null : mine.ApprovalId;
+                }
+            }
         }
         catch (Exception ex)
         {
             _error = ex.GetType().Name;
         }
+    }
+
+    private async Task RequestSignoff()
+    {
+        if (_project is null || _stored is null) return;
+        _signError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _signError = "You are not signed in."; return; }
+
+        var result = await Approvals.RequestAsync(
+            actor, Here, ApprovalKind.AttestationSignOff, "AttestationSnapshot", _stored.Id,
+            justification: _requestNote);
+        if (!result.Success) { _signError = result.Error; return; }
+
+        _requesting = false;
+        await OnParametersSetAsync();
+    }
+
+    private void StartDecide(bool approve)
+    {
+        _decideApprove = approve;
+        _decideNote = null;
+        _signError = null;
+        _deciding = true;
+    }
+
+    private async Task ConfirmDecide()
+    {
+        if (_awaitingId is not { } id) return;
+        _signError = null;
+
+        // Approve carries the signatory (name and title); reject carries a reason.
+        // Both are required — a signature with no name, or a rejection with no
+        // reason, is not a decision anyone can read later.
+        if (string.IsNullOrWhiteSpace(_decideNote))
+        {
+            _signError = _decideApprove
+                ? "Sign with your name and title."
+                : "A rejection needs a reason the requester can act on.";
+            return;
+        }
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _signError = "You are not signed in."; return; }
+
+        var result = await Approvals.DecideAsync(actor, id, _decideApprove, _decideNote);
+        if (!result.Success) { _signError = result.Error; return; }
+
+        _deciding = false;
+        await OnParametersSetAsync();
     }
 
     private async Task Print() => await Js.InvokeVoidAsync("window.print");
