@@ -19,7 +19,9 @@ public sealed record IngestRequest(
     string? BuildId,
     string? PullRequestRef,
     ScannerKind Scanner,
-    IReadOnlyList<IngestFinding> Findings);
+    IReadOnlyList<IngestFinding> Findings,
+    // TFND-165: who produced this ingest (optional, additive).
+    IngestActor? Actor = null);
 
 public sealed record IngestFinding(
     string RuleId,

@@ -23,7 +23,9 @@ public sealed record CoverageIngestRequest(
     // SourceFiles are deduped at the request level so partial classes that
     // share a file don't transmit the same body twice. Can be omitted when
     // the producer doesn't have source-file content (e.g. SARIF-only flow).
-    IReadOnlyList<CoverageSourceFileDto>? SourceFiles = null);
+    IReadOnlyList<CoverageSourceFileDto>? SourceFiles = null,
+    // TFND-165: who produced this ingest (optional, additive).
+    IngestActor? Actor = null);
 
 public sealed record CoverageModuleDto(
     string Name,

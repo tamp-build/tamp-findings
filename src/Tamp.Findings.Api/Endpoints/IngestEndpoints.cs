@@ -96,6 +96,10 @@ public static class IngestEndpoints
             if (req.PullRequestRef is not null) version.PullRequestRef = req.PullRequestRef;
         }
 
+        // TFND-165: stamp the build with the actor that produced this ingest,
+        // whether it was just created or already existed.
+        version.ApplyActor(req.Actor);
+
         // Persist parents before processing findings so the FK targets exist
         // when we query existing findings for this version.
         await db.SaveChangesAsync(ct);

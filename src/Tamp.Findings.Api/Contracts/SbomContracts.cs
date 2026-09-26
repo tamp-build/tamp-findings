@@ -28,7 +28,9 @@ public sealed record SbomIngestRequest(
     IReadOnlyList<SbomDependencyDto> Dependencies,
     // TFND-21: CycloneDX metadata.tools captured verbatim as a list of
     // property bags (vendor, name, version, …). Null means "not provided".
-    IReadOnlyList<Dictionary<string, string?>>? MetadataTools = null);
+    IReadOnlyList<Dictionary<string, string?>>? MetadataTools = null,
+    // TFND-165: who produced this ingest (optional, additive).
+    IngestActor? Actor = null);
 
 public sealed record SbomComponentDto(
     string Purl,

@@ -25,7 +25,9 @@ public sealed record TestResultsIngestRequest(
     double DurationMs,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
-    IReadOnlyList<TestSuiteRequestDto> Suites);
+    IReadOnlyList<TestSuiteRequestDto> Suites,
+    // TFND-165: who produced this ingest (optional, additive).
+    IngestActor? Actor = null);
 
 public sealed record TestSuiteRequestDto(
     string AssemblyName,
