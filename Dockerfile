@@ -48,7 +48,6 @@ COPY src/Tamp.Findings.Domain/Tamp.Findings.Domain.csproj src/Tamp.Findings.Doma
 COPY src/Tamp.Findings.Data/Tamp.Findings.Data.csproj src/Tamp.Findings.Data/packages.lock.json       src/Tamp.Findings.Data/
 COPY src/Tamp.Findings.Application/Tamp.Findings.Application.csproj src/Tamp.Findings.Application/packages.lock.json src/Tamp.Findings.Application/
 COPY src/Tamp.Findings.Web/Tamp.Findings.Web.csproj src/Tamp.Findings.Web/packages.lock.json         src/Tamp.Findings.Web/
-COPY src/Tamp.Findings.Workflows/Tamp.Findings.Workflows.csproj src/Tamp.Findings.Workflows/packages.lock.json src/Tamp.Findings.Workflows/
 # The MCP server (TFND-12). The Api references it, so restore needs its csproj
 # here — a ProjectReference added without a matching COPY fails only at
 # `dotnet publish --no-restore`, which no test run reaches.

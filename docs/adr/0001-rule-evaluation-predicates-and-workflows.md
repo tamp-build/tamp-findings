@@ -5,6 +5,8 @@
 * Deciders: scott
 * Tracking: TFND (ticket to follow)
 
+> **Superseded in part by [ADR 0005](0005-removing-elsa-scheduled-work-as-hosted-workers.md).** The core decision here — four-valued verdicts and predicates by default — stands. The "Elsa for complexity" arm does not: Elsa was removed (nothing ever dispatched a workflow, and no rule was ever promoted to one). Scheduled work now runs as hosted workers; the complex-rule escape hatch, if ever needed, is CEL. Read the Elsa material below as history.
+
 ## Context and Problem Statement
 
 Policy in tamp.findings is currently expressed through four unrelated mechanisms, none of them composable:

@@ -357,7 +357,6 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.SubjectKind).HasMaxLength(60).IsRequired();
             e.Property(x => x.RequestedByLogin).HasMaxLength(200).IsRequired();
             e.Property(x => x.DecidedByLogin).HasMaxLength(200);
-            e.Property(x => x.WorkflowInstanceId).HasMaxLength(64);
             // The two reads the screens perform: "is this thing pending?" and
             // "what is waiting on me?".
             e.HasIndex(x => new { x.SubjectKind, x.SubjectId, x.State });
