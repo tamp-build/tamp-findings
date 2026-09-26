@@ -41,6 +41,27 @@ public static class SbomVulnerabilitiesEndpoints
         CancellationToken ct)
     {
         if (req.SnapshotId == Guid.Empty) return Results.BadRequest("snapshotId required");
+
+        // TFND-163: scope the snapshot to the token. Unlike the /ingest/* routes,
+        // this endpoint is addressed by a snapshot guid and never ran through
+        // IngestScopeGuard, so a valid tenant-A token could inject CVE rows into
+        // tenant-B's snapshot — rows that feed the risk score, KEV gate and SSDF
+        // attestation. Resolve the snapshot's owning project/client and refuse
+        // out-of-scope tokens; out of scope reads as not-found, never a
+        // confirmation that another tenant's snapshot exists.
+        var owner = await db.SbomSnapshots.AsNoTracking()
+            .Where(s => s.Id == req.SnapshotId)
+            .Select(s => new { s.ComponentVersion!.Component!.ProjectId, ClientId = s.ComponentVersion.Component.Project!.ClientId })
+            .FirstOrDefaultAsync(ct);
+        if (owner is null) return Results.NotFound("snapshot not found");
+
+        var token = IngestAuthFilter.CurrentToken(ctx);
+        if (token is null) return Results.Unauthorized();
+        var inScope = token.Scope == IngestTokenScope.Project
+            ? token.ProjectId == owner.ProjectId
+            : token.ClientId == owner.ClientId;
+        if (!inScope) return Results.NotFound("snapshot not found");
+
         var components = await db.SbomComponents.AsNoTracking()
             .Where(c => c.SbomSnapshotId == req.SnapshotId)
             .Select(c => new { c.Id, c.Name, c.Version })
