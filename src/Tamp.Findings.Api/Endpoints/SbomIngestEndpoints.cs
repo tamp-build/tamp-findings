@@ -5,6 +5,8 @@ using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 
+using Tamp.Findings.Application.Auditing;
+
 namespace Tamp.Findings.Api.Endpoints;
 
 public static class SbomIngestEndpoints
@@ -21,7 +23,7 @@ public static class SbomIngestEndpoints
 
     private static async Task<IResult> IngestAsync(
         SbomIngestRequest req, HttpContext ctx, FindingsDbContext db,
-        CveReconciler reconciler, CancellationToken ct)
+        CveReconciler reconciler, AuditLog audit, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project is required");
@@ -130,6 +132,10 @@ public static class SbomIngestEndpoints
         // Trivy CVE finding was waiting for. Reconciling on this side too is
         // what makes ingest order not matter.
         var reconciled = await reconciler.ReconcileAsync([version.Id], ct);
+
+        await IngestAudit.RecordAsync(audit, db, token, version.Id,
+            $"sbom: {purlToId.Count} components, {depsAdded} deps, {totalVulns + reconciled.Attached} CVEs — {req.Component}@{req.Version}", ct);
+        await db.SaveChangesAsync(ct);
 
         return Results.Ok(new SbomIngestResponse(
             version.Id,

@@ -4,6 +4,8 @@ using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 
+using Tamp.Findings.Application.Auditing;
+
 namespace Tamp.Findings.Api.Endpoints;
 
 public static class ScanRunIngestEndpoints
@@ -18,7 +20,7 @@ public static class ScanRunIngestEndpoints
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(ScanRunIngestRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(ScanRunIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project required");
@@ -63,6 +65,10 @@ public static class ScanRunIngestEndpoints
             }
             upserted++;
         }
+        await db.SaveChangesAsync(ct);
+
+        await IngestAudit.RecordAsync(audit, db, token, version.Id,
+            $"scan-runs: {upserted} receipts — {req.Component}@{req.Version}", ct);
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(new ScanRunIngestResponse(version.Id, upserted));

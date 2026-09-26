@@ -5,6 +5,8 @@ using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Values;
 
+using Tamp.Findings.Application.Auditing;
+
 namespace Tamp.Findings.Api.Endpoints;
 
 // TFND-16: fold OsvScanner findings into SbomComponent.Vulnerabilities so
@@ -33,6 +35,8 @@ public static class SbomVulnerabilitiesEndpoints
 
     private static async Task<IResult> UpsertAsync(
         OsvVulnerabilityUpsertRequest req,
+        HttpContext ctx,
+        AuditLog audit,
         FindingsDbContext db,
         CancellationToken ct)
     {
@@ -83,6 +87,8 @@ public static class SbomVulnerabilitiesEndpoints
                 updated++;
             }
         }
+        await IngestAudit.RecordForSnapshotAsync(audit, db, IngestAuthFilter.CurrentToken(ctx), req.SnapshotId,
+            $"sbom-vulnerabilities: {matched} matched, {inserted} inserted, {updated} updated, {unmatched} unmatched — snapshot {req.SnapshotId}", ct);
         await db.SaveChangesAsync(ct);
         return Results.Ok(new OsvVulnerabilityUpsertResponse(
             SnapshotId: req.SnapshotId,
