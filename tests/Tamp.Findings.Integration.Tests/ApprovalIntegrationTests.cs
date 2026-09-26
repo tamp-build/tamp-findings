@@ -285,10 +285,58 @@ public class ApprovalIntegrationTests
         Assert.Equal(2, states.Count);
     }
 
+    [SkippableFact]
+    public async Task Approving_a_risk_acceptance_moves_the_poam_to_risk_accepted()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // The effect the Elsa design never actually had (ADR 0005 / TFND-164):
+        // a YES transitions the subject, in the SAME transaction as the decision.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var approvals = scope.ServiceProvider.GetRequiredService<ApprovalService>();
+        var db = _fx.Db(scope);
+
+        var request = await approvals.RequestAsync(
+            world.LeadDev, world.Scope, ApprovalKind.PoamRiskAcceptance,
+            "PoamItem", world.PoamItemId, "The vendor has no patch.");
+        var decision = await approvals.DecideAsync(world.InfoSec, request.Value, approve: true);
+        Assert.True(decision.Success);
+
+        var item = db.PoamItems.Single(p => p.Id == world.PoamItemId);
+        Assert.Equal(PoamStatus.RiskAccepted, item.Status);
+        Assert.NotNull(item.ClosedAt);
+        // Risk acceptance closes the item WITHOUT remediating it.
+        Assert.Null(item.ActualCompletionDate);
+    }
+
+    [SkippableFact]
+    public async Task Rejecting_a_risk_acceptance_leaves_the_poam_open()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // A rejection has no effect to apply — nobody said yes.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var approvals = scope.ServiceProvider.GetRequiredService<ApprovalService>();
+        var db = _fx.Db(scope);
+
+        var request = await approvals.RequestAsync(
+            world.LeadDev, world.Scope, ApprovalKind.PoamRiskAcceptance,
+            "PoamItem", world.PoamItemId);
+        var decision = await approvals.DecideAsync(
+            world.InfoSec, request.Value, approve: false, note: "Not this quarter — fix it.");
+        Assert.True(decision.Success);
+
+        var item = db.PoamItems.Single(p => p.Id == world.PoamItemId);
+        Assert.Equal(PoamStatus.Open, item.Status);
+        Assert.Null(item.ClosedAt);
+    }
+
     // ---- Seed ---------------------------------------------------------------
 
     private sealed record World(
-        Guid SubjectId, ScopeTarget Scope, Guid OtherInfoSecUserId,
+        Guid SubjectId, Guid PoamItemId, ScopeTarget Scope, Guid OtherInfoSecUserId,
         Principal Admin, Principal InfoSec, Principal LeadDev)
     {
         /// <summary>
@@ -338,10 +386,26 @@ public class ApprovalIntegrationTests
         };
         db.Users.AddRange(infosec, lead, other, admin);
 
+        // A real POA&M item for the effect tests: approving a risk-acceptance
+        // request must actually move THIS row to Risk accepted. Most tests use
+        // the throwaway SubjectId, which needs no backing row.
+        var poam = new PoamItem
+        {
+            ProjectId = project.Id,
+            Title = $"apr-weakness-{suffix}",
+            WeaknessDescription = "A weakness routed through risk acceptance.",
+            Severity = Severity.High,
+            Status = PoamStatus.Open,
+            ScheduledCompletionDate = new DateTimeOffset(2026, 12, 1, 0, 0, 0, TimeSpan.Zero),
+            AuthorUserId = lead.Id,
+        };
+        db.PoamItems.Add(poam);
+
         await db.SaveChangesAsync();
 
         return new World(
             Guid.NewGuid(),
+            poam.Id,
             ScopeTarget.Project(client.Id, project.Id),
             other.Id,
             Admin: Principal.For(admin.Id, admin.Login, isAdmin: true, []),

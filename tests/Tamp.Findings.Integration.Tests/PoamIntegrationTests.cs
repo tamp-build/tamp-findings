@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Tamp.Findings.Application.Authorization;
 using Tamp.Findings.Application.Poam;
@@ -81,16 +82,39 @@ public class PoamIntegrationTests
 
         // The matrix deliberately withholds AcceptRisk from Admin: it is an
         // Authorizing Official decision, not a systems privilege. This is the
-        // test that stops someone "fixing" the matrix.
+        // test that stops someone "fixing" the matrix — now via the signed
+        // self-serve path (TFND-117), since a bare status change to RiskAccepted
+        // is no longer allowed at all.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var service = scope.ServiceProvider.GetRequiredService<PoamService>();
+
+        var result = await service.AcceptRiskDirectlyAsync(
+            world.Admin, world.Scope, world.ProjectId, world.OverdueId, signature: world.AdminLogin);
+
+        Assert.False(result.Success);
+        Assert.True(result.WasDenied);
+    }
+
+    [SkippableFact]
+    public async Task Risk_acceptance_cannot_be_a_bare_status_change()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // TFND-117: the generic transition refuses RiskAccepted outright. Both
+        // controlled paths (signed self-serve, or an approved request) end there,
+        // but a one-click flip with no signature and no second reviewer does not.
         var world = await SeedAsync();
         using var scope = _fx.Scope();
         var service = scope.ServiceProvider.GetRequiredService<PoamService>();
 
         var result = await service.TransitionAsync(
-            world.Admin, world.Scope, world.ProjectId, world.OverdueId, PoamStatus.RiskAccepted);
+            world.InfoSec, world.Scope, world.ProjectId, world.OverdueId, PoamStatus.RiskAccepted);
 
         Assert.False(result.Success);
-        Assert.True(result.WasDenied);
+        // Refused as invalid, not denied: an AcceptRisk holder is allowed to
+        // accept risk — just not this way.
+        Assert.False(result.WasDenied);
     }
 
     [SkippableFact]
@@ -178,8 +202,10 @@ public class PoamIntegrationTests
         var service = scope.ServiceProvider.GetRequiredService<PoamService>();
         var db = _fx.Db(scope);
 
-        await service.TransitionAsync(
-            world.InfoSec, world.Scope, world.ProjectId, world.OverdueId, PoamStatus.RiskAccepted);
+        // The signed self-serve path (SoD not enforced, which is the default).
+        var result = await service.AcceptRiskDirectlyAsync(
+            world.InfoSec, world.Scope, world.ProjectId, world.OverdueId, signature: world.InfoSecLogin);
+        Assert.True(result.Success);
 
         var entry = db.AuditEntries
             .Where(a => a.SubjectId == world.OverdueId)
@@ -190,6 +216,66 @@ public class PoamIntegrationTests
         // reads first" — which is why it is a class, not a search term.
         Assert.Equal(AuditClass.Risk, entry.Class);
         Assert.Contains("risk_accepted", entry.Action, StringComparison.Ordinal);
+        // The signature is recorded verbatim — it is the federal deliverable.
+        Assert.Contains(world.InfoSecLogin, entry.Detail!, StringComparison.Ordinal);
+    }
+
+    [SkippableFact]
+    public async Task A_self_serve_acceptance_must_be_signed_with_your_own_name()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // "Agree and sign": a stray keystroke cannot stand in for a signature,
+        // and you sign under your OWN name.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var service = scope.ServiceProvider.GetRequiredService<PoamService>();
+
+        var wrong = await service.AcceptRiskDirectlyAsync(
+            world.InfoSec, world.Scope, world.ProjectId, world.OverdueId, signature: "someone-else");
+        Assert.False(wrong.Success);
+        Assert.False(wrong.WasDenied);
+
+        var blank = await service.AcceptRiskDirectlyAsync(
+            world.InfoSec, world.Scope, world.ProjectId, world.OverdueId, signature: "   ");
+        Assert.False(blank.Success);
+    }
+
+    [SkippableFact]
+    public async Task With_separation_of_duties_enforced_self_serve_is_refused()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // Locked down: one person cannot both propose and accept. The signed
+        // path is refused and the caller is steered to request a second approver.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var service = scope.ServiceProvider.GetRequiredService<PoamService>();
+        var db = _fx.Db(scope);
+
+        var settings = await db.InstanceSettings
+            .SingleOrDefaultAsync(s => s.Id == InstanceSettings.SingletonId);
+        var created = settings is null;
+        if (created) { settings = new InstanceSettings(); db.InstanceSettings.Add(settings); }
+        settings!.EnforceSeparationOfDuties = true;
+        await db.SaveChangesAsync();
+
+        try
+        {
+            var result = await service.AcceptRiskDirectlyAsync(
+                world.InfoSec, world.Scope, world.ProjectId, world.OverdueId, signature: world.InfoSecLogin);
+
+            Assert.False(result.Success);
+            Assert.False(result.WasDenied);
+            Assert.Contains("second approver", result.Error!, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            // The singleton is shared across the whole test database — leaving it
+            // on would flip every later test into the enforced mode.
+            settings.EnforceSeparationOfDuties = false;
+            await db.SaveChangesAsync();
+        }
     }
 
     [SkippableFact]
@@ -335,7 +421,8 @@ public class PoamIntegrationTests
     private sealed record World(
         Guid ProjectId, ScopeTarget Scope, DateTimeOffset AsOf,
         Guid OverdueId, Guid LinkedId,
-        Principal Admin, Principal InfoSec, Principal Viewer);
+        Principal Admin, Principal InfoSec, Principal Viewer,
+        string AdminLogin, string InfoSecLogin);
 
     private async Task<World> SeedAsync()
     {
@@ -413,6 +500,8 @@ public class PoamIntegrationTests
             project.Id, target, asOf, overdue.Id, linked.Id,
             Admin: Principal.For(author.Id, author.Login, isAdmin: true, []),
             InfoSec: Principal.For(author.Id, author.Login, isAdmin: false, [ProjectRole.InfoSecOfficer]),
-            Viewer: Principal.For(author.Id, author.Login, isAdmin: false, []));
+            Viewer: Principal.For(author.Id, author.Login, isAdmin: false, []),
+            AdminLogin: author.Login,
+            InfoSecLogin: author.Login);
     }
 }
