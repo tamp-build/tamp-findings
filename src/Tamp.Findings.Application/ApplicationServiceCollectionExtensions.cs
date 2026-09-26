@@ -85,9 +85,11 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Retention.RetentionService>();
         services.AddScoped<Poam.PoamQuery>();
         services.AddScoped<Poam.PoamService>();
-        // The domain consequence of an approved risk-acceptance request (TFND-117).
-        // Registered as IApprovalEffect so ApprovalService dispatches to it by kind.
-        services.AddScoped<Approvals.IApprovalEffect, Poam.PoamRiskAcceptanceEffect>();
+        // The domain consequence of an approved request, one per ApprovalKind.
+        // Registered as IApprovalEffect so ApprovalService dispatches by kind.
+        services.AddScoped<Approvals.IApprovalEffect, Poam.PoamRiskAcceptanceEffect>();   // TFND-117
+        services.AddScoped<Approvals.IApprovalEffect, Poam.PoamCompletionEffect>();       // TFND-118
+        services.AddScoped<Approvals.IApprovalEffect, Poam.PoamExtensionEffect>();        // TFND-119
         services.AddScoped<Vex.VexQuery>();
         services.AddScoped<Attestation.SsdfAttestationBuilder>();
         services.AddScoped<Attestation.AttestationExporter>();

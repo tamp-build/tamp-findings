@@ -333,6 +333,57 @@ public class ApprovalIntegrationTests
         Assert.Null(item.ClosedAt);
     }
 
+    [SkippableFact]
+    public async Task Approving_a_completion_closes_the_poam_as_done()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // TFND-118: a second person confirms the remediation; the item closes as
+        // genuinely completed (both stamps land).
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var approvals = scope.ServiceProvider.GetRequiredService<ApprovalService>();
+        var db = _fx.Db(scope);
+
+        var request = await approvals.RequestAsync(
+            world.LeadDev, world.Scope, ApprovalKind.PoamCompletion,
+            "PoamItem", world.PoamItemId, "Patched and verified on the latest build.");
+        // Admin holds CompletePoamItem and is not the requester.
+        var decision = await approvals.DecideAsync(world.Admin, request.Value, approve: true);
+        Assert.True(decision.Success);
+
+        var item = db.PoamItems.Single(p => p.Id == world.PoamItemId);
+        Assert.Equal(PoamStatus.Completed, item.Status);
+        Assert.NotNull(item.ClosedAt);
+        Assert.NotNull(item.ActualCompletionDate);
+    }
+
+    [SkippableFact]
+    public async Task Approving_an_extension_moves_the_committed_date_from_the_payload()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // TFND-119: the proposed date rides on the approval's Payload; the effect
+        // applies it, and the item stays live (an extension is not a closure).
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var approvals = scope.ServiceProvider.GetRequiredService<ApprovalService>();
+        var db = _fx.Db(scope);
+
+        var newDate = new DateTimeOffset(2027, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        var request = await approvals.RequestAsync(
+            world.LeadDev, world.Scope, ApprovalKind.PoamExtension,
+            "PoamItem", world.PoamItemId, justification: "Vendor patch slipped to Q1.",
+            payload: newDate.ToString("O"));
+        // Admin holds CreatePoamItem (the extension decider capability).
+        var decision = await approvals.DecideAsync(world.Admin, request.Value, approve: true);
+        Assert.True(decision.Success);
+
+        var item = db.PoamItems.Single(p => p.Id == world.PoamItemId);
+        Assert.Equal(newDate, item.ScheduledCompletionDate);
+        Assert.Null(item.ClosedAt);
+    }
+
     // ---- Seed ---------------------------------------------------------------
 
     private sealed record World(

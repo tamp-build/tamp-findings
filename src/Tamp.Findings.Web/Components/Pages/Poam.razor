@@ -207,9 +207,11 @@ else
             <PoamRecordView Record="record" Project="_project" Pending="@Pending(record.Id)"
                             CanEdit="_canCreate" CanComplete="_canComplete" CanAccept="_canAccept"
                             SodEnforced="_sodEnforced" AwaitingApprovalId="@AwaitingApprovalId(record.Id)"
+                            AwaitingKind="@AwaitingKind(record.Id)"
                             OnEdit="() => StartEdit(record.Id)"
                             OnExtend="StartExtend"
                             OnTransition="Transition"
+                            OnRequestComplete="StartRequestComplete"
                             OnRequestAccept="StartRequestAccept"
                             OnAcceptSigned="StartSign"
                             OnApprove="id => StartDecide(id, true)"
@@ -297,7 +299,30 @@ else
     </ChildContent>
     <Footer>
         <Button Variant="Button.ButtonVariant.Primary" OnClick="Extend">Record extension</Button>
+        <Button OnClick="RequestExtensionApproval">Request AO approval instead</Button>
         <Button OnClick="() => _extending = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
+@* ---- Request completion (TFND-118) ------------------------------------- *@
+<Dialog Open="_requestingComplete" OpenChanged="v => _requestingComplete = v"
+        Title="Request completion" Width="620">
+    <ChildContent>
+        <p class="field__help">
+            This asks a second person to confirm the remediation and close the item, rather than closing
+            it yourself. Closing a federal record is a decision someone should be able to see was made
+            deliberately.
+        </p>
+        <TextField Label="What was done?" Multiline="true" Rows="3" @bind-Value="_completeJustification"
+                   Help="The evidence the approver will read: how the weakness was remediated. Recorded with the request." />
+        @if (_dialogError is not null)
+        {
+            <p style="color: var(--color-critical)">@_dialogError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="RequestComplete">Send request</Button>
+        <Button OnClick="() => _requestingComplete = false">Cancel</Button>
     </Footer>
 </Dialog>
 
@@ -351,14 +376,14 @@ else
     </Footer>
 </Dialog>
 
-@* ---- Decide a risk-acceptance request (the approver's action) ---------- *@
+@* ---- Decide a request (the approver's action, TFND-117/118/119) -------- *@
 <Dialog Open="_deciding" OpenChanged="v => _deciding = v"
-        Title="@(_decideApprove ? "Approve risk acceptance" : "Reject risk acceptance")" Width="640">
+        Title="@($"{(_decideApprove ? "Approve" : "Reject")} {DecideNoun}")" Width="640">
     <ChildContent>
         @if (_decideRow is { } row)
         {
             <p>
-                <strong>@row.RequestedBy</strong> asked to accept the risk on this item on
+                <strong>@row.RequestedBy</strong> asked for @DecideNoun on this item on
                 <span class="mono">@row.RequestedAt.ToString("yyyy-MM-dd")</span>.
             </p>
             @if (row.Justification is { Length: > 0 } why)
@@ -367,10 +392,7 @@ else
             }
             @if (_decideApprove)
             {
-                <p class="field__help">
-                    Approving moves the item to Risk accepted. The weakness remains but stops counting
-                    against the past-due gate — acceptance is a terminal state.
-                </p>
+                <p class="field__help">@DecideApproveHelp</p>
             }
             <TextField Label="@(_decideApprove ? "Note (optional)" : "Reason for rejecting")"
                        Multiline="true" Rows="3" @bind-Value="_decideNote"
@@ -445,8 +467,8 @@ else
     // Risk acceptance (TFND-117). _sodEnforced decides which path the record
     // view offers; the three dialogs drive request / sign / decide.
     private bool _sodEnforced;
-    private bool _requestingAccept, _signing, _deciding;
-    private string? _requestJustification, _signature, _decideNote;
+    private bool _requestingAccept, _requestingComplete, _signing, _deciding;
+    private string? _requestJustification, _completeJustification, _signature, _decideNote;
     // The signed-in user's login, for the signature prompt. Captured from the
     // resolved principal rather than the claims so it matches exactly what
     // AcceptRiskDirectlyAsync compares the typed signature against.
@@ -532,6 +554,12 @@ else
     {
         var row = _awaitingYou.FirstOrDefault(a => a.SubjectId == subjectId);
         return row is null ? null : row.ApprovalId;
+    }
+
+    private ApprovalKind? AwaitingKind(Guid subjectId)
+    {
+        var row = _awaitingYou.FirstOrDefault(a => a.SubjectId == subjectId);
+        return row is null ? null : row.Kind;
     }
 
     private IEnumerable<PoamRow> VisibleItems =>
@@ -649,6 +677,29 @@ else
 
     // ---- Risk acceptance (TFND-117) --------------------------------------
 
+    private void StartRequestComplete()
+    {
+        _completeJustification = null;
+        _dialogError = null;
+        _requestingComplete = true;
+    }
+
+    private async Task RequestComplete()
+    {
+        if (_project is null || _record is null) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Approvals.RequestAsync(
+            actor, Here, ApprovalKind.PoamCompletion, "PoamItem", _record.Id, _completeJustification);
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _requestingComplete = false;
+        await OnParametersSetAsync();
+    }
+
     private void StartRequestAccept()
     {
         _requestJustification = null;
@@ -694,6 +745,26 @@ else
         _signing = false;
         await OnParametersSetAsync();
     }
+
+    private string DecideNoun => _decideRow?.Kind switch
+    {
+        ApprovalKind.PoamRiskAcceptance => "risk acceptance",
+        ApprovalKind.PoamCompletion => "completion",
+        ApprovalKind.PoamExtension => "an extension",
+        _ => "a decision",
+    };
+
+    private string DecideApproveHelp => _decideRow?.Kind switch
+    {
+        ApprovalKind.PoamRiskAcceptance =>
+            "Approving moves the item to Risk accepted. The weakness remains but stops counting against "
+            + "the past-due gate — acceptance is a terminal state.",
+        ApprovalKind.PoamCompletion =>
+            "Approving closes the item as Completed — you are confirming the remediation is done.",
+        ApprovalKind.PoamExtension =>
+            "Approving moves the committed completion date to the one the requester proposed.",
+        _ => "Approving applies the requested change.",
+    };
 
     private void StartDecide(Guid approvalId, bool approve)
     {
@@ -743,6 +814,38 @@ else
 
         var result = await Service.RequestExtensionAsync(
             actor, Here, _project.ProjectId, _record.Id, newDate, _extendReason ?? "");
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _extending = false;
+        await OnParametersSetAsync();
+    }
+
+    // The approval route for an extension (TFND-119): rather than moving the date
+    // now, ask the AO. The proposed date rides on the approval's Payload; the
+    // effect applies it on approval.
+    private async Task RequestExtensionApproval()
+    {
+        if (_project is null || _record is null) return;
+        _dialogError = null;
+
+        if (ParseDate(_extendDate) is not { } newDate)
+        {
+            _dialogError = "An extension needs a date.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_extendReason))
+        {
+            _dialogError = "An extension needs a reason the AO can read.";
+            return;
+        }
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Approvals.RequestAsync(
+            actor, Here, ApprovalKind.PoamExtension, "PoamItem", _record.Id,
+            justification: _extendReason,
+            payload: newDate.ToString("O", System.Globalization.CultureInfo.InvariantCulture));
         if (!result.Success) { _dialogError = result.Error; return; }
 
         _extending = false;

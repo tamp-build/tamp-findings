@@ -55,6 +55,13 @@ public sealed class PendingApproval
     public string? DecidedByLogin { get; set; }
     public DateTimeOffset? DecidedAt { get; set; }
     public string? DecisionNote { get; set; }
+
+    // Kind-specific data the EFFECT needs that the decision itself does not —
+    // e.g. the proposed new date for a POA&M extension (TFND-119). Opaque JSON
+    // to ApprovalService; each IApprovalEffect owns its own shape and parses it.
+    // Null for kinds whose effect needs nothing beyond the subject (a risk
+    // acceptance, a completion).
+    public string? Payload { get; set; }
 }
 
 // What is being decided. The kind drives which capability the decider needs,

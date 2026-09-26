@@ -84,12 +84,12 @@
     <div class="card-body row" style="gap: var(--space-2)">
         @if (AwaitingApprovalId is { } awaitingId)
         {
-            @* This item's risk acceptance is waiting on YOU — a different person
-               than the requester (ApprovalService refuses self-approval). The
-               decision is an action here, not a notification in a separate
-               inbox. *@
+            @* This item's decision is waiting on YOU — a different person than the
+               requester (ApprovalService refuses self-approval). The decision is
+               an action here, not a notification in a separate inbox. The label
+               follows the KIND being decided. *@
             <Button Variant="Button.ButtonVariant.Primary"
-                    OnClick="() => OnApprove.InvokeAsync(awaitingId)">Approve risk acceptance</Button>
+                    OnClick="() => OnApprove.InvokeAsync(awaitingId)">@ApproveLabel</Button>
             <Button Class="btn--danger" OnClick="() => OnReject.InvokeAsync(awaitingId)">Reject</Button>
         }
         else
@@ -101,9 +101,18 @@
                refused. *@
             <Button Disabled="@(!CanEdit.Allowed || IsPending)" DisabledReason="@Reason(CanEdit)"
                     OnClick="() => OnEdit.InvokeAsync()">Edit</Button>
-            <Button Disabled="@(!CanComplete.Allowed || IsPending || Record.Status == PoamStatus.Completed)"
-                    DisabledReason="@Reason(CanComplete)"
-                    OnClick="() => OnTransition.InvokeAsync(PoamStatus.Completed)">Mark completed</Button>
+
+            @* Completion (TFND-118). A direct path for the team, plus a request
+               path so a second person can confirm the remediation — closing a
+               federal record should not be one person's unilateral call when the
+               team wants a check on it. *@
+            @if (Record.Status != PoamStatus.Completed)
+            {
+                <Button Disabled="@(!CanComplete.Allowed || IsPending)" DisabledReason="@Reason(CanComplete)"
+                        OnClick="() => OnTransition.InvokeAsync(PoamStatus.Completed)">Mark completed</Button>
+                <Button Disabled="@(!CanEdit.Allowed || IsPending)" DisabledReason="@Reason(CanEdit)"
+                        OnClick="() => OnRequestComplete.InvokeAsync()">Request completion</Button>
+            }
 
             @* Risk acceptance (TFND-117) — two controlled paths, never a bare
                status flip. When the instance does NOT enforce separation of
@@ -121,6 +130,9 @@
                         OnClick="() => OnRequestAccept.InvokeAsync()">Request risk acceptance</Button>
             }
 
+            @* Extension (TFND-119). "Request AO extension" opens a dialog that
+               offers both recording an extension directly and routing it through
+               an approval. *@
             <Button Disabled="@(!CanEdit.Allowed || IsPending)" DisabledReason="@Reason(CanEdit)"
                     OnClick="() => OnExtend.InvokeAsync()">Request AO extension</Button>
         }
@@ -221,14 +233,18 @@
     /// acceptance (separation of duties enforced) — the signed self-serve path
     /// is then hidden and only the request path is offered.</summary>
     [Parameter] public bool SodEnforced { get; set; }
-    /// <summary>Set when THIS item's risk acceptance is awaiting the current
-    /// user's decision; carries the approval id to decide. Shows Approve/Reject
-    /// in place of the ordinary actions.</summary>
+    /// <summary>Set when a decision on THIS item is awaiting the current user;
+    /// carries the approval id to decide. Shows Approve/Reject in place of the
+    /// ordinary actions.</summary>
     [Parameter] public Guid? AwaitingApprovalId { get; set; }
+    /// <summary>The kind of the awaiting decision, for the Approve button's label.</summary>
+    [Parameter] public ApprovalKind? AwaitingKind { get; set; }
 
     [Parameter] public EventCallback OnEdit { get; set; }
     [Parameter] public EventCallback OnExtend { get; set; }
     [Parameter] public EventCallback<PoamStatus> OnTransition { get; set; }
+    /// <summary>Open the completion request path (TFND-118).</summary>
+    [Parameter] public EventCallback OnRequestComplete { get; set; }
     /// <summary>Open the two-person request path (a justification, then RequestAsync).</summary>
     [Parameter] public EventCallback OnRequestAccept { get; set; }
     /// <summary>Open the signed self-serve path (agree and sign, then AcceptRiskDirectlyAsync).</summary>
@@ -237,6 +253,14 @@
     [Parameter] public EventCallback<Guid> OnReject { get; set; }
 
     private bool IsPending => Pending is not null;
+
+    private string ApproveLabel => AwaitingKind switch
+    {
+        ApprovalKind.PoamRiskAcceptance => "Approve risk acceptance",
+        ApprovalKind.PoamCompletion => "Approve completion",
+        ApprovalKind.PoamExtension => "Approve extension",
+        _ => "Approve",
+    };
 
     private string? Reason(AuthorizationDecision decision) =>
         Pending is { } pending
