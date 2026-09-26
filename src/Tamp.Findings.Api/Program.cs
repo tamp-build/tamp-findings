@@ -16,7 +16,6 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
-using Tamp.Findings.Workflows;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -73,21 +72,13 @@ var connectionString =
 
 builder.Services.AddFindingsDb(connectionString);
 
-// TFND-115: the workflow engine, off by default.
-//
-// Off because nothing in the product REQUIRES it. Approvals are rows enforced
-// by ApprovalService, and they have to keep working with the engine stopped —
-// a pending decision that vanishes when a worker is down is worse than having
-// no workflow at all. What Elsa adds is the time-driven half: expiring an
-// unanswered request, and the daily due-date sweep.
-//
-// It also owns its own tables in its own DbContext, so enabling it is a schema
-// change to a schema this repo does not author. Making that opt-in keeps a
-// deployment that does not want it free of it entirely.
-if (builder.Configuration.GetValue("Workflows:Enabled", false))
-{
-    builder.Services.AddTampWorkflows(connectionString);
-}
+// TFND-121 / ADR 0005: the POA&M due-date reminder used to be an Elsa Timer
+// workflow. Elsa is removed — it was off by default and drove only this one
+// sweep (approvals are a DB state machine in ApprovalService, independent of
+// it), so a hosted worker is the simpler primitive the repo already uses for
+// scheduled sweeps.
+builder.Services.AddScoped<Tamp.Findings.Application.Poam.PoamReminderService>();
+builder.Services.AddHostedService<Tamp.Findings.Api.Services.PoamReminderWorker>();
 
 // IHttpClientFactory powers the SBOM registry enrichment service. A
 // single named client is registered so the factory can pool sockets

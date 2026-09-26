@@ -17,10 +17,11 @@ namespace Tamp.Findings.Application.Approvals;
 /// separate pending flags would have produced three slightly different answers
 /// to the same question.
 ///
-/// This deliberately does NOT depend on Elsa. The engine orchestrates; these
-/// rows are what the screens read, and the product has to work with the engine
-/// switched off — a pending decision that vanishes when a worker is down is
-/// worse than no workflow at all.
+/// Approvals live in the database, not in a workflow engine (ADR 0005). A
+/// pending decision is durable state the screens read directly, so it survives a
+/// restart and needs no background orchestrator running — a pending decision
+/// that vanished when a worker was down would be worse than no approval flow at
+/// all.
 /// </summary>
 public sealed class ApprovalService
 {

@@ -10,10 +10,9 @@ namespace Tamp.Findings.Domain.Entities;
 // separate pending flags would have produced three slightly different answers
 // to the same question.
 //
-// The row is what makes a pending state visible without asking the workflow
-// engine. Elsa owns the orchestration; this owns what the screens read, and the
-// two are linked by WorkflowInstanceId so an operator can find one from the
-// other.
+// The row is what makes a pending state visible: a POA&M, VEX statement or
+// attestation carries no "awaiting approval" flag of its own, so this row is the
+// single place the screens read to know a decision is outstanding.
 public sealed class PendingApproval
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -56,11 +55,6 @@ public sealed class PendingApproval
     public string? DecidedByLogin { get; set; }
     public DateTimeOffset? DecidedAt { get; set; }
     public string? DecisionNote { get; set; }
-
-    // The Elsa instance orchestrating this, when one is running. Null for an
-    // approval created outside a workflow — the product works with the engine
-    // switched off, and a pending decision must not depend on it.
-    public string? WorkflowInstanceId { get; set; }
 }
 
 // What is being decided. The kind drives which capability the decider needs,
