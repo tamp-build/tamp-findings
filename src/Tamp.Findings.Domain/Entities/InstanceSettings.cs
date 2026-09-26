@@ -1,3 +1,5 @@
+using Tamp.Findings.Domain.Values;
+
 namespace Tamp.Findings.Domain.Entities;
 
 // Instance-wide settings. One row.
@@ -112,6 +114,20 @@ public sealed class InstanceSettings
     // the instance comes back the way it was, rather than forcing a re-issue to
     // every agent as the price of a five-minute pause.
     public bool McpEnabled { get; set; }
+
+    // ---- Gate enforcement (TFND-147 / ADR 0004) ---------------------------
+
+    // How gate verdicts are enforced instance-wide. Advisory (the default, and
+    // enum value 0) evaluates and reports but never fails a build; enforcing
+    // fails on anything that is not a definitive Pass. A fresh install is
+    // advisory so the community is never blocked by default.
+    public EnforcementMode EnforcementMode { get; set; }
+
+    // When true, the instance mode is a FLOOR, not just a default: a project
+    // may match or exceed it but cannot weaken it (see EnforcementResolution).
+    // The platform lever — set enforcing + locked and no project can quietly
+    // downgrade to advisory.
+    public bool EnforcementLocked { get; set; }
 
     // Telemetry is OFF and there is no switch. Self-hosted means self-hosted;
     // a compliance tool that phoned home would be reporting its customers'
