@@ -33,6 +33,15 @@ public sealed class IngestToken
     // lost. RevokedAt non-null → token rejected by Validate.
     public DateTimeOffset? RevokedAt { get; set; }
 
+    // TFND-124: recycle-with-grace. When a key is recycled, the OLD key is not
+    // revoked outright — it is given a grace window so pipelines that still hold
+    // it keep working until they redeploy the new one. RevokedAt stays null; the
+    // key is valid until this instant, after which Validate rejects it. Null
+    // means no grace window applies (a key that was never graced, or the current
+    // one). A hard revoke (RevokedAt) still wins immediately, for the case where
+    // a key must be killed now rather than eased out.
+    public DateTimeOffset? GraceExpiresAt { get; set; }
+
     // TFND-162: the trust tier for the ingest path — a first-class notion
     // distinct from IsApproved / IsAdmin. An UNTRUSTED contributor's token may
     // ADD findings but never AUTO-CLOSE existing ones, so it cannot silently
