@@ -1,21 +1,33 @@
 @* The project ingest key.
 
-   The warning is the design's, verbatim, and it earns its place: a recycled
-   key does not break loudly. The pipeline simply stops producing receipts, and
-   every subsequent build reads UNKNOWN on its gates until someone notices. *@
+   Recycling used to break loudly-but-silently: the old key died at once, the
+   pipeline stopped producing receipts, and every build read UNKNOWN until
+   someone noticed. TFND-124 gives the old key a grace window so the swap is
+   safe, and — when separation of duties is enforced — routes the recycle through
+   a second key manager. *@
 
 @inject ProjectKeyService Keys
+@inject ApprovalService Approvals
 @inject CurrentUser Me
 
 <Card>
     <div class="row row--between">
         <h2>Project ingest key</h2>
-        <Button Variant="Button.ButtonVariant.Warning"
-                Disabled="@(!_canManage.Allowed)"
-                DisabledReason="@_canManage.Reason"
-                OnClick="() => _confirming = true">
-            Recycle
-        </Button>
+        @if (_pending is null)
+        {
+            @if (_sodEnforced)
+            {
+                <Button Variant="Button.ButtonVariant.Warning"
+                        Disabled="@(!_canManage.Allowed)" DisabledReason="@_canManage.Reason"
+                        OnClick="() => _requesting = true">Request recycle</Button>
+            }
+            else
+            {
+                <Button Variant="Button.ButtonVariant.Warning"
+                        Disabled="@(!_canManage.Allowed)" DisabledReason="@_canManage.Reason"
+                        OnClick="() => _confirming = true">Recycle</Button>
+            }
+        }
     </div>
 
     @if (_minted is not null)
@@ -27,7 +39,8 @@
         </SecretPanel>
         <p class="field__help">
             This is the only time this value is shown. It is stored as a hash, so it genuinely
-            cannot be recovered — not by you, and not by an administrator.
+            cannot be recovered — not by you, and not by an administrator. The previous key keeps
+            working for a short grace period, so deploy this one before then.
         </p>
     }
     else if (_key is null)
@@ -54,6 +67,34 @@
         </p>
     }
 
+    @if (_pending is { } pending)
+    {
+        <div class="card-body" style="padding-inline: 0">
+            <p class="field__help">
+                <strong>@pending.RequestedBy</strong> requested a recycle on
+                @pending.RequestedAt.ToString("yyyy-MM-dd").
+                @if (pending.Justification is { Length: > 0 } why) { <text> Their note: @why</text> }
+            </p>
+            @if (_awaitingId is { } aid)
+            {
+                <div class="row" style="gap: var(--space-2)">
+                    <Button Variant="Button.ButtonVariant.Primary" OnClick="() => ApproveRecycle(aid)">
+                        Approve &amp; recycle
+                    </Button>
+                    <Button Class="btn--danger" OnClick="() => Reject(aid)">Reject</Button>
+                </div>
+                <p class="field__help">
+                    Approving mints the new key and shows it to you — you are the one deploying it.
+                    You cannot approve your own request.
+                </p>
+            }
+            else
+            {
+                <p class="field__help">Waiting on another key manager to approve it.</p>
+            }
+        </div>
+    }
+
     @if (_error is not null)
     {
         <p style="color: var(--color-critical)">@_error</p>
@@ -63,13 +104,12 @@
 <Dialog Open="_confirming" OpenChanged="v => _confirming = v" Title="Recycle the ingest key" Width="620">
     <ChildContent>
         <p>
-            Recycling invalidates the old key <strong>immediately</strong>. Any pipeline still using
-            it fails its next ingest, and a missing scan is not a clean scan — the affected builds
-            will read as unscanned.
+            Recycling mints a new key and puts the current one into a <strong>grace period</strong> —
+            it keeps working for a week so your pipelines have time to redeploy, then stops.
         </p>
         <p class="field__help">
-            The failure is quiet: nothing errors in this app, the receipts simply stop arriving and
-            the gates start reporting UNKNOWN. Have the new key ready to deploy before you do this.
+            Deploy the new key during that week. Once the grace period ends, any pipeline still using
+            the old key stops producing receipts and its builds read UNKNOWN on the gates.
         </p>
     </ChildContent>
     <Footer>
@@ -78,13 +118,32 @@
     </Footer>
 </Dialog>
 
+<Dialog Open="_requesting" OpenChanged="v => _requesting = v" Title="Request a key recycle" Width="620">
+    <ChildContent>
+        <p class="field__help">
+            This instance requires a second key manager to recycle the ingest key. They approve the
+            request and receive the new key to deploy — you cannot approve your own request.
+        </p>
+        <TextField Label="Note to the approver (optional)" Multiline="true" Rows="3" @bind-Value="_requestNote"
+                   Help="Why the key needs recycling. Recorded with the request." />
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="RequestRecycle">Send request</Button>
+        <Button OnClick="() => _requesting = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
 @code {
     [Parameter, EditorRequired] public ProjectRef Project { get; set; } = default!;
 
     private ProjectKeyInfo? _key;
     private AuthorizationDecision _canManage = AuthorizationDecision.Deny("Checking…");
-    private bool _confirming;
-    private string? _minted, _error;
+    private bool _confirming, _requesting;
+    private string? _minted, _error, _requestNote;
+
+    private bool _sodEnforced;
+    private PendingState? _pending;
+    private Guid? _awaitingId;
 
     private ScopeTarget Scope => ScopeTarget.Project(Project.ClientId, Project.ProjectId);
 
@@ -92,6 +151,19 @@
     {
         _key = await Keys.CurrentAsync(Project.ProjectId);
         _canManage = await Me.CanAsync(Capability.ManageIngestKey, Scope);
+        _sodEnforced = await Keys.RecycleRequiresApprovalAsync();
+
+        // The recycle request has no key row to hang a marker on, so it is
+        // subject-keyed by the project id.
+        _pending = await Approvals.ForSubjectAsync("IngestToken", Project.ProjectId);
+        _awaitingId = null;
+        if (_pending is not null && await Me.AtAsync(Scope) is { } principal)
+        {
+            var awaiting = await Approvals.AwaitingAsync(principal, t => Me.AtAsync(t));
+            var mine = awaiting.FirstOrDefault(
+                a => a.Kind == ApprovalKind.IngestKeyRecycle && a.SubjectId == Project.ProjectId);
+            _awaitingId = mine is null ? null : mine.ApprovalId;
+        }
     }
 
     private async Task Recycle()
@@ -101,10 +173,50 @@
         if (actor is null) { _error = "You are not signed in."; return; }
 
         var result = await Keys.RecycleAsync(actor, Scope, Project.ProjectId);
-        if (!result.Success) { _error = result.Error; _confirming = false; return; }
-
         _confirming = false;
+        if (!result.Success) { _error = result.Error; return; }
+
         _minted = result.Value;
-        _key = await Keys.CurrentAsync(Project.ProjectId);
+        await OnParametersSetAsync();
+    }
+
+    private async Task RequestRecycle()
+    {
+        _error = null;
+        var actor = await Me.AtAsync(Scope);
+        if (actor is null) { _error = "You are not signed in."; return; }
+
+        var result = await Approvals.RequestAsync(
+            actor, Scope, ApprovalKind.IngestKeyRecycle, "IngestToken", Project.ProjectId,
+            justification: _requestNote);
+        _requesting = false;
+        if (!result.Success) { _error = result.Error; return; }
+
+        await OnParametersSetAsync();
+    }
+
+    private async Task ApproveRecycle(Guid approvalId)
+    {
+        _error = null;
+        var actor = await Me.AtAsync(Scope);
+        if (actor is null) { _error = "You are not signed in."; return; }
+
+        var result = await Keys.ApproveRecycleAsync(actor, approvalId);
+        if (!result.Success) { _error = result.Error; return; }
+
+        _minted = result.Value;
+        await OnParametersSetAsync();
+    }
+
+    private async Task Reject(Guid approvalId)
+    {
+        _error = null;
+        var actor = await Me.AtAsync(Scope);
+        if (actor is null) { _error = "You are not signed in."; return; }
+
+        var result = await Approvals.DecideAsync(actor, approvalId, approve: false);
+        if (!result.Success) { _error = result.Error; return; }
+
+        await OnParametersSetAsync();
     }
 }

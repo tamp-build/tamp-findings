@@ -67,6 +67,11 @@ public sealed class IngestTokenService(FindingsDbContext db)
             .FirstOrDefaultAsync(t => t.TokenHash == hash && t.RevokedAt == null, ct);
         if (row is null) return null;
 
+        // TFND-124: a recycled-with-grace key keeps working until its window
+        // closes, then stops as surely as a revoked one. RevokedAt is null on a
+        // graced key, so this check — not the query — is what ends its life.
+        if (row.GraceExpiresAt is { } grace && DateTimeOffset.UtcNow >= grace) return null;
+
         row.LastUsedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
         return row;
