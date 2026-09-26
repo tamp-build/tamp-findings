@@ -2,7 +2,7 @@
 
 Written for a designer with no prior exposure to this codebase. Everything below reflects the app as deployed, not as planned.
 
-**Live instance:** <https://tamp-findings.brewingcoder.com>
+**Live instance:** <https://tamp-findings.example.com>
 **Frontend:** React 19 · Vite 8 · TanStack Query · Tailwind v4 · shadcn-style primitives · lucide icons. Dark-first; a `.dark` class variant drives theming from `web/src/index.css`.
 **Backend:** .NET 10 minimal API · PostgreSQL. The SPA is served same-origin from the API in production.
 

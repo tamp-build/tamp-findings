@@ -2,7 +2,7 @@
 
 Round-trip reference payloads for the `tamp-ingest-v1` contract. One JSON file per endpoint, matching the shapes documented in the spec (published via the interagent server as `tamp-ingest-v1` v1.2+).
 
-These are the shapes the **production sink at `https://tamp-findings.brewingcoder.com` accepts today** — captured from real `dotnet tamp Ingest` runs that landed against the live API.
+These are the shapes the **production sink at `https://tamp-findings.example.com` accepts today** — captured from real `dotnet tamp Ingest` runs that landed against the live API.
 
 ## Coverage
 

@@ -26,18 +26,19 @@ var builder = WebApplication.CreateBuilder(args);
 // is generous for a single-repo scan; cap stays well below shenanigan territory.
 builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = 100L * 1024 * 1024);
 
-// Behind the Cloudflare tunnel in prod: the tunnel terminates TLS at
-// the edge and forwards plain HTTP to the in-cluster Service. Without
-// this, ASP.NET Core builds OAuth redirect URIs from the Host it
-// actually sees (an internal pod IP, scheme http://) — which GitHub
-// rejects with "redirect_uri is not associated with this application".
+// Behind a TLS-terminating reverse proxy / ingress in production: the proxy
+// terminates TLS and forwards plain HTTP to the app. Without this, ASP.NET Core
+// builds OAuth redirect URIs from the Host it actually sees (an internal
+// address, scheme http://) — which GitHub rejects with "redirect_uri is not
+// associated with this application".
 //
-// Trust X-Forwarded-Proto + X-Forwarded-Host (Cloudflare adds both)
-// so HttpContext.Request reflects the public-origin URL.
+// Trust X-Forwarded-Proto + X-Forwarded-Host (a TLS-terminating proxy sets
+// both) so HttpContext.Request reflects the public-origin URL.
 //
-// Empty KnownNetworks/KnownProxies + ForwardLimit=null = trust the
-// tunnel regardless of source IP. Safe because the cluster Service is
-// only reachable via the tunnel; no direct LAN ingress to the pod.
+// Empty KnownNetworks/KnownProxies + ForwardLimit=null = trust the forwarding
+// proxy regardless of source IP. This is only safe when the app is reachable
+// ONLY through that proxy — keep it on an internal network or cluster Service,
+// never a directly-exposed public port.
 builder.Services.Configure<ForwardedHeadersOptions>(o =>
 {
     o.ForwardedHeaders = ForwardedHeaders.XForwardedFor

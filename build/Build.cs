@@ -1144,26 +1144,25 @@ class Build : SecurityPipelineBuild
             }
         });
 
-    // ----- TFND-43 lab cluster deploy -------------------------------------
+    // ----- Cluster deploy -------------------------------------------------
     //
     // Three-step roll, all driven by Tamp.* wrappers:
     //   1. DockerBuildImage — `docker buildx build` against repo root,
     //      tags <registry>/tamp-findings:{sha,latest}.
-    //   2. DockerPushImage  — push both tags to the lab registry.
+    //   2. DockerPushImage  — push both tags to the configured registry.
     //   3. Deploy           — `kubectl apply -f deploy/k8s/` then
     //      `kubectl set image deploy/tamp-findings-api api=<image>:<sha>`
     //      followed by `kubectl rollout status` to wait for healthy.
     //
-    // Image registry is `registry.home.local/tamp-findings:<tag>` —
-    // referencing by node-IP fails ImagePullBackOff because containerd's
-    // mirror config is keyed on `localhost:32000` (per microk8s agent).
+    // The image registry is configurable via TAMP_FINDINGS_REGISTRY (below);
+    // reference images by that registry's hostname so the cluster can pull them.
     //
     // KUBECONFIG flows as an env var through Tamp.Kubectl's posture —
     // never as a --kubeconfig CLI flag (keeps the path out of the process
     // table). The Build inherits the env from the user's shell.
 
     [Parameter("Container image registry", EnvironmentVariable = "TAMP_FINDINGS_REGISTRY")]
-    readonly string ImageRegistry = "registry.home.local";
+    readonly string ImageRegistry = "localhost:5000";
 
     [Parameter("Container image name (without registry prefix)", EnvironmentVariable = "TAMP_FINDINGS_IMAGE_NAME")]
     readonly string ImageName = "tamp-findings";
@@ -1200,7 +1199,7 @@ class Build : SecurityPipelineBuild
 
     Target DockerPushImage => _ => _
         .DependsOn(nameof(DockerBuildImage))
-        .Description("Push both tags to the lab registry.")
+        .Description("Push both tags to the configured registry.")
         .Executes(() =>
         {
             foreach (var tag in new[] { ImageRefShaTag, ImageRefLatestTag })
@@ -1220,7 +1219,7 @@ class Build : SecurityPipelineBuild
         .Executes(() =>
         {
             var kubectlTool = Tool.TryFromPath("kubectl", RootDirectory.Value)
-                ?? throw new InvalidOperationException("kubectl not on PATH — install kubectl and point KUBECONFIG at the lab cluster.");
+                ?? throw new InvalidOperationException("kubectl not on PATH — install kubectl and point KUBECONFIG at your cluster.");
 
             // Apply ALL manifests under deploy/k8s/. Today that's just
             // api.yaml; future manifests (NetworkPolicy, HPA, etc.) drop

@@ -3,7 +3,7 @@
   "mcpServers": {
     "interagent": {
       "type": "http",
-      "url": "https://iac.brewingcoder.com/mcp/<token>"
+      "url": "https://iac.example.com/mcp/<token>"
     }
   }
 }

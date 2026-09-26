@@ -110,7 +110,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          # Never pushed from CI — the lab registry is not reachable from here,
+          # Never pushed from CI — the image registry is not reachable from CI,
           # and the point of this job is that the build SUCCEEDS, not that the
           # artefact goes anywhere.
           push: false

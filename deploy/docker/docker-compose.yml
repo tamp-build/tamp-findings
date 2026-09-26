@@ -1,0 +1,78 @@
+# tamp.findings — plain-Docker deployment (no Kubernetes required).
+#
+# Two containers: the app (which serves the API and the UI) and Postgres. This
+# is the deployment most self-hosters want. From the repo root:
+#
+#   cp deploy/docker/.env.example deploy/docker/.env   # then fill it in
+#   docker compose -f deploy/docker/docker-compose.yml --env-file deploy/docker/.env up -d --build
+#
+# Put a TLS-terminating reverse proxy (Caddy, nginx, Traefik, a tunnel, …) in
+# front of the app on your public host and forward it to the api container's
+# published port. The app trusts X-Forwarded-Proto / X-Forwarded-Host from that
+# proxy, so OAuth redirects and deep links use your public URL.
+#
+# The data-protection key ring is persisted in Postgres (so sessions survive an
+# app restart), which means the pgdata volume is the only state to back up.
+
+name: tamp-findings
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: tamp_findings
+      POSTGRES_USER: tamp
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/docker/.env}
+      # Locale + encoding so JSONB and full-text search behave predictably.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tamp -d tamp_findings"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: tamp-findings:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Migrations apply on startup; the app owns its schema.
+      TAMP_FINDINGS_DB: "Host=postgres;Port=5432;Database=tamp_findings;Username=tamp;Password=${DB_PASSWORD:?set DB_PASSWORD in deploy/docker/.env}"
+      ASPNETCORE_URLS: "http://+:5080"
+      ASPNETCORE_ENVIRONMENT: "Production"
+      # GitHub OAuth (register an app; callback https://<your-host>/auth/github/callback).
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID in deploy/docker/.env}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:?set GITHUB_CLIENT_SECRET in deploy/docker/.env}
+      # This GitHub login auto-promotes to admin on first sign-in.
+      GITHUB_BOOTSTRAP_ADMIN_LOGIN: ${GITHUB_BOOTSTRAP_ADMIN_LOGIN:?set GITHUB_BOOTSTRAP_ADMIN_LOGIN in deploy/docker/.env}
+      # --- Optional, all off/empty unless set (see .env.example) --------------
+      # Hard gate enforcement (ADR 0004): advisory | enforcing, and a lock.
+      TAMP_FINDINGS_ENFORCEMENT_MODE: ${TAMP_FINDINGS_ENFORCEMENT_MODE:-}
+      TAMP_FINDINGS_ENFORCEMENT_LOCKED: ${TAMP_FINDINGS_ENFORCEMENT_LOCKED:-}
+      # Provenance verification trust root (PEM public key) + attestation
+      # signing key (PEM private key). Empty = provenance stays unverified and
+      # attestations are name-signed only.
+      TAMP_FINDINGS_PROVENANCE_PUBLIC_KEY: ${TAMP_FINDINGS_PROVENANCE_PUBLIC_KEY:-}
+      TAMP_FINDINGS_ATTESTATION_SIGNING_KEY: ${TAMP_FINDINGS_ATTESTATION_SIGNING_KEY:-}
+    ports:
+      # host:container — put your reverse proxy in front of the host port.
+      - "${TAMP_FINDINGS_PORT:-5080}:5080"
+    healthcheck:
+      # Liveness: the process is up. /ready (which checks the database) is what
+      # a load balancer should poll; this just tells Docker the app is alive.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5080/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 40s
+    restart: unless-stopped
+
+volumes:
+  pgdata:

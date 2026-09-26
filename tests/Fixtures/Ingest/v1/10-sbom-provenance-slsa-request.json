@@ -3,7 +3,7 @@
   "predicateType": "https://slsa.dev/provenance/v1",
   "subject": [
     {
-      "name": "registry.home.local/tamp-findings",
+      "name": "registry.example.com/tamp-findings",
       "digest": { "sha256": "b9cc2adf4064fb8b7755b9ac56925f5cf0144fc1b9b0120ae6e527d2dc407ebc" }
     }
   ],

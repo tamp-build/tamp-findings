@@ -1,14 +1,11 @@
 # tamp.findings — API Deployment + Service.
 #
-# Namespace `tamp-findings`, Postgres StatefulSet, Secrets, and the
-# Cloudflare tunnel ingress rule (tamp-findings.brewingcoder.com →
-# tamp-findings-api Service) are owned by the microk8s repo. This file
+# The namespace, a Postgres instance, the Secrets referenced below, and an
+# Ingress / reverse proxy routing your public host to the tamp-findings-api
+# Service are provided out of band by your cluster (see README.md). This file
 # owns only the api workload.
 #
-# Image registry: registry.home.local/tamp-findings:<tag>.
-#   Always reference by `registry.home.local/...` — node-IP forms fail
-#   ImagePullBackOff because containerd's mirror is keyed on
-#   localhost:32000. Confirmed by the microk8s agent.
+# Replace the placeholder image reference below with your own registry/tag.
 #
 # EF Core migrations apply on startup (Program.cs db.Database.Migrate()).
 # No separate migration Job. Readiness probe at /health holds the pod
@@ -42,10 +39,10 @@ spec:
     spec:
       containers:
         - name: api
-          # Image tag is rewritten in-place by the Deploy Nuke target —
-          # see build/Build.cs (DeployToCluster). Default keeps `latest`
-          # for direct `kubectl apply -f` against a freshly-pushed tag.
-          image: registry.home.local/tamp-findings:latest
+          # Image tag is rewritten in-place by the Deploy Nuke target
+          # (see build/Build.cs). Replace this placeholder registry/tag with
+          # your own for a direct `kubectl apply -f`.
+          image: your-registry.example.com/tamp-findings:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 5080

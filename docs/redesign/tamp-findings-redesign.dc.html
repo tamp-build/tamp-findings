@@ -802,7 +802,7 @@
                 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
                 <div style="font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-600);">Sign-in policy</div>
                 <div style="display: grid; grid-template-columns: repeat(2, minmax(280px, 1fr)); gap: 14px;">
-                  <div class="field"><label>Allowed email domains</label><input class="input" type="text" value="brewingcoder.com, meridian.gov" /><div style="font-size: 10px; color: var(--color-neutral-600); margin-top: 3px;">Anyone outside these domains is refused at the provider callback.</div></div>
+                  <div class="field"><label>Allowed email domains</label><input class="input" type="text" value="example.com, meridian.gov" /><div style="font-size: 10px; color: var(--color-neutral-600); margin-top: 3px;">Anyone outside these domains is refused at the provider callback.</div></div>
                   <div class="field"><label>Session lifetime</label><input class="input" type="text" value="7 days · idle timeout 12 h" /><div style="font-size: 10px; color: var(--color-neutral-600); margin-top: 3px;">Applies to every provider.</div></div>
                   <div class="field"><label>New users default to</label><input class="input" type="text" value="Viewer — read access, no role" /><div style="font-size: 10px; color: var(--color-neutral-600); margin-top: 3px;">Roles are granted deliberately; nobody arrives with write access.</div></div>
                   <div class="field"><label>Require MFA at the provider</label><input class="input" type="text" value="Required for Admin and InfoSec Officer" /><div style="font-size: 10px; color: var(--color-neutral-600); margin-top: 3px;">Enforced by refusing sessions whose token lacks an MFA claim.</div></div>
@@ -1002,7 +1002,7 @@
                 <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
                 <div style="font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-600);">Posting results</div>
                 <div style="font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.9; color: var(--color-neutral-800); padding: 12px 14px; border: 1px solid var(--color-divider); background: var(--color-neutral-100);">
-                  <div>curl -X POST https://tamp-findings.brewingcoder.com/ingest/sarif \</div>
+                  <div>curl -X POST https://tamp-findings.example.com/ingest/sarif \</div>
                   <div>  -H "Authorization: Bearer $TAMP_INGEST_TOKEN" \</div>
                   <div>  -H "X-Tamp-Scanner: opengrep" \</div>
                   <div>  -H "X-Tamp-Commit: $GITHUB_SHA" \</div>
@@ -1019,8 +1019,8 @@
                 <div style="font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-600);">Vulnerability disclosure policy</div>
                 <div style="font-size: 12px; color: var(--color-neutral-700);">A published policy URL flips SSDF RV.3.1 from Manual to Yes. A contact email alone caps it at Partial.</div>
               </div>
-              <div class="field"><label>Policy URL</label><input class="input" type="text" value="https://brewingcoder.com/security" /></div>
-              <div class="field"><label>Security contact</label><input class="input" type="text" value="security@brewingcoder.com" /></div>
+              <div class="field"><label>Policy URL</label><input class="input" type="text" value="https://example.com/security" /></div>
+              <div class="field"><label>Security contact</label><input class="input" type="text" value="security@example.com" /></div>
               <div class="field"><label>Reporting form (optional)</label><input class="input" type="text" value="" placeholder="https://…" /></div>
               <div style="display: flex; gap: 8px;">
                 <button class="btn btn-primary blueprint" type="button">
@@ -1868,7 +1868,7 @@ const PRACTICES = [
   ['RV.1.1', 'RV', 'Identify and Confirm Vulnerabilities on an Ongoing Basis', 'Continuously detect vulnerabilities in production code', 'Yes', '8 CVEs in SBOM (0c/2h/5m/1l); 1 CISA-KEV listed'],
   ['RV.1.2', 'RV', 'Assess, Prioritize, and Remediate Vulnerabilities', 'Triage and remediate vulnerabilities', 'Yes', 'POA&M lifecycle: 2 open / 1 in-progress / 4 completed / 1 risk-accepted'],
   ['RV.2.1', 'RV', 'Analyze Vulnerabilities to Identify Their Root Causes', 'Root-cause analysis on remediation', 'Manual', 'Post-mortem records outside the tool'],
-  ['RV.3.1', 'RV', 'Have a Process for Reporting and Communicating Vulnerabilities', 'Coordinated vulnerability disclosure', 'Yes', 'policy: brewingcoder.com/security · contact: security@brewingcoder.com'],
+  ['RV.3.1', 'RV', 'Have a Process for Reporting and Communicating Vulnerabilities', 'Coordinated vulnerability disclosure', 'Yes', 'policy: example.com/security · contact: security@example.com'],
   ['RV.3.2', 'RV', 'Document and Track Risk Acceptance Decisions', 'Document VEX and accepted-risk decisions', 'Yes', 'VEX: 3 not-affected / 1 fixed / 0 affected; POA&M risk-accepted: 1'],
 ];
 
@@ -1954,22 +1954,22 @@ const SAST_ROWS = [
 ];
 
 const DAST_ROWS = [
-  { id: 'host-1', name: 'tamp-findings.brewingcoder.com', depth: 0, group: true, sev: 'High', count: '38' },
+  { id: 'host-1', name: 'tamp-findings.example.com', depth: 0, group: true, sev: 'High', count: '38' },
   { id: 'admin-search', name: 'GET /admin/search', depth: 1, sev: 'High', scanner: 'ZAP · 40012',
     title: 'Reflected cross-site scripting in the search parameter', method: 'GET',
-    url: 'https://tamp-findings.brewingcoder.com/admin/search?q=test', param: 'q',
+    url: 'https://tamp-findings.example.com/admin/search?q=test', param: 'q',
     first: '1 build ago · a41c0d2', status: 'Open',
-    req: ['GET /admin/search?q=%22%3E%3Csvg+onload%3Dalert(1)%3E HTTP/1.1', 'Host: tamp-findings.brewingcoder.com', 'Cookie: tamp.sid=…', 'Accept: text/html'],
+    req: ['GET /admin/search?q=%22%3E%3Csvg+onload%3Dalert(1)%3E HTTP/1.1', 'Host: tamp-findings.example.com', 'Cookie: tamp.sid=…', 'Accept: text/html'],
     res: ['HTTP/1.1 200 OK', 'Content-Type: text/html; charset=utf-8', '', '&lt;p&gt;No results for "&gt;&lt;svg onload=alert(1)&gt;&lt;/p&gt;'] },
   { id: 'ingest-sarif', name: 'POST /ingest/sarif', depth: 1, sev: 'Medium', scanner: 'ZAP · 10202',
     title: 'Anti-CSRF token missing on a state-changing endpoint', method: 'POST',
-    url: 'https://tamp-findings.brewingcoder.com/ingest/sarif', param: '—',
+    url: 'https://tamp-findings.example.com/ingest/sarif', param: '—',
     first: '5 builds ago · 5c3d118', status: 'Open',
     req: ['POST /ingest/sarif HTTP/1.1', 'Content-Type: application/json', 'X-Tamp-Scanner: opengrep', '', '{"runs":[…]}'],
     res: ['HTTP/1.1 202 Accepted', 'Content-Type: application/json', '', '{"receiptId":"9f2c…"}'] },
   { id: 'api-projects', name: 'GET /api/projects', depth: 1, sev: 'Low', scanner: 'Nuclei · http-missing-csp',
     title: 'Content-Security-Policy header absent', method: 'GET',
-    url: 'https://tamp-findings.brewingcoder.com/api/projects', param: '—',
+    url: 'https://tamp-findings.example.com/api/projects', param: '—',
     first: '12 builds ago · d7710c4', status: 'Open',
     req: ['GET /api/projects HTTP/1.1', 'Accept: application/json'],
     res: ['HTTP/1.1 200 OK', 'Content-Type: application/json', 'X-Frame-Options: DENY'] },
@@ -2114,12 +2114,12 @@ const AUTH_PROVIDERS = [
 ];
 
 const INSTANCE_SETTINGS = [
-  { k: 'Instance URL', v: 'https://tamp-findings.brewingcoder.com', hint: 'Used in ingest examples, deep links and attestation footers' },
+  { k: 'Instance URL', v: 'https://tamp-findings.example.com', hint: 'Used in ingest examples, deep links and attestation footers' },
   { k: 'Database', v: 'PostgreSQL 17 · tamp_findings · 2.4 GB', hint: 'Findings, receipts and SBOM snapshots' },
   { k: 'Finding retention', v: '36 months', hint: 'Federal packages are re-examined years later — keep beyond the contract' },
   { k: 'Build retention', v: 'all canonical · 90 days for PR builds', hint: 'Canonical builds back the attestation and are never pruned' },
   { k: 'Session lifetime', v: '7 days · idle 12 h', hint: 'Applies to every provider' },
-  { k: 'Outbound email', v: 'SMTP · smtp.brewingcoder.com:587', hint: 'POA&M due-date reminders and gate failures' },
+  { k: 'Outbound email', v: 'SMTP · smtp.example.com:587', hint: 'POA&M due-date reminders and gate failures' },
   { k: 'Telemetry', v: 'Off', hint: 'No phone-home. Self-hosted means self-hosted.' },
   { k: 'Version', v: '0.9.14 · net10 · up to date', hint: 'Release channel: stable' },
 ];
@@ -2150,10 +2150,10 @@ const AUDIT_LOG = [
 ];
 
 const USERS = [
-  { id: 'b.stephens', who: 'b.stephens', email: 'ben@brewingcoder.com', roles: ['admin'], scope: 'instance' },
-  { id: 'm.okafor', who: 'm.okafor', email: 'm.okafor@brewingcoder.com', roles: ['infosec'], scope: 'BrewingCoder' },
-  { id: 'k.rivera', who: 'k.rivera', email: 'k.rivera@brewingcoder.com', roles: ['lead', 'architect', 'infosec'], scope: 'tamp · tamp-mcp' },
-  { id: 'j.diallo', who: 'j.diallo', email: 'j.diallo@brewingcoder.com', roles: ['lead'], scope: 'harbor-gw' },
+  { id: 'b.stephens', who: 'b.stephens', email: 'ben@example.com', roles: ['admin'], scope: 'instance' },
+  { id: 'm.okafor', who: 'm.okafor', email: 'm.okafor@example.com', roles: ['infosec'], scope: 'BrewingCoder' },
+  { id: 'k.rivera', who: 'k.rivera', email: 'k.rivera@example.com', roles: ['lead', 'architect', 'infosec'], scope: 'tamp · tamp-mcp' },
+  { id: 'j.diallo', who: 'j.diallo', email: 'j.diallo@example.com', roles: ['lead'], scope: 'harbor-gw' },
   { id: 'auditor', who: 'auditor@meridian.gov', email: 'auditor@meridian.gov', roles: ['auditor'], scope: 'tamp' },
 ];
 
@@ -2163,12 +2163,12 @@ const SOD_PAIRS = [
 ];
 
 const ASSIGNMENTS = [
-  { who: 'b.stephens', email: 'ben@brewingcoder.com', role: 'Admin', scope: 'instance', tier: 'Instance', by: 'seed', when: '2025-01-12' },
-  { who: 'm.okafor', email: 'm.okafor@brewingcoder.com', role: 'InfoSec Officer', scope: 'BrewingCoder', tier: 'Client', by: 'b.stephens', when: '2025-09-19' },
-  { who: 'k.rivera', email: 'k.rivera@brewingcoder.com', role: 'Lead Dev', scope: 'BrewingCoder · tamp', tier: 'Project', by: 'b.stephens', when: '2025-06-04' },
-  { who: 'k.rivera', email: 'k.rivera@brewingcoder.com', role: 'Architect', scope: 'tamp · tamp-mcp', tier: 'Component', by: 'm.okafor', when: '2026-04-22' },
-  { who: 'k.rivera', email: 'k.rivera@brewingcoder.com', role: 'InfoSec Officer', scope: 'BrewingCoder · tamp', tier: 'Project', by: 'b.stephens', when: '2026-08-12' },
-  { who: 'j.diallo', email: 'j.diallo@brewingcoder.com', role: 'Lead Dev', scope: 'BrewingCoder · harbor-gw', tier: 'Project', by: 'b.stephens', when: '2026-02-08' },
+  { who: 'b.stephens', email: 'ben@example.com', role: 'Admin', scope: 'instance', tier: 'Instance', by: 'seed', when: '2025-01-12' },
+  { who: 'm.okafor', email: 'm.okafor@example.com', role: 'InfoSec Officer', scope: 'BrewingCoder', tier: 'Client', by: 'b.stephens', when: '2025-09-19' },
+  { who: 'k.rivera', email: 'k.rivera@example.com', role: 'Lead Dev', scope: 'BrewingCoder · tamp', tier: 'Project', by: 'b.stephens', when: '2025-06-04' },
+  { who: 'k.rivera', email: 'k.rivera@example.com', role: 'Architect', scope: 'tamp · tamp-mcp', tier: 'Component', by: 'm.okafor', when: '2026-04-22' },
+  { who: 'k.rivera', email: 'k.rivera@example.com', role: 'InfoSec Officer', scope: 'BrewingCoder · tamp', tier: 'Project', by: 'b.stephens', when: '2026-08-12' },
+  { who: 'j.diallo', email: 'j.diallo@example.com', role: 'Lead Dev', scope: 'BrewingCoder · harbor-gw', tier: 'Project', by: 'b.stephens', when: '2026-02-08' },
   { who: 'auditor@meridian.gov', email: 'auditor@meridian.gov', role: 'Auditor', scope: 'tamp · attestation only', tier: 'Project', by: 'b.stephens', when: '2026-08-01' },
 ];
 
@@ -2710,7 +2710,7 @@ class Component extends DCLogic {
       };
       httpReq = sel.req.map(l => ({ text: l }));
       httpRes = sel.res.map(l => ({ text: l }));
-      if (sel.dupe) note = 'This route is the same application as tamp-findings.brewingcoder.com/admin/search — two scanners reached it by different addresses, so the finding is attributed twice. Merge the hosts to attribute findings to the application instead of the connection.';
+      if (sel.dupe) note = 'This route is the same application as tamp-findings.example.com/admin/search — two scanners reached it by different addresses, so the finding is attributed twice. Merge the hosts to attribute findings to the application instead of the connection.';
     } else if (spineKey === 'sbom') {
       detail = {
         chipText: sel.status.toUpperCase(),
@@ -3066,9 +3066,9 @@ class Component extends DCLogic {
     }));
 
     const people = [
-      { who: 'b.stephens', email: 'ben@brewingcoder.com', role: 'Owner · admin', scope: 'all clients', added: '2025-01-12' },
-      { who: 'k.rivera', email: 'k.rivera@brewingcoder.com', role: 'Maintainer', scope: 'BrewingCoder', added: '2025-06-04' },
-      { who: 'm.okafor', email: 'm.okafor@brewingcoder.com', role: 'Security lead', scope: 'BrewingCoder', added: '2025-09-19' },
+      { who: 'b.stephens', email: 'ben@example.com', role: 'Owner · admin', scope: 'all clients', added: '2025-01-12' },
+      { who: 'k.rivera', email: 'k.rivera@example.com', role: 'Maintainer', scope: 'BrewingCoder', added: '2025-06-04' },
+      { who: 'm.okafor', email: 'm.okafor@example.com', role: 'Security lead', scope: 'BrewingCoder', added: '2025-09-19' },
       { who: 'auditor@meridian.gov', email: 'auditor@meridian.gov', role: 'Auditor · read-only', scope: 'tamp · attestation only', added: '2026-08-01' },
     ];
 

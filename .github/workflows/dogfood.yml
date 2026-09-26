@@ -6,7 +6,7 @@ name: Dogfood scan + ingest
 #
 # Requires two repository secrets. Without them the job exits cleanly with a
 # notice rather than failing:
-#   TAMP_FINDINGS_URL            e.g. https://tamp-findings.brewingcoder.com
+#   TAMP_FINDINGS_URL            e.g. https://tamp-findings.example.com
 #   TAMP_FINDINGS_INGEST_TOKEN   a cli_/prj_ token minted in the app
 #
 # ONE job, in order, because the dynamic scans need something the static ones
@@ -195,7 +195,7 @@ jobs:
           docker run -d --name tamp-findings-dast --network host \
             -e TAMP_FINDINGS_DB="Host=localhost;Port=5432;Database=tamp_findings;Username=tamp;Password=tamp" \
             -e ASPNETCORE_URLS="http://0.0.0.0:5080" \
-            "registry.home.local/tamp-findings:${SHA}" || {
+            "localhost:5000/tamp-findings:${SHA}" || {
               echo "::warning::could not start the app container — dynamic scans will be skipped"
               echo "up=false" >> "$GITHUB_OUTPUT"
               exit 0
