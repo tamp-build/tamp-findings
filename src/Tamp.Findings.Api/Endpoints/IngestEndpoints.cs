@@ -254,14 +254,17 @@ public static class IngestEndpoints
             }
         }
 
-        // TFND-158: per-ingest audit, added in the same transaction as the
-        // findings write so the trail can never diverge from what was stored.
-        // Attributed to the bearer token until identity-bound ingest (TFND-161)
-        // gives ingest a real Principal. The auto-close count is called out
-        // because an empty/partial batch can silently retire real findings.
+        // TFND-158 + TFND-161: per-ingest audit, in the same transaction as the
+        // findings write so the trail can never diverge from what was stored,
+        // attributed to the token's minting user (identity-bound ingest). The
+        // auto-close count is called out because an empty/partial batch can
+        // silently retire real findings.
         var flavorPart = string.IsNullOrWhiteSpace(req.Flavor) ? "" : $"/{req.Flavor}";
         var shaPart = string.IsNullOrWhiteSpace(req.CommitSha) ? "" : $" ({req.CommitSha})";
-        audit.RecordIngest(token!.Id, token.Name, AuditActions.IngestReceived,
+        var actorLogin = await db.Users.AsNoTracking()
+            .Where(u => u.Id == token!.CreatedByUserId).Select(u => u.Login).FirstOrDefaultAsync(ct);
+        audit.RecordIngest(token!.Id, token.Name, actorLogin is null ? null : token.CreatedByUserId, actorLogin,
+            AuditActions.IngestReceived,
             new ScopeTarget(client!.Id, project!.Id, version!.ComponentId),
             $"{req.Scanner}: {inserted} new, {updated} updated, {reopened} reopened, " +
             $"{closed} auto-closed, {suppressed} suppressed — {req.Component}{flavorPart}@{req.Version}{shaPart}");
