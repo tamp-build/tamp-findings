@@ -225,6 +225,18 @@ public static class IngestEndpoints
             }
         }
 
+        // TFND-155: an empty findings batch only auto-closes prior Open findings
+        // when a scan-run receipt shows the scanner actually SUCCEEDED. Without
+        // that corroboration an empty post — accidental, or forged by someone
+        // holding the ingest token — would silently retire real findings. A
+        // non-empty batch is itself proof the scanner ran. (Clean runs must post
+        // the scan-run receipt before/with the empty findings batch.)
+        var scannerRan = req.Findings.Count > 0
+            || await db.ScanRunReceipts.AsNoTracking().AnyAsync(
+                r => r.ComponentVersionId == version.Id
+                  && r.Scanner == req.Scanner
+                  && r.Status == ScanRunStatus.Succeeded, ct);
+
         // Auto-close: any existing Open finding for this (componentVersion,
         // scanner) whose hash wasn't in the incoming batch is now Fixed.
         // LastSeen is left untouched so consumers can see when it last
@@ -234,6 +246,9 @@ public static class IngestEndpoints
         {
             if (current.Status == FindingStatus.Open && !incomingHashes.Contains(hash))
             {
+                // Fail-safe: without corroboration that the scanner ran, leave the
+                // finding Open rather than close it on an unverified empty post.
+                if (!scannerRan) continue;
                 current.Status = FindingStatus.Fixed;
                 closed++;
             }
