@@ -16,7 +16,9 @@ public sealed record ScanRunIngestRequest(
     string? Branch,
     string? BuildId,
     string? PullRequestRef,
-    IReadOnlyList<ScanRunReceiptDto> Receipts);
+    IReadOnlyList<ScanRunReceiptDto> Receipts,
+    // TFND-165: who produced this ingest (optional, additive).
+    IngestActor? Actor = null);
 
 public sealed record ScanRunReceiptDto(
     ScannerKind Scanner,

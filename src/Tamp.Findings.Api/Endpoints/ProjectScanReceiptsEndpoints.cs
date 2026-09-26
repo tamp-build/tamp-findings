@@ -16,6 +16,10 @@ public sealed record BuildReceiptDto(
     string? BranchName,
     string? BuildId,
     DateTimeOffset CreatedAt,
+    // TFND-165: who produced this build — "agent"/"human" and their id — so a
+    // reader can group or filter builds by producer. Null when no ingest named one.
+    string? ActorId,
+    string? ActorKind,
     IReadOnlyList<ScanReceiptRowDto> Receipts);
 
 public sealed record ScanReceiptRowDto(
@@ -66,7 +70,7 @@ public static class ProjectScanReceiptsEndpoints
             .Select(v => new
             {
                 v.Id, v.ComponentId, v.VersionString, v.CommitSha,
-                v.BranchName, v.BuildId, v.CreatedAt,
+                v.BranchName, v.BuildId, v.CreatedAt, v.ActorId, v.ActorKind,
                 ComponentName = v.Component!.Name,
                 FlavorName = v.Flavor != null ? v.Flavor.Name : null,
             })
@@ -86,6 +90,8 @@ public static class ProjectScanReceiptsEndpoints
         var builds = cvs.Select(c => new BuildReceiptDto(
             c.Id, c.ComponentId, c.ComponentName, c.FlavorName,
             c.VersionString, c.CommitSha, c.BranchName, c.BuildId, c.CreatedAt,
+            c.ActorId,
+            c.ActorKind?.ToString().ToLowerInvariant(),
             receiptsByCv.TryGetValue(c.Id, out var rs)
                 ? rs.Select(r => new ScanReceiptRowDto(
                     r.Scanner, r.Status, r.StartedAt, r.CompletedAt,

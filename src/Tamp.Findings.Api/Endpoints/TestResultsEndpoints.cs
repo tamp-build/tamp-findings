@@ -252,6 +252,10 @@ public static class TestResultsEndpoints
             };
             db.ComponentVersions.Add(version);
         }
+
+        // TFND-165: stamp the build with the actor that produced this ingest,
+        // whether it was just created or already existed.
+        version.ApplyActor(req.Actor);
         await db.SaveChangesAsync(ct);
         return (version, null);
     }
