@@ -11,11 +11,14 @@
 @page "/system/{Panel}"
 @attribute [Authorize]
 @rendermode InteractiveServer
+@using Tamp.Findings.Application.Risk
+@using Tamp.Findings.Domain.Values
 @inject RouteScope Scope
 @inject NavigationManager Nav
 @inject SystemAdminService Admin
 @inject PaidComponentRegistry Paid
 @inject VisibilityScope Visibility
+@inject InstanceEnforcementPolicy Enforcement
 @inject IdentityProviderService Providers
 @inject ProviderSecretProtector Protector
 @inject CurrentUser Me
@@ -692,6 +695,38 @@ else
                         a refusal.
                     </p>
 
+                    <div style="margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border)">
+                        <h4 style="margin: 0 0 var(--space-2)">Gate enforcement</h4>
+                        @if (Enforcement.ConfigLocked)
+                        {
+                            <p class="field__help" style="color: var(--color-critical)">
+                                <strong>Locked by deployment configuration</strong> to
+                                <strong>@Enforcement.ConfigMode.ToString().ToLowerInvariant()</strong>. It
+                                cannot be changed here — the lock lives in the deployment's configuration
+                                (the <code class="mono">Enforcement</code> settings / environment), above
+                                the instance admin. Change it where the deployment is configured.
+                            </p>
+                        }
+                        <CheckField Label="Fail builds on a blocking verdict (enforcing)"
+                                    @bind-Checked="_enforcementEnforcing"
+                                    Disabled="@(!_canAdminister.Allowed || Enforcement.ConfigLocked)" />
+                        <p class="field__help">
+                            Advisory (the default) evaluates gates — the dashboard and check-run still go
+                            red — but never fails a build. Enforcing fails the gate on any blocking verdict
+                            (Fail, Unknown or Error). Turn gates on in advisory first, watch what would
+                            block, then flip to enforcing.
+                        </p>
+
+                        <CheckField Label="Lock as a floor projects can't weaken"
+                                    @bind-Checked="_enforcementLocked"
+                                    Disabled="@(!_canAdminister.Allowed || Enforcement.ConfigLocked)" />
+                        <p class="field__help">
+                            On, this instance mode is a floor: a project may match or exceed it but cannot
+                            downgrade to advisory. A stronger lock that even an instance admin cannot change
+                            is set in the deployment configuration, not here.
+                        </p>
+                    </div>
+
                     <div class="row" style="gap: var(--space-2); margin-top: var(--space-3)">
                         <Button Variant="Button.ButtonVariant.Primary"
                                 Disabled="@(!_canAdminister.Allowed)" DisabledReason="@_canAdminister.Reason"
@@ -998,6 +1033,7 @@ else
     private bool _unsegmented;
     private bool _mcpEnabled;
     private bool _enforceSod, _settingsSaved;
+    private bool _enforcementEnforcing, _enforcementLocked;
 
     private IReadOnlyList<ProviderRow> _providers = [];
     private ProviderRow? _deletingProvider;
@@ -1071,6 +1107,19 @@ else
                     _githubCheckName = _settings.GitHubCheckName;
                     _githubEnabled = _settings.GitHubChecksEnabled;
                     _mcpEnabled = _settings.McpEnabled;
+                    // When the deployment config locks enforcement, show the
+                    // config-mandated values (read-only in the form) rather than
+                    // the stored ones the config overrides.
+                    if (Enforcement.ConfigLocked)
+                    {
+                        _enforcementEnforcing = Enforcement.ConfigMode == EnforcementMode.Enforcing;
+                        _enforcementLocked = true;
+                    }
+                    else
+                    {
+                        _enforcementEnforcing = _settings.EnforcementMode == EnforcementMode.Enforcing;
+                        _enforcementLocked = _settings.EnforcementLocked;
+                    }
                     // Never populated. A field that is sometimes the real key
                     // and sometimes a placeholder is how one gets logged.
                     _githubAppKey = null;
@@ -1267,6 +1316,8 @@ else
                 : _githubCheckName.Trim(),
             GitHubChecksEnabled = _githubEnabled,
             McpEnabled = _mcpEnabled,
+            EnforcementMode = _enforcementEnforcing ? EnforcementMode.Enforcing : EnforcementMode.Advisory,
+            EnforcementLocked = _enforcementLocked,
             // Protected here rather than in the service, so the plaintext never
             // travels further than the form that collected it. A blank field
             // keeps whatever is stored.
