@@ -57,6 +57,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Risk.VexResolver>();
         services.AddScoped<Risk.EnforcementResolver>();
         services.AddScoped<Risk.GateDecisionService>();
+        services.AddScoped<Risk.GateFailureNotifier>();   // TFND-122
         services.AddScoped<Projects.ProjectHubQuery>();
         services.AddScoped<Projects.ComponentService>();
         services.AddScoped<Projects.PortfolioQuery>();
