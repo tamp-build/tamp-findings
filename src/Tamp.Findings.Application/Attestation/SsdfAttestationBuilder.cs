@@ -126,6 +126,7 @@ public sealed class SsdfAttestationBuilder
                 s.IngestedAt,
                 s.ProvenanceType,
                 s.ProvenanceUploadedAt,
+                s.ProvenanceVerified,
             })
             .FirstOrDefaultAsync(ct);
         var sbomToolsPresent = latestSbomTools?.MetadataTools is not null;
@@ -167,6 +168,7 @@ public sealed class SsdfAttestationBuilder
             Practices = BuildPractices(
                 inputs, succeeded, sbomToolsPresent, latestSbomTools?.IngestedAt,
                 latestSbomTools?.ProvenanceType, latestSbomTools?.ProvenanceUploadedAt,
+                latestSbomTools?.ProvenanceVerified ?? false,
                 vexCounts, liveOpen, liveInProgress, completed, riskAccepted,
                 gateEval, vdp),
         };
@@ -195,7 +197,7 @@ public sealed class SsdfAttestationBuilder
     private static List<SsdfPractice> BuildPractices(
         RiskInputs inputs, HashSet<ScannerKind> succeeded,
         bool sbomToolsPresent, DateTimeOffset? sbomCreatedAt,
-        string? provenanceType, DateTimeOffset? provenanceUploadedAt,
+        string? provenanceType, DateTimeOffset? provenanceUploadedAt, bool provenanceVerified,
         Dictionary<VexStatementStatus, int> vexCounts,
         int poamOpen, int poamInProgress, int completed, int riskAccepted,
         GateEvaluation gates, VdpEvidence vdp)
@@ -228,7 +230,7 @@ public sealed class SsdfAttestationBuilder
             "Manual", "VCS access controls outside the tool"));
         p.Add(P("PS.2.1", "PS", "Provide a Mechanism for Verifying Software Release Integrity",
             "Provide cryptographic verification for releases",
-            ProvenanceStatusAndEvidence(provenanceType, provenanceUploadedAt, sbomToolsPresent, sbomCreatedAt)));
+            ProvenanceStatusAndEvidence(provenanceType, provenanceUploadedAt, provenanceVerified, sbomToolsPresent, sbomCreatedAt)));
         p.Add(P("PS.3.1", "PS", "Archive and Protect Each Software Release",
             "Preserve evidence for each release",
             inputs.SbomComponents > 0 ? "Yes" : "Partial",
@@ -349,13 +351,19 @@ public sealed class SsdfAttestationBuilder
     //   SBOM tool metadata but no provenance                   → Partial
     //   Nothing on file                                        → No
     private static (string Status, string Evidence) ProvenanceStatusAndEvidence(
-        string? provenanceType, DateTimeOffset? uploadedAt,
+        string? provenanceType, DateTimeOffset? uploadedAt, bool verified,
         bool sbomToolsPresent, DateTimeOffset? sbomCreatedAt)
     {
         if (!string.IsNullOrEmpty(provenanceType))
         {
-            var ev = $"provenance attestation on file (`{provenanceType}`), uploaded {uploadedAt:yyyy-MM-dd}";
-            return ("Yes", ev);
+            // TFND-159: presence is not proof. "Yes" only when the DSSE signature
+            // verified against the trust root; a stored-but-unverified blob is
+            // "Partial" and says why, rather than the old dishonest "Yes".
+            if (verified)
+                return ("Yes",
+                    $"provenance attestation VERIFIED against the trust root (`{provenanceType}`), uploaded {uploadedAt:yyyy-MM-dd}");
+            return ("Partial",
+                $"provenance attestation on file (`{provenanceType}`), uploaded {uploadedAt:yyyy-MM-dd}, but NOT verified against a trust root — configure Provenance:PublicKeys so release integrity is proven, not merely asserted");
         }
         if (sbomToolsPresent)
             return ("Partial",
