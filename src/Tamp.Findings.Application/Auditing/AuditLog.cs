@@ -58,6 +58,43 @@ public sealed class AuditLog
         return entry;
     }
 
+    /// <summary>
+    /// Record an ingest, attributed to the bearer token that authenticated it.
+    ///
+    /// Ingest has no user identity yet (that is TFND-161 — identity-bound
+    /// ingest), so the actor is the token: <c>ActorLogin</c> carries the
+    /// operator-set token label and the token id is the subject, so an assessor
+    /// can answer "which credential posted this" and revoke it. When
+    /// identity-bound ingest lands, this grows a real <see cref="Principal"/>
+    /// and the token becomes corroborating detail rather than the actor.
+    /// </summary>
+    public AuditEntry RecordIngest(
+        Guid tokenId,
+        string tokenLabel,
+        string action,
+        ScopeTarget scope = default,
+        string? detail = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(action);
+
+        var entry = new AuditEntry
+        {
+            UserId = null,
+            ActorLogin = $"token:{tokenLabel}",
+            Action = action,
+            Class = AuditClass.Other,
+            ClientId = scope.ClientId,
+            ProjectId = scope.ProjectId,
+            ComponentId = scope.ComponentId,
+            SubjectId = tokenId,
+            SubjectKind = "ingest_token",
+            Detail = detail,
+        };
+
+        _db.AuditEntries.Add(entry);
+        return entry;
+    }
+
     /// <summary>Record something the system did on nobody's behalf — a scheduled workflow, an ingest.</summary>
     public AuditEntry RecordSystem(
         string action,
@@ -155,4 +192,10 @@ public static class AuditActions
     // Other.
     public const string AttestationExported = "attestation.exported";
     public const string AttestationSigned = "attestation.signed";
+
+    // Ingest — a build posted evidence. Machine, not a human decision, so
+    // AuditClass.Other; attributed to the bearer token (see RecordIngest).
+    // Traceability seam for TFND-142; the auto-close case is the one that can
+    // silently retire real findings, so it is called out in Detail.
+    public const string IngestReceived = "ingest.received";
 }

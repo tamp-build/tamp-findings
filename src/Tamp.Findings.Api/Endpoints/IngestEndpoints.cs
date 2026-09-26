@@ -1,4 +1,6 @@
 using Tamp.Findings.Application.Ingest;
+using Tamp.Findings.Application.Auditing;
+using Tamp.Findings.Application.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
@@ -25,6 +27,7 @@ public static class IngestEndpoints
     private static async Task<IResult> IngestAsync(
         IngestRequest req, HttpContext ctx, FindingsDbContext db,
         CveReconciler reconciler, Tamp.Findings.Api.Services.CheckPublishQueue checks,
+        AuditLog audit,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
@@ -235,6 +238,18 @@ public static class IngestEndpoints
                 closed++;
             }
         }
+
+        // TFND-158: per-ingest audit, added in the same transaction as the
+        // findings write so the trail can never diverge from what was stored.
+        // Attributed to the bearer token until identity-bound ingest (TFND-161)
+        // gives ingest a real Principal. The auto-close count is called out
+        // because an empty/partial batch can silently retire real findings.
+        var flavorPart = string.IsNullOrWhiteSpace(req.Flavor) ? "" : $"/{req.Flavor}";
+        var shaPart = string.IsNullOrWhiteSpace(req.CommitSha) ? "" : $" ({req.CommitSha})";
+        audit.RecordIngest(token!.Id, token.Name, AuditActions.IngestReceived,
+            new ScopeTarget(client!.Id, project!.Id, version!.ComponentId),
+            $"{req.Scanner}: {inserted} new, {updated} updated, {reopened} reopened, " +
+            $"{closed} auto-closed, {suppressed} suppressed — {req.Component}{flavorPart}@{req.Version}{shaPart}");
 
         await db.SaveChangesAsync(ct);
         // TFND-16: dependency scanners report CVEs as findings, while Grype
