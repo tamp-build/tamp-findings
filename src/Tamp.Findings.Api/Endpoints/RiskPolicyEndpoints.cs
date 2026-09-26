@@ -3,6 +3,8 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
+using Tamp.Findings.Application.Authorization;
+using Tamp.Findings.Application.Policy;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Risk;
@@ -312,15 +314,31 @@ public static class RiskPolicyEndpoints
     }
 
     private static async Task<IResult> UpdateProjectGatesAsync(
-        Guid projectId, UpdateGatesRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+        Guid projectId, UpdateGatesRequest req, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals, GateService gates, CancellationToken ct)
     {
-        var (_, deny) = await RequireAdminAsync(ctx, db, ct);
-        if (deny is not null) return deny;
-        var project = await db.Projects.FirstOrDefaultAsync(p => p.Id == projectId, ct);
-        if (project is null) return Results.NotFound();
         if (req.Gates is null || req.Gates.SchemaVersion < 1) return Results.BadRequest("gates invalid");
-        project.GatesConfig = req.Gates;
-        await db.SaveChangesAsync(ct);
+
+        // TFND-156: route through GateService — the audited, capability-gated
+        // path the UI uses — instead of an Admin-only direct write. Editing a
+        // gate needs EditGates (Admin or InfoSec) and is recorded as a Risk
+        // decision, because loosening a gate is equivalent to fixing the finding
+        // it caught.
+        var (actor, scope, deny) = await EndpointActor.ForProjectAsync(ctx, db, principals, projectId, ct);
+        if (deny is not null) return deny;
+
+        var rows = GateEvaluator.WellKnownGateKeys.Select(key =>
+        {
+            req.Gates.Gates.TryGetValue(key, out var gc);
+            return new GateRow(key, GateEvaluator.Label(key), GateEvaluator.Describe(key),
+                gc?.Enabled ?? false, gc?.Threshold, GateService.TakesThreshold(key));
+        }).ToList();
+
+        var result = await gates.SaveAsync(actor!, scope, projectId, rows, req.Gates.EnforcementMode, ct);
+        if (!result.Success)
+            return result.WasDenied
+                ? Results.Problem(result.Error, statusCode: StatusCodes.Status403Forbidden)
+                : Results.BadRequest(result.Error);
         return Results.NoContent();
     }
 
