@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Data;
 
+using Tamp.Findings.Application.Auditing;
+
 namespace Tamp.Findings.Api.Endpoints;
 
 // TFND-29 phase 1: attach a SLSA / in-toto / DSSE-wrapped provenance
@@ -37,6 +39,7 @@ public static class SbomProvenanceEndpoints
         Guid snapshotId,
         HttpRequest httpReq,
         FindingsDbContext db,
+        AuditLog audit,
         CancellationToken ct)
     {
         var snap = await db.SbomSnapshots.FirstOrDefaultAsync(s => s.Id == snapshotId, ct);
@@ -69,6 +72,8 @@ public static class SbomProvenanceEndpoints
             snap.ProvenanceJson = JsonSerializer.Deserialize<Dictionary<string, object?>>(root.GetRawText());
             snap.ProvenanceType = type;
             snap.ProvenanceUploadedAt = DateTimeOffset.UtcNow;
+            await IngestAudit.RecordAsync(audit, db, IngestAuthFilter.CurrentToken(httpReq.HttpContext),
+                snap.ComponentVersionId, $"provenance ({type}) attached to snapshot {snapshotId}", ct);
             await db.SaveChangesAsync(ct);
         }
         return Results.Ok(new

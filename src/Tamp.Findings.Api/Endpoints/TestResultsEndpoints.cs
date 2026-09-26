@@ -5,6 +5,8 @@ using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Values;
 
+using Tamp.Findings.Application.Auditing;
+
 namespace Tamp.Findings.Api.Endpoints;
 
 // TFND-20: TRX-style test results.
@@ -29,7 +31,7 @@ public static class TestResultsEndpoints
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(TestResultsIngestRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(TestResultsIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project required");
@@ -104,6 +106,10 @@ public static class TestResultsEndpoints
             }
             if (s.Cases.Count > 0) await db.SaveChangesAsync(ct);
         }
+
+        await IngestAudit.RecordAsync(audit, db, token, version.Id,
+            $"test-results: {suitesCount} suites, {casesCount} cases — {req.Component}@{req.Version}", ct);
+        await db.SaveChangesAsync(ct);
 
         return Results.Ok(new TestResultsIngestResponse(version.Id, report.Id, suitesCount, casesCount));
     }
