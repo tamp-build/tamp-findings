@@ -8,7 +8,7 @@ using Tamp.Findings.Domain.Entities;
 
 namespace Tamp.Findings.Api.Endpoints;
 
-public sealed record MintTokenRequest(string Name);
+public sealed record MintTokenRequest(string Name, bool Untrusted = false);
 public sealed record TokenListItem(
     Guid Id,
     string Name,
@@ -58,7 +58,7 @@ public static class IngestTokenEndpoints
         var exists = await db.Clients.AnyAsync(c => c.Id == clientId, ct);
         if (!exists) return Results.NotFound("client not found");
 
-        var minted = await svc.MintClientTokenAsync(clientId, req.Name.Trim(), user!.Id, ct);
+        var minted = await svc.MintClientTokenAsync(clientId, req.Name.Trim(), user!.Id, ct, untrusted: req.Untrusted);
         return Results.Ok(new
         {
             id = minted.Record.Id,
@@ -66,6 +66,7 @@ public static class IngestTokenEndpoints
             // Plaintext exposed exactly once — caller MUST save it now.
             token = minted.Plaintext,
             createdAt = minted.Record.CreatedAt,
+            untrusted = minted.Record.Untrusted,
         });
     }
 
@@ -78,13 +79,14 @@ public static class IngestTokenEndpoints
         var exists = await db.Projects.AnyAsync(p => p.Id == projectId, ct);
         if (!exists) return Results.NotFound("project not found");
 
-        var minted = await svc.MintProjectTokenAsync(projectId, req.Name.Trim(), user!.Id, ct);
+        var minted = await svc.MintProjectTokenAsync(projectId, req.Name.Trim(), user!.Id, ct, untrusted: req.Untrusted);
         return Results.Ok(new
         {
             id = minted.Record.Id,
             name = minted.Record.Name,
             token = minted.Plaintext,
             createdAt = minted.Record.CreatedAt,
+            untrusted = minted.Record.Untrusted,
         });
     }
 

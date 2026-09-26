@@ -17,7 +17,7 @@ public sealed class IngestTokenService(FindingsDbContext db)
     public const string ClientPrefix = "cli_";
     public const string ProjectPrefix = "prj_";
 
-    public async Task<MintedToken> MintClientTokenAsync(Guid clientId, string name, Guid byUserId, CancellationToken ct)
+    public async Task<MintedToken> MintClientTokenAsync(Guid clientId, string name, Guid byUserId, CancellationToken ct, bool untrusted = false)
     {
         var plaintext = ClientPrefix + GenerateRandomPart();
         var record = new IngestToken
@@ -28,13 +28,14 @@ public sealed class IngestTokenService(FindingsDbContext db)
             TokenHash = Hash(plaintext),
             Name = name,
             CreatedByUserId = byUserId,
+            Untrusted = untrusted,
         };
         db.IngestTokens.Add(record);
         await db.SaveChangesAsync(ct);
         return new MintedToken(record, plaintext);
     }
 
-    public async Task<MintedToken> MintProjectTokenAsync(Guid projectId, string name, Guid byUserId, CancellationToken ct)
+    public async Task<MintedToken> MintProjectTokenAsync(Guid projectId, string name, Guid byUserId, CancellationToken ct, bool untrusted = false)
     {
         var plaintext = ProjectPrefix + GenerateRandomPart();
         var record = new IngestToken
@@ -45,6 +46,7 @@ public sealed class IngestTokenService(FindingsDbContext db)
             TokenHash = Hash(plaintext),
             Name = name,
             CreatedByUserId = byUserId,
+            Untrusted = untrusted,
         };
         db.IngestTokens.Add(record);
         await db.SaveChangesAsync(ct);

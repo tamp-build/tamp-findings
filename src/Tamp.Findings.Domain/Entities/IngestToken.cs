@@ -32,4 +32,11 @@ public sealed class IngestToken
     // Soft-delete: revoked tokens stay in the DB so the audit trail isn't
     // lost. RevokedAt non-null → token rejected by Validate.
     public DateTimeOffset? RevokedAt { get; set; }
+
+    // TFND-162: the trust tier for the ingest path — a first-class notion
+    // distinct from IsApproved / IsAdmin. An UNTRUSTED contributor's token may
+    // ADD findings but never AUTO-CLOSE existing ones, so it cannot silently
+    // produce a clean result by omitting or clearing findings. Default false
+    // (trusted): a token behaves exactly as before unless minted untrusted.
+    public bool Untrusted { get; set; }
 }
