@@ -126,6 +126,27 @@ internal static class ExternalSignIn
         }
 
         user.LastLoginAt = DateTimeOffset.UtcNow;
+
+        // TFND-140: the administrator seat being claimed is the single most
+        // privileged, once-only event on the instance — and the root of the
+        // access-control trust chain an assessor reads first. Record it in the
+        // same transaction as the appointment, so a claimed seat can never exist
+        // without its audit row. The appointee is the subject; there is no prior
+        // principal to attribute it to (possession of the setup token is the
+        // whole control), so it is a system-recorded event.
+        if (isFirstUser)
+        {
+            var audit = http.RequestServices.GetRequiredService<Application.Auditing.AuditLog>();
+            var remote = http.Connection.RemoteIpAddress?.ToString();
+            audit.RecordSystem(
+                Application.Auditing.AuditActions.AdminSeatClaimed,
+                Domain.Values.AuditClass.Access,
+                subjectId: user.Id, subjectKind: nameof(User),
+                detail: $"{profile.Login} ({profile.DisplayName}) claimed the administrator seat "
+                      + $"via {profile.Scheme}"
+                      + (remote is { Length: > 0 } ? $" from {remote}" : ""));
+        }
+
         await db.SaveChangesAsync(ct);
 
         // The seat is claimed. Disarm immediately so the token stops working
