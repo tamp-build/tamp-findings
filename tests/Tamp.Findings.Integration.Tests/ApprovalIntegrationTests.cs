@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Tamp.Findings.Application.Approvals;
 using Tamp.Findings.Application.Authorization;
+using Tamp.Findings.Application.Vex;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Values;
 
@@ -382,6 +384,62 @@ public class ApprovalIntegrationTests
         var item = db.PoamItems.Single(p => p.Id == world.PoamItemId);
         Assert.Equal(newDate, item.ScheduledCompletionDate);
         Assert.Null(item.ClosedAt);
+    }
+
+    [SkippableFact]
+    public async Task Approving_a_vex_publication_creates_the_published_statement()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // TFND-120: the proposed statement rides on the payload and does not exist
+        // until a DIFFERENT publisher approves it, at which point it is created and
+        // relieves its CVE.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var approvals = scope.ServiceProvider.GetRequiredService<ApprovalService>();
+        var db = _fx.Db(scope);
+
+        var advisory = $"CVE-TEST-{Guid.NewGuid():N}"[..18];
+        var draft = new VexDraft(advisory, "pkg:nuget/Example", null,
+            VexStatementStatus.NotAffected, VexJustification.VulnerableCodeNotPresent,
+            "Not reachable in our build.", null);
+
+        var request = await approvals.RequestAsync(
+            world.LeadDev, world.Scope, ApprovalKind.VexPublication,
+            "VexStatement", Guid.NewGuid(), justification: "Please publish.",
+            payload: JsonSerializer.Serialize(draft));
+        // InfoSec officer holds PublishVex and is not the requester.
+        var decision = await approvals.DecideAsync(world.InfoSec, request.Value, approve: true);
+        Assert.True(decision.Success);
+
+        var created = db.VexStatements.SingleOrDefault(v => v.AdvisoryId == advisory);
+        Assert.NotNull(created);
+        Assert.Equal(VexStatementStatus.NotAffected, created!.Status);
+        Assert.Equal(VexJustification.VulnerableCodeNotPresent, created.Justification);
+        // Authorship stays with the requester; the officer published it.
+        Assert.Equal(world.LeadDev.UserId, created.AuthorUserId);
+    }
+
+    [SkippableFact]
+    public async Task Rejecting_a_vex_publication_creates_no_statement()
+    {
+        Skip.IfNot(_fx.Available);
+
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var approvals = scope.ServiceProvider.GetRequiredService<ApprovalService>();
+        var db = _fx.Db(scope);
+
+        var advisory = $"CVE-TEST-{Guid.NewGuid():N}"[..18];
+        var draft = new VexDraft(advisory, "pkg:nuget/Example", null,
+            VexStatementStatus.Fixed, null, null, null);
+
+        var request = await approvals.RequestAsync(
+            world.LeadDev, world.Scope, ApprovalKind.VexPublication,
+            "VexStatement", Guid.NewGuid(), payload: JsonSerializer.Serialize(draft));
+        await approvals.DecideAsync(world.InfoSec, request.Value, approve: false, note: "Needs analysis.");
+
+        Assert.Empty(db.VexStatements.Where(v => v.AdvisoryId == advisory).ToArray());
     }
 
     // ---- Seed ---------------------------------------------------------------

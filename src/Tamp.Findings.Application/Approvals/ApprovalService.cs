@@ -284,6 +284,23 @@ public sealed class ApprovalService
         return rows;
     }
 
+    /// <summary>
+    /// Every pending approval of a kind on a project, whoever it is waiting on.
+    ///
+    /// For kinds whose subject is not a persisted row the screens can hang a
+    /// pending marker on — a VEX publication request carries the proposed
+    /// statement in <see cref="PendingApproval.Payload"/> rather than pointing at
+    /// an existing statement — this is how a page lists the outstanding requests
+    /// (both the reader's own and those awaiting them). Decide-eligibility is a
+    /// separate question, answered by <see cref="AwaitingAsync"/>.
+    /// </summary>
+    public async Task<IReadOnlyList<PendingApproval>> PendingByKindForProjectAsync(
+        ApprovalKind kind, Guid projectId, CancellationToken ct = default) =>
+        await _db.PendingApprovals.AsNoTracking()
+            .Where(a => a.Kind == kind && a.ProjectId == projectId && a.State == ApprovalState.Pending)
+            .OrderBy(a => a.RequestedAt)
+            .ToArrayAsync(ct);
+
     private static PendingState Describe(PendingApproval approval) => new(
         approval.Id,
         approval.Kind,

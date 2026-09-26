@@ -90,6 +90,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Approvals.IApprovalEffect, Poam.PoamRiskAcceptanceEffect>();   // TFND-117
         services.AddScoped<Approvals.IApprovalEffect, Poam.PoamCompletionEffect>();       // TFND-118
         services.AddScoped<Approvals.IApprovalEffect, Poam.PoamExtensionEffect>();        // TFND-119
+        services.AddScoped<Approvals.IApprovalEffect, Vex.VexPublicationEffect>();        // TFND-120
         services.AddScoped<Vex.VexQuery>();
         services.AddScoped<Attestation.SsdfAttestationBuilder>();
         services.AddScoped<Attestation.AttestationExporter>();
