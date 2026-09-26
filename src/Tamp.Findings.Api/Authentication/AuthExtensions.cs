@@ -346,8 +346,27 @@ public static class AuthExtensions
 
         if (user is { IsApproved: true, IsAdmin: true }) return;
 
+        var wasAdmin = user.IsAdmin;
         user.IsApproved = true;
         user.IsAdmin = true;
+
+        // TFND-140: promoting a login to administrator via GITHUB_BOOTSTRAP_ADMIN_LOGIN
+        // is as privileged and as unrecorded as claiming the first-run seat. Record
+        // it too — but only when it actually grants admin, so a repeat sign-in by an
+        // already-promoted admin does not write a row every time.
+        if (!wasAdmin)
+        {
+            var audit = http.RequestServices.GetRequiredService<Tamp.Findings.Application.Auditing.AuditLog>();
+            var remote = http.Connection.RemoteIpAddress?.ToString();
+            audit.RecordSystem(
+                Tamp.Findings.Application.Auditing.AuditActions.AdminBootstrapPromoted,
+                Tamp.Findings.Domain.Values.AuditClass.Access,
+                subjectId: user.Id, subjectKind: nameof(User),
+                detail: $"{user.Login} ({user.DisplayName}) promoted to administrator via "
+                      + "GITHUB_BOOTSTRAP_ADMIN_LOGIN"
+                      + (remote is { Length: > 0 } ? $" from {remote}" : ""));
+        }
+
         await db.SaveChangesAsync(ct);
     }
 

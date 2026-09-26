@@ -189,6 +189,11 @@ public static class AuditActions
     public const string GateChanged = "gate.changed";
 
     // Access — who can do what changed.
+    // The two bootstrap paths to administrator — the single most privileged,
+    // once-only transition on the instance, and the root of the access-control
+    // trust chain an assessor reads first (TFND-140).
+    public const string AdminSeatClaimed = "admin.seat_claimed";
+    public const string AdminBootstrapPromoted = "admin.bootstrap_promoted";
     public const string RoleGranted = "role.granted";
     public const string RoleRevoked = "role.revoked";
     public const string IngestKeyRecycled = "ingest_key.recycled";
