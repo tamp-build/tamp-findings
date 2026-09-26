@@ -27,7 +27,12 @@ public sealed record BuildEvaluationResponse(
     int GatesUnknown,
     // Everything that is not a Pass. This is the number the ship verdict
     // reads; GatesFailed alone would let an unscanned build look clear.
-    int GatesBlocking);
+    int GatesBlocking,
+    // The effective enforcement mode for this project (ADR 0004): "Advisory"
+    // or "Enforcing", after Project -> Client -> Instance resolution and the
+    // config lock. The CLI gate reads this to decide whether a blocking verdict
+    // fails the build; the dashboard reads it to say whether it would.
+    string EnforcementMode);
 
 public sealed record BuildPointer(
     string? CommitSha,
@@ -65,6 +70,7 @@ public static class BuildEvaluationEndpoints
         Guid projectId,
         FindingsDbContext db,
         RiskInputsBuilder inputsBuilder,
+        EnforcementResolver enforcement,
         CancellationToken ct)
     {
         var project = await db.Projects.AsNoTracking()
@@ -127,6 +133,8 @@ public static class BuildEvaluationEndpoints
         var evaluation = GateEvaluator.Evaluate(
             gates, currentInputs, currentResult.Score, priorInputs, priorScore);
 
+        var mode = await enforcement.ForProjectAsync(projectId, ct);
+
         return Results.Ok(new BuildEvaluationResponse(
             Current: new BuildPointer(currentBuild.CommitSha, currentBuild.VersionString, currentBuild.Latest),
             Prior: priorBuild is null ? null : new BuildPointer(priorBuild.CommitSha, priorBuild.VersionString, priorBuild.Latest),
@@ -147,6 +155,7 @@ public static class BuildEvaluationEndpoints
             GatesPassed: evaluation.Passed,
             GatesFailed: evaluation.Failed,
             GatesUnknown: evaluation.Unknown,
-            GatesBlocking: evaluation.Blocking));
+            GatesBlocking: evaluation.Blocking,
+            EnforcementMode: mode.ToString()));
     }
 }

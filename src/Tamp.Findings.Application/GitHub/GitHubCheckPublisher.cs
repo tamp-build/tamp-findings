@@ -154,11 +154,37 @@ public sealed class GitHubCheckPublisher
 
     private async Task<Evaluation?> EvaluateAsync(Project project, string commitSha, CancellationToken ct)
     {
-        var build = await _db.ComponentVersions.AsNoTracking()
+        // The build we were asked about — by commit, so a PR head commit still
+        // gets a check (which is exactly where branch protection reads it), not
+        // only canonical main builds.
+        var currentCvs = await _db.ComponentVersions.AsNoTracking()
             .Where(v => v.Component!.ProjectId == project.Id && v.CommitSha == commitSha)
-            .Select(v => v.Id)
+            .Select(v => new { v.Id, v.CreatedAt })
             .ToListAsync(ct);
-        if (build.Count == 0) return null;
+        if (currentCvs.Count == 0) return null;
+
+        var currentLatest = currentCvs.Max(v => v.CreatedAt);
+        var currentCvIds = currentCvs.Select(v => v.Id).ToList();
+
+        // TFND-154: resolve a PRIOR canonical baseline so the delta-aware gates
+        // (riskScoreRegression, coverageRegression) actually fire — the previous
+        // version evaluated with prior:null, so they always passed here while
+        // the dashboard computed a real delta. Prior = the most recent canonical
+        // (non-PR main/master) build older than this one, on a different commit.
+        var canonical = await _db.ComponentVersions.AsNoTracking()
+            .Where(v => v.Component!.ProjectId == project.Id
+                     && v.CommitSha != commitSha
+                     && v.PullRequestRef == null
+                     && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))
+            .Select(v => new { v.Id, v.CommitSha, v.VersionString, v.CreatedAt })
+            .ToListAsync(ct);
+
+        var prior = canonical
+            .GroupBy(v => v.CommitSha ?? v.VersionString)
+            .Select(g => new { Latest = g.Max(v => v.CreatedAt), CvIds = g.Select(v => v.Id).ToList() })
+            .Where(g => g.Latest < currentLatest)
+            .OrderByDescending(g => g.Latest)
+            .FirstOrDefault();
 
         var policyId = project.RiskPolicyId ?? project.Client?.RiskPolicyId;
         var policy = policyId is { } id
@@ -167,11 +193,20 @@ public sealed class GitHubCheckPublisher
         policy ??= await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
         if (policy is null) return null;
 
-        var inputs = await _inputs.BuildAsync(build, policy.Config, project.Id, ct);
+        var inputs = await _inputs.BuildAsync(currentCvIds, policy.Config, project.Id, ct);
         var result = RiskScorer.Compute(policy.Config, inputs);
+
+        RiskInputs? priorInputs = null;
+        double? priorScore = null;
+        if (prior is not null)
+        {
+            priorInputs = await _inputs.BuildAsync(prior.CvIds, policy.Config, project.Id, ct);
+            priorScore = Math.Round(RiskScorer.Compute(policy.Config, priorInputs).Score, 1);
+        }
+
         var gates = GateEvaluator.Evaluate(
             project.GatesConfig ?? ProjectGatesDefaults.Empty(),
-            inputs, result.Score, prior: null, priorScore: null);
+            inputs, result.Score, priorInputs, priorScore);
 
         return new Evaluation(gates, Math.Round(result.Score, 1), result.Band, policy.Name);
     }
