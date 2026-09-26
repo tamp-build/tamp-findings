@@ -1,8 +1,10 @@
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Application.Auditing;
 using Tamp.Findings.Application.Authorization;
 using Tamp.Findings.Application.Projects;
+using Tamp.Findings.Application.Provenance;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Values;
@@ -27,13 +29,15 @@ public sealed class AttestationSnapshotService
     private readonly FindingsDbContext _db;
     private readonly CapabilityEvaluator _capabilities;
     private readonly AuditLog _audit;
+    private readonly AttestationSigner _signer;
 
     public AttestationSnapshotService(
-        FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit)
+        FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit, AttestationSigner signer)
     {
         _db = db;
         _capabilities = capabilities;
         _audit = audit;
+        _signer = signer;
     }
 
     /// <summary>
@@ -136,9 +140,20 @@ public sealed class AttestationSnapshotService
         snapshot.SignedAt = DateTimeOffset.UtcNow;
         snapshot.SignedBy = signatory;
 
+        // TFND-160: a real key-backed signature over the frozen document, when a
+        // signing key is configured. Without one we still record the human
+        // sign-off, but the signature fields stay null and the audit says so.
+        if (_signer.CanSign)
+        {
+            snapshot.Signature = _signer.Sign(Encoding.UTF8.GetBytes(snapshot.DocumentJson));
+            snapshot.SignatureAlgorithm = _signer.Algorithm;
+            snapshot.SigningKeyId = _signer.KeyId;
+        }
+
         _audit.Record(actor, AuditActions.AttestationSigned, AuditClass.Risk, scope,
             subjectId: snapshot.Id, subjectKind: nameof(AttestationSnapshot),
-            detail: $"build {snapshot.CommitSha} signed by {signatory}");
+            detail: $"build {snapshot.CommitSha} signed by {signatory}"
+                + (_signer.CanSign ? $"; key-backed ({_signer.Algorithm}, key {_signer.KeyId?[..12]})" : "; no signing key configured"));
 
         await _db.SaveChangesAsync(ct);
         return Result<bool>.Ok(true);

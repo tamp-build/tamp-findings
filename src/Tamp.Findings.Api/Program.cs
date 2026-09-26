@@ -145,6 +145,14 @@ if (!string.IsNullOrWhiteSpace(provenanceEnvKey)) provenancePems.Add(provenanceE
 builder.Services.AddSingleton(Tamp.Findings.Application.Provenance.ProvenanceTrustRoot.FromPems(provenancePems));
 builder.Services.AddSingleton<Tamp.Findings.Application.Provenance.DsseVerifier>();
 
+// TFND-160: the OUTBOUND attestation signing key, from config
+// (Attestation:SigningKey / TAMP_FINDINGS_ATTESTATION_SIGNING_KEY, a PEM private
+// key). None configured => attestations are signed off by name but not
+// key-backed, and the export says so.
+var attestationSigningPem = builder.Configuration["Attestation:SigningKey"]
+    ?? Environment.GetEnvironmentVariable("TAMP_FINDINGS_ATTESTATION_SIGNING_KEY");
+builder.Services.AddSingleton(Tamp.Findings.Application.Provenance.AttestationSigner.FromPem(attestationSigningPem));
+
 builder.Services.AddCors(options =>
 {
     // POC dev posture: any origin allowed. The SPA uses Vite's /api proxy

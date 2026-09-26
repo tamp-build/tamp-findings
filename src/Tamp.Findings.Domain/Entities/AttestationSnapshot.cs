@@ -49,4 +49,15 @@ public sealed class AttestationSnapshot
     // record of what was true and a signed one is someone's claim about it.
     public DateTimeOffset? SignedAt { get; set; }
     public string? SignedBy { get; set; }
+
+    // TFND-160: a real cryptographic signature over the frozen DocumentJson,
+    // taken with the deployment's signing key over the DSSE PAE so it verifies
+    // the same way inbound provenance does. Null when the snapshot was signed on
+    // a deployment with no signing key configured — SignedBy still records who
+    // claimed it, but there is no key-backed proof and the export says so.
+    public string? Signature { get; set; }
+    public string? SignatureAlgorithm { get; set; }
+    // Stable id (SHA-256 of the public key) so an export can name the key and a
+    // verifier can match it without the key being shipped inline.
+    public string? SigningKeyId { get; set; }
 }
