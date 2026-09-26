@@ -15,6 +15,7 @@
 @inject NavigationManager Nav
 @inject ProjectHubQuery Hub
 @inject VexQuery Statements
+@inject ApprovalService Approvals
 @inject CurrentUser Me
 
 <PageTitle>VEX — @Project</PageTitle>
@@ -69,6 +70,51 @@ else
                         affected, or a <code class="mono">not_affected</code> is missing its justification.
                     </span>
                 </div>
+            </Card>
+        }
+
+        @if (_pendingRequests.Count > 0)
+        {
+            @* Publication requests (TFND-120). A VEX statement that relieves a CVE
+               is published by an InfoSec officer; an author who lacks that
+               capability requests it here, and a DIFFERENT officer approves. The
+               proposed statement does not exist as a row until it is published, so
+               the request — carrying the draft — is shown here rather than in the
+               table. *@
+            <Card Padded="false">
+                <div class="card-body">
+                    <h2>Publication requests</h2>
+                </div>
+                <table class="table table--rows">
+                    <thead>
+                        <tr><th>Advisory</th><th>Package</th><th>Proposed</th><th>Requested by</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var req in _pendingRequests)
+                        {
+                            var d = ParsePayload(req.Payload);
+                            <tr>
+                                <td class="mono">@(d?.AdvisoryId ?? "—")</td>
+                                <td class="mono">@(d?.Purl ?? "—")</td>
+                                <td>@(d is null ? "—" : StatusLabel(d.Status))</td>
+                                <td>@req.RequestedByLogin <span class="muted mono">@req.RequestedAt.ToString("yyyy-MM-dd")</span></td>
+                                <td>
+                                    @if (_awaitingIds.Contains(req.Id))
+                                    {
+                                        <Button Variant="Button.ButtonVariant.Primary" StopPropagation="true"
+                                                OnClick="() => StartDecide(req.Id, true)">Approve</Button>
+                                        <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
+                                                Class="btn--danger" OnClick="() => StartDecide(req.Id, false)">Reject</Button>
+                                    }
+                                    else
+                                    {
+                                        <span class="muted">awaiting an InfoSec officer</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
             </Card>
         }
 
@@ -215,8 +261,61 @@ else
     </ChildContent>
     <Footer>
         <Button Variant="Button.ButtonVariant.Primary" OnClick="Save">Save statement</Button>
+        @* TFND-120: when the statement would relieve the CVE but the author cannot
+           publish, they ask an InfoSec officer instead of being refused. Only
+           meaningful for a new, suppressing statement. *@
+        @if (_editingId is null && Suppressing && !_canPublish.Allowed)
+        {
+            <Button OnClick="RequestPublication">Request publication</Button>
+        }
         <Button OnClick="() => _editing = false">Cancel</Button>
         <span class="field__help">Publishing a relieving statement writes a risk-class audit entry.</span>
+    </Footer>
+</Dialog>
+
+@* ---- Decide a publication request (the approver's action, TFND-120) ---- *@
+<Dialog Open="_deciding" OpenChanged="v => _deciding = v"
+        Title="@($"{(_decideApprove ? "Approve" : "Reject")} publication")" Width="640">
+    <ChildContent>
+        @if (_decideRow is { } row)
+        {
+            var d = ParsePayload(row.Payload);
+            <p>
+                <strong>@row.RequestedByLogin</strong> asked to publish
+                <code class="mono">@(d?.AdvisoryId ?? "a statement")</code>
+                on <code class="mono">@(d?.Purl ?? "—")</code>
+                (@(d is null ? "—" : StatusLabel(d.Status))).
+            </p>
+            @if (row.Justification is { Length: > 0 } why)
+            {
+                <p class="field__help">Their reason: @why</p>
+            }
+            @if (_decideApprove)
+            {
+                <p class="field__help">
+                    Approving creates the statement, published — it takes effect on the risk picture
+                    immediately. A relieving statement is the answer of record an assessor reads.
+                </p>
+            }
+            <TextField Label="@(_decideApprove ? "Note (optional)" : "Reason for rejecting")"
+                       Multiline="true" Rows="3" @bind-Value="_decideNote"
+                       Help="Recorded with the decision. A rejection needs a reason the requester can act on." />
+            @if (_dialogError is not null)
+            {
+                <p style="color: var(--color-critical)">@_dialogError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        @if (_decideApprove)
+        {
+            <Button Variant="Button.ButtonVariant.Primary" OnClick="ConfirmDecide">Approve</Button>
+        }
+        else
+        {
+            <Button Variant="Button.ButtonVariant.Danger" OnClick="ConfirmDecide">Reject</Button>
+        }
+        <Button OnClick="() => _deciding = false">Cancel</Button>
     </Footer>
 </Dialog>
 
@@ -280,6 +379,22 @@ else
     private VexStatementStatus _draftStatus = VexStatementStatus.UnderInvestigation;
     private VexJustification? _draftJustification;
 
+    // Publication requests (TFND-120): the pending VexPublication approvals for
+    // this project, and which of them the current user may decide.
+    private IReadOnlyList<PendingApproval> _pendingRequests = [];
+    private HashSet<Guid> _awaitingIds = [];
+    private bool _deciding, _decideApprove;
+    private Guid? _decideApprovalId;
+    private PendingApproval? _decideRow;
+    private string? _decideNote;
+
+    // Would the current draft actually relieve the CVE? Only such a statement
+    // needs publishing; the others document a position without changing the count.
+    private bool Suppressing =>
+        _draftStatus == VexStatementStatus.Fixed
+        || (_draftStatus == VexStatementStatus.NotAffected
+            && _draftJustification is not null && _draftJustification != VexJustification.None);
+
     private ScopeTarget Here =>
         _project is null
             ? ScopeTarget.Instance
@@ -298,6 +413,21 @@ else
             _rows = await Statements.ListAsync(_project.ProjectId, _showRetired);
             _canAuthor = await Me.CanAsync(Capability.AuthorVex, Here);
             _canPublish = await Me.CanAsync(Capability.PublishVex, Here);
+
+            _pendingRequests = await Approvals.PendingByKindForProjectAsync(
+                ApprovalKind.VexPublication, _project.ProjectId);
+            if (await Me.AtAsync(Here) is { } principal)
+            {
+                var awaiting = await Approvals.AwaitingAsync(principal, t => Me.AtAsync(t));
+                _awaitingIds = awaiting
+                    .Where(a => a.Kind == ApprovalKind.VexPublication)
+                    .Select(a => a.ApprovalId)
+                    .ToHashSet();
+            }
+            else
+            {
+                _awaitingIds = [];
+            }
 
             // Arriving from the SBOM spine with a CVE in hand. Only open the
             // dialog when no statement exists yet — if one does, the row is
@@ -393,6 +523,87 @@ else
         // Clear the query parameters so a reload does not reopen the dialog on
         // a statement that now exists.
         Nav.NavigateTo(Routes.Vex(Client, Project));
+    }
+
+    private static VexDraft? ParsePayload(string? payload)
+    {
+        if (string.IsNullOrEmpty(payload)) return null;
+        try { return System.Text.Json.JsonSerializer.Deserialize<VexDraft>(payload); }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    // The approval route to publishing (TFND-120): an author who cannot publish
+    // asks an InfoSec officer. The proposed statement rides on the request's
+    // payload and is created, published, only when a different officer approves.
+    private async Task RequestPublication()
+    {
+        if (_project is null) return;
+        _dialogError = null;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var draft = new VexDraft(
+            _draftAdvisory?.Trim() ?? "",
+            _draftPurl?.Trim() ?? "",
+            Blank(_draftVersion),
+            _draftStatus,
+            _draftStatus == VexStatementStatus.NotAffected ? _draftJustification : null,
+            Blank(_draftImpact),
+            Blank(_draftReference));
+
+        if (draft.AdvisoryId.Length == 0 || draft.Purl.Length == 0)
+        { _dialogError = "An advisory and a package URL are required."; return; }
+        if (_draftStatus == VexStatementStatus.NotAffected
+            && (_draftJustification is null or VexJustification.None))
+        { _dialogError = "A not_affected statement needs a justification."; return; }
+
+        // Don't stack two requests for the same CVE and package.
+        if (_pendingRequests.Any(r => ParsePayload(r.Payload) is { } d
+                && d.AdvisoryId == draft.AdvisoryId && SamePackage(d.Purl, draft.Purl)))
+        { _dialogError = "A publication request for this advisory and package is already pending."; return; }
+
+        var payload = System.Text.Json.JsonSerializer.Serialize(draft);
+        var result = await Approvals.RequestAsync(
+            actor, Here, ApprovalKind.VexPublication, nameof(VexStatement), Guid.NewGuid(),
+            justification: Blank(_draftImpact), payload: payload);
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _editing = false;
+        Nav.NavigateTo(Routes.Vex(Client, Project));
+    }
+
+    private void StartDecide(Guid approvalId, bool approve)
+    {
+        _decideApprovalId = approvalId;
+        _decideApprove = approve;
+        _decideRow = _pendingRequests.FirstOrDefault(r => r.Id == approvalId);
+        _decideNote = null;
+        _dialogError = null;
+        _deciding = true;
+    }
+
+    private async Task ConfirmDecide()
+    {
+        if (_decideApprovalId is not { } id) return;
+        _dialogError = null;
+
+        if (!_decideApprove && string.IsNullOrWhiteSpace(_decideNote))
+        {
+            _dialogError = "A rejection needs a reason the requester can act on.";
+            return;
+        }
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _dialogError = "You are not signed in."; return; }
+
+        var result = await Approvals.DecideAsync(actor, id, _decideApprove, _decideNote);
+        if (!result.Success) { _dialogError = result.Error; return; }
+
+        _deciding = false;
+        await OnParametersSetAsync();
     }
 
     private async Task Retire()
