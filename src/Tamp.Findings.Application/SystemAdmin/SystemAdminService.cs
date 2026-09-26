@@ -382,6 +382,9 @@ public sealed class SystemAdminService
         // this instance without a browser, which is an access decision however
         // it is worded on the screen.
         var mcpChanged = settings.McpEnabled != proposed.McpEnabled;
+        // TFND-157: strict visibility is an access-posture change — it decides
+        // who can SEE what across tenants.
+        var strictChanged = settings.StrictVisibility != proposed.StrictVisibility;
 
         // Gate enforcement (ADR 0004). When the deployment config locks
         // enforcement, it overrides the stored settings and the admin cannot
@@ -404,6 +407,7 @@ public sealed class SystemAdminService
         settings.SmtpPort = proposed.SmtpPort;
         settings.SmtpFrom = Blank(proposed.SmtpFrom);
         settings.EnforceSeparationOfDuties = proposed.EnforceSeparationOfDuties;
+        settings.StrictVisibility = proposed.StrictVisibility;
         settings.GitHubAppId = Blank(proposed.GitHubAppId);
         settings.GitHubCheckName = Blank(proposed.GitHubCheckName) ?? "tamp.findings";
         settings.GitHubChecksEnabled = proposed.GitHubChecksEnabled;
@@ -421,13 +425,13 @@ public sealed class SystemAdminService
         // Enforcement change is a risk-posture decision (it changes whether a
         // build is blocked), so it outranks the access-class sod/mcp changes.
         var cls = enforcementChanged ? AuditClass.Risk
-            : sodChanged || mcpChanged ? AuditClass.Access
+            : sodChanged || mcpChanged || strictChanged ? AuditClass.Access
             : AuditClass.Other;
         _audit.Record(actor, "instance.settings_changed",
             cls,
             ScopeTarget.Instance,
             subjectKind: nameof(InstanceSettings),
-            detail: Describe(proposed, sodChanged, mcpChanged, enforcementChanged));
+            detail: Describe(proposed, sodChanged, mcpChanged, enforcementChanged, strictChanged));
 
         await _db.SaveChangesAsync(ct);
         return Result<bool>.Ok(true);
@@ -440,7 +444,7 @@ public sealed class SystemAdminService
     /// a change that opened an agent endpoint is technically true and useless
     /// to the person reading the log after an incident.
     /// </summary>
-    private static string Describe(InstanceSettings proposed, bool sodChanged, bool mcpChanged, bool enforcementChanged)
+    private static string Describe(InstanceSettings proposed, bool sodChanged, bool mcpChanged, bool enforcementChanged, bool strictChanged)
     {
         var parts = new List<string>();
 
@@ -449,6 +453,9 @@ public sealed class SystemAdminService
 
         if (mcpChanged)
             parts.Add($"MCP endpoint {(proposed.McpEnabled ? "OPENED" : "CLOSED")}");
+
+        if (strictChanged)
+            parts.Add($"strict visibility {(proposed.StrictVisibility ? "ON" : "OFF")}");
 
         if (enforcementChanged)
             parts.Add($"gate enforcement {proposed.EnforcementMode.ToString().ToLowerInvariant()}"

@@ -21,6 +21,14 @@ public sealed class InstanceSettings
     // exactly the organisation it is aimed at. Larger programs turn it on.
     public bool EnforceSeparationOfDuties { get; set; }
 
+    // TFND-157: strict-by-default visibility for multi-tenant instances. OFF by
+    // default, preserving the self-healing bootstrap accommodation (an instance
+    // with no role assignments shows every approved user everything until the
+    // first grant). ON, the instance is treated as segmented from day zero — an
+    // approved user with no assignments sees nothing, so a multi-tenant
+    // deployment is never briefly open before someone assigns the first role.
+    public bool StrictVisibility { get; set; }
+
     // ---- TFND-113 ---------------------------------------------------------
 
     // How this deployment refers to itself in anything that leaves it: the
