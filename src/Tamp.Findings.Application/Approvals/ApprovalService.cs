@@ -69,7 +69,7 @@ public sealed class ApprovalService
     public async Task<Result<Guid>> RequestAsync(
         Principal actor, ScopeTarget scope, ApprovalKind kind,
         string subjectKind, Guid subjectId, string? justification = null,
-        Guid? assignedTo = null, CancellationToken ct = default)
+        Guid? assignedTo = null, string? payload = null, CancellationToken ct = default)
     {
         // Requesting is not deciding. The requester needs to be able to ACT on
         // the subject at all — otherwise anyone could flood a queue — but not
@@ -94,6 +94,7 @@ public sealed class ApprovalService
             RequestedByLogin = actor.Login,
             Justification = string.IsNullOrWhiteSpace(justification) ? null : justification.Trim(),
             AssignedToUserId = assignedTo,
+            Payload = string.IsNullOrWhiteSpace(payload) ? null : payload,
         };
         _db.PendingApprovals.Add(approval);
 
