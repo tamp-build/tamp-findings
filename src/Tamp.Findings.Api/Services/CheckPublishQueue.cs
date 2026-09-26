@@ -79,6 +79,29 @@ public sealed class CheckPublishWorker : BackgroundService
             try
             {
                 using var scope = _scopes.CreateScope();
+
+                // TFND-122: record a gate-failure notification for this build. Runs
+                // on every ingested build with a commit — independent of whether a
+                // GitHub check is published — because a blocked build matters even
+                // when the project has no repository wired up. Its own try/catch so
+                // a notifier fault never stops the check from publishing.
+                try
+                {
+                    var notifier = scope.ServiceProvider
+                        .GetRequiredService<Tamp.Findings.Application.Risk.GateFailureNotifier>();
+                    await notifier.NotifyIfBlockedAsync(
+                        request.ProjectId, request.CommitSha, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _log.LogError(ex, "The gate-failure notifier threw for {Project}@{Commit}.",
+                        request.ProjectId, request.CommitSha);
+                }
+
                 var publisher = scope.ServiceProvider.GetRequiredService<GitHubCheckPublisher>();
 
                 var outcome = await publisher.PublishAsync(
