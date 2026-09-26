@@ -1,3 +1,5 @@
+using Tamp.Findings.Domain.Values;
+
 namespace Tamp.Findings.Domain.Risk;
 
 // Project-scoped acceptance gates. Distinct from RiskPolicy (which
@@ -15,6 +17,12 @@ public sealed class ProjectGatesConfig
     // keys are ignored by the evaluator so adding a new gate type
     // doesn't break old deployments.
     public Dictionary<string, GateConfig> Gates { get; set; } = new();
+
+    // Effective enforcement mode override for this project (TFND-148). Null →
+    // inherit (Client → Instance). Orthogonal to the per-gate enable flags:
+    // enabling a gate and enforcing on it are two different switches, and the
+    // adoption path is to enable gates in advisory first, then flip to enforcing.
+    public EnforcementMode? EnforcementMode { get; set; }
 }
 
 public sealed class GateConfig
