@@ -237,6 +237,11 @@ public static class IngestEndpoints
                   && r.Scanner == req.Scanner
                   && r.Status == ScanRunStatus.Succeeded, ct);
 
+        // TFND-162: an untrusted contributor's token may add findings but never
+        // auto-close existing ones — it cannot make findings disappear by
+        // omitting them, so it cannot silently produce a clean result.
+        var untrusted = token?.Untrusted ?? false;
+
         // Auto-close: any existing Open finding for this (componentVersion,
         // scanner) whose hash wasn't in the incoming batch is now Fixed.
         // LastSeen is left untouched so consumers can see when it last
@@ -246,25 +251,29 @@ public static class IngestEndpoints
         {
             if (current.Status == FindingStatus.Open && !incomingHashes.Contains(hash))
             {
-                // Fail-safe: without corroboration that the scanner ran, leave the
-                // finding Open rather than close it on an unverified empty post.
-                if (!scannerRan) continue;
+                // Fail-safe: don't close a finding without corroboration the
+                // scanner ran (TFND-155), and never on an untrusted token (TFND-162).
+                if (!scannerRan || untrusted) continue;
                 current.Status = FindingStatus.Fixed;
                 closed++;
             }
         }
 
-        // TFND-158: per-ingest audit, added in the same transaction as the
-        // findings write so the trail can never diverge from what was stored.
-        // Attributed to the bearer token until identity-bound ingest (TFND-161)
-        // gives ingest a real Principal. The auto-close count is called out
-        // because an empty/partial batch can silently retire real findings.
+        // TFND-158 + TFND-161: per-ingest audit, in the same transaction as the
+        // findings write so the trail can never diverge from what was stored,
+        // attributed to the token's minting user (identity-bound ingest). The
+        // auto-close count is called out because an empty/partial batch can
+        // silently retire real findings.
         var flavorPart = string.IsNullOrWhiteSpace(req.Flavor) ? "" : $"/{req.Flavor}";
         var shaPart = string.IsNullOrWhiteSpace(req.CommitSha) ? "" : $" ({req.CommitSha})";
-        audit.RecordIngest(token!.Id, token.Name, AuditActions.IngestReceived,
+        var actorLogin = await db.Users.AsNoTracking()
+            .Where(u => u.Id == token!.CreatedByUserId).Select(u => u.Login).FirstOrDefaultAsync(ct);
+        audit.RecordIngest(token!.Id, token.Name, actorLogin is null ? null : token.CreatedByUserId, actorLogin,
+            AuditActions.IngestReceived,
             new ScopeTarget(client!.Id, project!.Id, version!.ComponentId),
             $"{req.Scanner}: {inserted} new, {updated} updated, {reopened} reopened, " +
-            $"{closed} auto-closed, {suppressed} suppressed — {req.Component}{flavorPart}@{req.Version}{shaPart}");
+            $"{closed} auto-closed, {suppressed} suppressed — {req.Component}{flavorPart}@{req.Version}{shaPart}"
+            + (untrusted ? " [untrusted contributor — auto-close suppressed]" : ""));
 
         await db.SaveChangesAsync(ct);
         // TFND-16: dependency scanners report CVEs as findings, while Grype

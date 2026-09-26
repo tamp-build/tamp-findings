@@ -40,6 +40,7 @@ public static class SbomProvenanceEndpoints
         HttpRequest httpReq,
         FindingsDbContext db,
         AuditLog audit,
+        Tamp.Findings.Application.Provenance.DsseVerifier verifier,
         CancellationToken ct)
     {
         var snap = await db.SbomSnapshots.FirstOrDefaultAsync(s => s.Id == snapshotId, ct);
@@ -72,6 +73,15 @@ public static class SbomProvenanceEndpoints
             snap.ProvenanceJson = JsonSerializer.Deserialize<Dictionary<string, object?>>(root.GetRawText());
             snap.ProvenanceType = type;
             snap.ProvenanceUploadedAt = DateTimeOffset.UtcNow;
+
+            // TFND-159: verify the DSSE signature against the trust root now, and
+            // store the result. Presence is not proof — PS.2.1 reads the verified
+            // flag, not the fact that a blob was uploaded. Unverifiable (no trust
+            // root, wrong key, tampered, not a DSSE envelope) stores verified=false.
+            var verification = verifier.Verify(root);
+            snap.ProvenanceVerified = verification.Verified;
+            snap.ProvenanceVerifiedAt = verification.Verified ? DateTimeOffset.UtcNow : null;
+            snap.ProvenanceVerificationMethod = verification.Method;
             await IngestAudit.RecordAsync(audit, db, IngestAuthFilter.CurrentToken(httpReq.HttpContext),
                 snap.ComponentVersionId, $"provenance ({type}) attached to snapshot {snapshotId}", ct);
             await db.SaveChangesAsync(ct);

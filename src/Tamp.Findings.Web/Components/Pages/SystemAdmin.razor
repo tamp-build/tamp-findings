@@ -695,6 +695,17 @@ else
                         a refusal.
                     </p>
 
+                    <CheckField Label="Strict visibility (multi-tenant)"
+                                Disabled="@(!_canAdminister.Allowed)"
+                                @bind-Checked="_strictVisibility" />
+                    <p class="field__help">
+                        Off by default, which keeps the self-healing bootstrap: on an instance with no
+                        role assignments yet, every approved user sees everything until the first grant.
+                        On, the instance is segmented from day zero — an approved user with no role sees
+                        nothing. Turn it on for a multi-tenant deployment so it is never briefly open
+                        before the first role is assigned.
+                    </p>
+
                     <div style="margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border)">
                         <h4 style="margin: 0 0 var(--space-2)">Gate enforcement</h4>
                         @if (Enforcement.ConfigLocked)
@@ -1032,7 +1043,7 @@ else
     private bool _githubEnabled;
     private bool _unsegmented;
     private bool _mcpEnabled;
-    private bool _enforceSod, _settingsSaved;
+    private bool _enforceSod, _strictVisibility, _settingsSaved;
     private bool _enforcementEnforcing, _enforcementLocked;
 
     private IReadOnlyList<ProviderRow> _providers = [];
@@ -1103,6 +1114,7 @@ else
                     _buildRetention = _settings.BuildRetentionDays?.ToString();
                     _smtpHost = _settings.SmtpHost;
                     _enforceSod = _settings.EnforceSeparationOfDuties;
+                    _strictVisibility = _settings.StrictVisibility;
                     _githubAppId = _settings.GitHubAppId;
                     _githubCheckName = _settings.GitHubCheckName;
                     _githubEnabled = _settings.GitHubChecksEnabled;
@@ -1308,6 +1320,7 @@ else
             SmtpPort = _settings.SmtpPort,
             SmtpFrom = _settings.SmtpFrom,
             EnforceSeparationOfDuties = _enforceSod,
+            StrictVisibility = _strictVisibility,
             GitHubAppId = _githubAppId,
             // Non-nullable on the entity: an empty check name would make branch
             // protection rules match nothing.

@@ -39,6 +39,14 @@ public sealed class SbomSnapshot
     public string? ProvenanceType { get; set; }
     public DateTimeOffset? ProvenanceUploadedAt { get; set; }
 
+    // TFND-159: whether the DSSE envelope's signature verified against the
+    // deployment's configured trust root. SSDF PS.2.1 reads "Yes" only when
+    // this is true — the presence of a self-uploaded blob is not proof of
+    // release integrity. Null method + false when unverified or no trust root.
+    public bool ProvenanceVerified { get; set; }
+    public DateTimeOffset? ProvenanceVerifiedAt { get; set; }
+    public string? ProvenanceVerificationMethod { get; set; }
+
     public ComponentVersion? ComponentVersion { get; set; }
     public ICollection<SbomComponent> Components { get; set; } = [];
     public ICollection<SbomDependency> Dependencies { get; set; } = [];

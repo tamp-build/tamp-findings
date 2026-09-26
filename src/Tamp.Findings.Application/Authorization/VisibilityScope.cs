@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Data;
+using Tamp.Findings.Domain.Entities;
 
 namespace Tamp.Findings.Application.Authorization;
 
@@ -87,9 +88,21 @@ public sealed class VisibilityScope
     ///
     /// It self-heals: it stops applying the instant anyone expresses intent,
     /// and it leaves no permanent off-switch behind.
+    ///
+    /// TFND-157: a multi-tenant instance can opt out of the accommodation with
+    /// the StrictVisibility instance setting. When on, the instance is treated
+    /// as segmented from day zero — never briefly open before the first grant.
     /// </summary>
-    public async Task<bool> UnsegmentedAsync(CancellationToken ct = default) =>
-        !await _db.ProjectRoleAssignments.AsNoTracking().AnyAsync(ct);
+    public async Task<bool> UnsegmentedAsync(CancellationToken ct = default)
+    {
+        var strict = await _db.InstanceSettings.AsNoTracking()
+            .Where(s => s.Id == InstanceSettings.SingletonId)
+            .Select(s => (bool?)s.StrictVisibility)
+            .SingleOrDefaultAsync(ct) ?? false;
+        if (strict) return false;
+
+        return !await _db.ProjectRoleAssignments.AsNoTracking().AnyAsync(ct);
+    }
 }
 
 /// <summary>

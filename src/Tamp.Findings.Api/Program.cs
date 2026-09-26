@@ -136,6 +136,24 @@ var enforcementConfigMode =
         : Tamp.Findings.Domain.Values.EnforcementMode.Enforcing; // locking without a named mode means "enforce"
 builder.Services.AddSingleton(new InstanceEnforcementPolicy(enforcementLocked, enforcementConfigMode));
 
+// TFND-159: the provenance trust root — public keys this deployment trusts to
+// have signed inbound DSSE attestations, from config (Provenance:PublicKeys, an
+// array of PEM public keys) or a single env key. Empty = nothing verifies, and
+// SSDF PS.2.1 stays "Partial (unverified)" rather than falsely "Yes".
+var provenancePems = (builder.Configuration.GetSection("Provenance:PublicKeys").Get<string[]>() ?? []).ToList();
+var provenanceEnvKey = Environment.GetEnvironmentVariable("TAMP_FINDINGS_PROVENANCE_PUBLIC_KEY");
+if (!string.IsNullOrWhiteSpace(provenanceEnvKey)) provenancePems.Add(provenanceEnvKey);
+builder.Services.AddSingleton(Tamp.Findings.Application.Provenance.ProvenanceTrustRoot.FromPems(provenancePems));
+builder.Services.AddSingleton<Tamp.Findings.Application.Provenance.DsseVerifier>();
+
+// TFND-160: the OUTBOUND attestation signing key, from config
+// (Attestation:SigningKey / TAMP_FINDINGS_ATTESTATION_SIGNING_KEY, a PEM private
+// key). None configured => attestations are signed off by name but not
+// key-backed, and the export says so.
+var attestationSigningPem = builder.Configuration["Attestation:SigningKey"]
+    ?? Environment.GetEnvironmentVariable("TAMP_FINDINGS_ATTESTATION_SIGNING_KEY");
+builder.Services.AddSingleton(Tamp.Findings.Application.Provenance.AttestationSigner.FromPem(attestationSigningPem));
+
 builder.Services.AddCors(options =>
 {
     // POC dev posture: any origin allowed. The SPA uses Vite's /api proxy

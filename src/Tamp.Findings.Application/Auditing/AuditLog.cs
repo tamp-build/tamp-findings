@@ -71,16 +71,23 @@ public sealed class AuditLog
     public AuditEntry RecordIngest(
         Guid tokenId,
         string tokenLabel,
+        Guid? actorUserId,
+        string? actorLogin,
         string action,
         ScopeTarget scope = default,
         string? detail = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
 
+        // TFND-161: identity-bound ingest. When the bearer token's minting user
+        // is known, the ingest is attributed to that PERSON (real login + user
+        // id), with the token recorded as the subject and named in the detail —
+        // so an assessor can answer "who posted this scan", not just "some
+        // token did". Falls back to the token label only when the user is gone.
         var entry = new AuditEntry
         {
-            UserId = null,
-            ActorLogin = $"token:{tokenLabel}",
+            UserId = actorUserId,
+            ActorLogin = actorLogin ?? $"token:{tokenLabel}",
             Action = action,
             Class = AuditClass.Other,
             ClientId = scope.ClientId,
@@ -88,7 +95,7 @@ public sealed class AuditLog
             ComponentId = scope.ComponentId,
             SubjectId = tokenId,
             SubjectKind = "ingest_token",
-            Detail = detail,
+            Detail = actorLogin is null || detail is null ? detail : $"via token '{tokenLabel}': {detail}",
         };
 
         _db.AuditEntries.Add(entry);

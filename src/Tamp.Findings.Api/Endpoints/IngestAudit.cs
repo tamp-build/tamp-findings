@@ -33,7 +33,10 @@ internal static class IngestAudit
             ? default
             : new ScopeTarget(scope.ClientId, scope.ProjectId, scope.ComponentId);
 
-        audit.RecordIngest(token.Id, token.Name, AuditActions.IngestReceived, target, detail);
+        // TFND-161: attribute the ingest to the token's minting user.
+        var login = await LoginForAsync(db, token, ct);
+        audit.RecordIngest(token.Id, token.Name, login is null ? null : token.CreatedByUserId, login,
+            AuditActions.IngestReceived, target, detail);
     }
 
     // Snapshot-addressed ingest (provenance, sbom-vulnerabilities): resolve the
@@ -51,10 +54,20 @@ internal static class IngestAudit
 
         if (cvId is null)
         {
-            audit.RecordIngest(token.Id, token.Name, AuditActions.IngestReceived, default, detail);
+            var login = await LoginForAsync(db, token, ct);
+            audit.RecordIngest(token.Id, token.Name, login is null ? null : token.CreatedByUserId, login,
+                AuditActions.IngestReceived, default, detail);
             return;
         }
 
         await RecordAsync(audit, db, token, cvId.Value, detail, ct);
     }
+
+    // The login of the user who minted the token — the contributor the ingest
+    // is attributed to (TFND-161). Null when that user no longer exists.
+    private static async Task<string?> LoginForAsync(FindingsDbContext db, IngestToken token, CancellationToken ct) =>
+        await db.Users.AsNoTracking()
+            .Where(u => u.Id == token.CreatedByUserId)
+            .Select(u => u.Login)
+            .FirstOrDefaultAsync(ct);
 }

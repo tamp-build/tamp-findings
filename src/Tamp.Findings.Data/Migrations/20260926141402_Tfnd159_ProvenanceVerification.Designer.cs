@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Tamp.Findings.Data;
@@ -14,9 +15,11 @@ using Tamp.Findings.Domain.Risk;
 namespace Tamp.Findings.Data.Migrations
 {
     [DbContext(typeof(FindingsDbContext))]
-    partial class FindingsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260926141402_Tfnd159_ProvenanceVerification")]
+    partial class Tfnd159_ProvenanceVerification
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -84,21 +87,12 @@ namespace Tamp.Findings.Data.Migrations
                     b.Property<double>("Score")
                         .HasColumnType("double precision");
 
-                    b.Property<string>("Signature")
-                        .HasColumnType("text");
-
-                    b.Property<string>("SignatureAlgorithm")
-                        .HasColumnType("text");
-
                     b.Property<DateTimeOffset?>("SignedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("SignedBy")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
-
-                    b.Property<string>("SigningKeyId")
-                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -729,9 +723,6 @@ namespace Tamp.Findings.Data.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
-                    b.Property<bool>("Untrusted")
-                        .HasColumnType("boolean");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ClientId");
@@ -812,9 +803,6 @@ namespace Tamp.Findings.Data.Migrations
 
                     b.Property<int?>("SmtpPort")
                         .HasColumnType("integer");
-
-                    b.Property<bool>("StrictVisibility")
-                        .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");

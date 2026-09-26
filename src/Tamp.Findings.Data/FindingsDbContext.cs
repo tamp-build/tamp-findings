@@ -594,7 +594,13 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             var mutated = entry.Properties
                 .Where(p => p.IsModified)
                 .Select(p => p.Metadata.Name)
-                .Where(name => name is not (nameof(AttestationSnapshot.SignedAt) or nameof(AttestationSnapshot.SignedBy)))
+                // The sign-off fields are the only ones that may change, and
+                // only once (SignAsync refuses a second signature). TFND-160
+                // adds the key-backed signature written at the same moment.
+                .Where(name => name is not (
+                    nameof(AttestationSnapshot.SignedAt) or nameof(AttestationSnapshot.SignedBy)
+                    or nameof(AttestationSnapshot.Signature) or nameof(AttestationSnapshot.SignatureAlgorithm)
+                    or nameof(AttestationSnapshot.SigningKeyId)))
                 .ToArray();
 
             if (mutated.Length > 0)
