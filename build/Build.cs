@@ -1351,7 +1351,7 @@ class Build : SecurityPipelineBuild
         var version = $"0.1.0-alpha+{(sha is null ? "local" : sha[..7])}";
         return new IngestBuildContext(
             Client: IngestClientOverride ?? "BrewingCoder",
-            Project: IngestProjectOverride ?? "tamp",
+            Project: IngestProjectOverride ?? "tamp-findings",
             Component: IngestComponentOverride ?? "tamp-findings",
             ComponentKind: "solution",
             Flavor: "net10",
@@ -1363,55 +1363,18 @@ class Build : SecurityPipelineBuild
             Actor: ResolveIngestActor());
     }
 
-    // tamp resolves a canonical workerId internally (WorkerIdResolver), but that
-    // type is `internal` in Tamp.Core 1.15.1 — a consumer build target can't read
-    // the resolved id (friction #3, reported to tamp for a public accessor). Until
-    // then we re-derive it here with tamp's own precedence so ingest attribution
-    // (TFND-165) flows now: TAMP_WORKER_ID → GITHUB_ACTOR → git author → OS user.
-    // A "kind:id" workerId maps to actor {Id, Kind}; a bare value is a human.
-    static IngestActorDto? ResolveIngestActor()
+    // tamp 1.15.2 (#77) exposes the resolved worker identity on the build itself,
+    // so we read TampBuild.WorkerActor directly rather than re-deriving it. This
+    // closes our FRICTION #3 and removes any drift from tamp's own resolution
+    // (precedence TAMP_WORKER_ID → CI actor → git author → human:<login>).
+    // WorkerActor is (Id, Kind) with Kind "agent"|"human"; the ingest wire wants
+    // "Agent"|"Human" (the API's IngestActorKind names), so title-case it.
+    IngestActorDto? ResolveIngestActor()
     {
-        var workerId =
-            FirstNonBlank(Environment.GetEnvironmentVariable("TAMP_WORKER_ID"))
-            ?? Prefix("human:", Environment.GetEnvironmentVariable("GITHUB_ACTOR"))
-            ?? Prefix("human:", GitAuthorEmail())
-            ?? Prefix("human:", Environment.UserName);
-
-        if (string.IsNullOrWhiteSpace(workerId)) return null;
-
-        var sep = workerId.IndexOf(':');
-        if (sep <= 0) return new IngestActorDto(workerId, "Human");
-        var prefix = workerId[..sep];
-        var id = workerId[(sep + 1)..];
-        if (string.IsNullOrWhiteSpace(id)) return new IngestActorDto(workerId, "Human");
-        var kind = prefix.Equals("agent", StringComparison.OrdinalIgnoreCase) ? "Agent" : "Human";
-        return new IngestActorDto(id, kind);
-
-        static string? FirstNonBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
-        static string? Prefix(string p, string? s) => string.IsNullOrWhiteSpace(s) ? null : p + s.Trim();
-    }
-
-    static string? GitAuthorEmail()
-    {
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo("git", "config user.email")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            using var p = System.Diagnostics.Process.Start(psi);
-            if (p is null) return null;
-            var outp = p.StandardOutput.ReadToEnd().Trim();
-            p.WaitForExit(3000);
-            return string.IsNullOrWhiteSpace(outp) ? null : outp;
-        }
-        catch
-        {
-            return null;
-        }
+        var (id, kind) = WorkerActor;
+        if (string.IsNullOrWhiteSpace(id)) return null;
+        var actorKind = kind.Equals("agent", StringComparison.OrdinalIgnoreCase) ? "Agent" : "Human";
+        return new IngestActorDto(id, actorKind);
     }
 
     static async Task PostSarifAsync(IngestClient client, IngestBuildContext ctx, AbsolutePath path, string label)
