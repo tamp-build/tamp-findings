@@ -40,7 +40,7 @@ It ingests SARIF, SBOMs, coverage, and test results from any CI pipeline, scores
 ## Architecture
 
 - **Backend** — .NET 10 ASP.NET Core minimal API · EF Core 10 · Npgsql (`EnableDynamicJson` for typed-POCO jsonb)
-- **Frontend** — React 19 · Vite 8 · TanStack Query · Tailwind v4
+- **Frontend** — Blazor Server (.NET 10 Razor Components; per-page `@rendermode InteractiveServer`, static render for print targets like the SSDF attestation). Served **in-process by the API** via `MapRazorComponents<App>` — one deployable, no separate SPA. Styling is hand-authored CSS with design tokens (`tokens.css`); no CSS or JS framework. _(The prior React 19 / Vite SPA was retired in TFND-128.)_
 - **Auth** — GitHub OAuth (cookie session) · bearer-token ingest (`cli_` / `prj_` prefixes, SHA-256 hashed)
 - **DB** — PostgreSQL. Migrations applied on startup.
 - **Built with the Tamp ecosystem** — `Tamp.Security.Pipeline`, `Tamp.Sarif`, `Tamp.Sbom`, `Tamp.OpenGrep`, `Tamp.Trivy`, `Tamp.OsvScanner.V2`, `Tamp.DotNetCoverage.V18`, `Tamp.Eslint.V9`, JetBrains ReSharper CLI. Dogfooded — `tamp.findings` ingests its own scan results via the same `/ingest/*` endpoints any other consumer would use.
