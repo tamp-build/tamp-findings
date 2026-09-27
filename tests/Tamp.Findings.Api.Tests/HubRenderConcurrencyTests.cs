@@ -80,9 +80,11 @@ public sealed class HubRenderConcurrencyTests : IAsyncLifetime
     public Task DisposeAsync() { _factory?.Dispose(); return Task.CompletedTask; }
 
     [SkippableTheory]
-    [InlineData("/build/latest")]   // the project hub — the reported 500
+    [InlineData("/build/latest")]    // the project hub — the reported 500 (renders ProjectKeyCard)
+    [InlineData("/settings/keys")]   // the OTHER page that renders ProjectKeyCard
     [InlineData("/poam")]
     [InlineData("/vex")]
+    [InlineData("/costs")]
     public async Task Project_pages_render_against_a_real_database(string suffix)
     {
         Skip.IfNot(_available, "TAMP_FINDINGS_TEST_DB not set");
