@@ -39,7 +39,7 @@
     <PackageReference Include="Tamp.DotNetCoverage.V18" />
     <PackageReference Include="Tamp.Coverlet.V6" />
     <PackageReference Include="Tamp.ReportGenerator.V5" />
-    <PackageReference Include="Tamp.Syft.V1" />
+    <PackageReference Include="Tamp.Syft" />
     <PackageReference Include="Tamp.Grype" />
   </ItemGroup>
 

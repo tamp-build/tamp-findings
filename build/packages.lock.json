@@ -113,14 +113,13 @@
           "Tamp.Trivy": "1.11.2"
         }
       },
-      "Tamp.Syft.V1": {
+      "Tamp.Syft": {
         "type": "Direct",
-        "requested": "[1.11.0, )",
-        "resolved": "1.11.0",
-        "contentHash": "mipfgS/vl9RMlV0HO9APztUkMeP9cgBz3fvs7BrHWirdMCtwFg++i5OhOH1oKFfbr9t7JQTH9MCdqDkgwiXaNg==",
+        "requested": "[0.1.2, )",
+        "resolved": "0.1.2",
+        "contentHash": "O7Ct7UuttBpxyMg7QRsrAH3E45TkJMaFnV6iwa96y2wPgU3obwgaqK7vyWMejnYsB+pxKo0arHryq38lajBhng==",
         "dependencies": {
-          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
-          "Tamp.Core": "1.11.0"
+          "Tamp.Core": "1.10.0"
         }
       },
       "Tamp.TruffleHog.V3": {

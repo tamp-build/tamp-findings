@@ -7,9 +7,9 @@ using Tamp.NetCli.V10;
 using Tamp.Sarif;
 using Tamp.Sbom;
 using Tamp.Security.Pipeline;
-using Tamp.Syft.V1;
+using Tamp.Syft;
 using Tamp.TruffleHog.V3;
-using SyftCli = Tamp.Syft.V1.Syft;
+using SyftCli = Tamp.Syft.Syft;
 using TrufflehogCli = Tamp.TruffleHog.V3.TruffleHog;
 using OpenGrepCli = Tamp.OpenGrep.OpenGrep;
 using Tamp.Eslint.V9;
@@ -185,16 +185,23 @@ class Build : SecurityPipelineBuild
         .Executes(() =>
         {
             SecurityArtifactsDir.CreateDirectory();
-            return SyftCli.ScanDirectory(s => s
-                .SetPath(RootDirectory.Value)
-                .SetFormat(SyftFormat.CycloneDxJson)
-                .SetOutputFile(SecuritySbomFile.Value)
-                .AddExcludePattern("./artifacts")
-                .AddExcludePattern("./**/bin")
-                .AddExcludePattern("./**/obj")
-                .AddExcludePattern("./**/node_modules")
-                .AddExcludePattern("./.git")
-                .SetQuiet(true)
+            // Tamp.Syft 0.1.2 uses the "pass Tool explicitly" wrapper style
+            // (like Grype), so resolve syft off PATH and hand it in.
+            var syft = Tool.TryFromPath("syft", RootDirectory.Value)
+                ?? throw new Exception(
+                    "syft not found on PATH — install it (winget install Anchore.Syft) so the SBOM leg can run.");
+            // NOT SetQuiet(true): syft's -q suppresses its own error output too,
+            // which is exactly how the old wrapper produced a silent 0-byte SBOM
+            // (TAM-286). Leaving progress on means a future failure surfaces on
+            // stderr instead of vanishing.
+            return SyftCli.Scan(syft, s => s
+                .SetDirectorySource(RootDirectory.Value)
+                .AddOutputCycloneDxJson(SecuritySbomFile.Value)
+                .AddExclude("./artifacts")
+                .AddExclude("./**/bin")
+                .AddExclude("./**/obj")
+                .AddExclude("./**/node_modules")
+                .AddExclude("./.git")
                 .SetWorkingDirectory(RootDirectory));
         });
 

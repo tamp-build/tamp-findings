@@ -95,8 +95,15 @@
     <PackageVersion Include="Tamp.ReportGenerator.V5" Version="0.1.1" />
     <!-- EF Core wrapper for migrations from the build script. -->
     <PackageVersion Include="Tamp.EFCore.V10" Version="0.4.0" />
-    <!-- SBOM + CVE scanners (not in Security.Pipeline meta yet). -->
-    <PackageVersion Include="Tamp.Syft.V1" Version="1.11.0" />
+    <!-- SBOM + CVE scanners (not in Security.Pipeline meta yet).
+         Tamp.Syft (unsuffixed) supersedes the deprecated Tamp.Syft.V1. 0.1.2
+         (tamp-syft #6) fixes the silent 0-byte SBOM under a Windows junction
+         (our repo lives on the C:\repos reparse point): syft 1.x's directory
+         resolver choked on the absolute path; the wrapper now emits the dir:
+         source relative to the working directory. New fluent surface —
+         Syft.Scan(...) with SetDirectorySource / AddOutputCycloneDxJson /
+         AddExclude (was Syft.ScanDirectory / SetPath / SetFormat). Tracked TAM-286. -->
+    <PackageVersion Include="Tamp.Syft" Version="0.1.2" />
     <PackageVersion Include="Tamp.Grype" Version="0.1.0" />
     <!-- Cluster deploy: container build + push, kubectl apply.
          Tamp.Kubectl 0.1.0 (TAM-221), Tamp.Docker.V27 0.3.1. Helm reserved
