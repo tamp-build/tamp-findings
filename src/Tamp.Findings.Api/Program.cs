@@ -274,8 +274,12 @@ builder.Services.AddMcpServer(options =>
 var app = builder.Build();
 
 // Run pending migrations on startup so adopters don't need to remember
-// `dotnet ef`. Test hosts opt out via the TAMP_FINDINGS_SKIP_MIGRATE env var.
-if (Environment.GetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE") != "true")
+// `dotnet ef`. Test hosts opt out via TAMP_FINDINGS_SKIP_MIGRATE. Read it from
+// configuration (which includes environment variables) rather than the raw
+// environment, so a WebApplicationFactory can set it HOST-LOCALLY via
+// UseSetting instead of mutating the process-global environment — a global set
+// races every other test host booting in parallel (TFND-173).
+if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<FindingsDbContext>();

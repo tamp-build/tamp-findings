@@ -111,8 +111,10 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
 
     protected override IHost CreateHost(IHostBuilder builder)
     {
-        Environment.SetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE", "true");
-        Environment.SetEnvironmentVariable("TAMP_FINDINGS_DB", UnreachableDatabase);
+        // NB: the DB connection and the skip-migrate flag are set HOST-LOCALLY
+        // in ConfigureWebHost (UseSetting), NOT as process-global env vars — a
+        // global set here leaks into every other test host booting in parallel
+        // and races their migration/DB choice (TFND-173).
 
         // A configured identity provider, because every real deployment has
         // one and the sign-in page now renders from the set that exists rather
@@ -129,7 +131,14 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
         return base.CreateHost(builder);
     }
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        // Host-local (not process-global): point at a database that is not there
+        // and skip migration, so rendering is tested without Postgres — without
+        // racing any other test host. Program reads both from configuration.
+        builder.UseSetting("ConnectionStrings:Findings", UnreachableDatabase);
+        builder.UseSetting("TAMP_FINDINGS_SKIP_MIGRATE", "true");
+
         // The host keeps its data-protection keys in the database (TFND-137),
         // and this factory points at a database that is not there — on purpose,
         // so rendering can be tested without Postgres.
@@ -146,6 +155,7 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
             services.AddOptions<KeyManagementOptions>()
                 .Configure(o => o.XmlRepository = new InMemoryXmlRepository()));
+    }
 
     /// <summary>A key ring that lives and dies with the test host.</summary>
     private sealed class InMemoryXmlRepository : IXmlRepository
