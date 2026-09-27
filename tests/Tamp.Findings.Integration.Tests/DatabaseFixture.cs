@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -35,8 +36,24 @@ public sealed class DatabaseFixture : IAsyncLifetime
 
     public Task InitializeAsync()
     {
-        ConnectionString = Environment.GetEnvironmentVariable(ConnectionEnvVar);
-        if (ConnectionString is null) return Task.CompletedTask;
+        var baseConn = Environment.GetEnvironmentVariable(ConnectionEnvVar);
+        if (baseConn is null) return Task.CompletedTask;
+
+        // Own database, not the one Api.Tests uses (TFND-173).
+        //
+        // CI runs the whole solution in a single `dotnet test`, so this assembly
+        // and Tamp.Findings.Api.Tests execute in parallel — and BOTH used to
+        // Migrate() the SAME `tamp_findings_test` database. Two concurrent
+        // Database.Migrate() calls against one database race: one writes the
+        // migration-history row while the other is mid-DDL, and a column gets
+        // skipped. It surfaced intermittently as
+        //   42703: column "ActorId" of relation "ComponentVersions" does not exist
+        // (the TFND-165 migration), reddening CI at random.
+        //
+        // Give this assembly a private database. EF's Migrate() creates it if it
+        // does not exist, so no CREATE DATABASE plumbing is needed — the two
+        // assemblies simply never touch the same schema again.
+        ConnectionString = WithDatabaseSuffix(baseConn, "_integration");
 
         Factory = new IntegrationFactory(ConnectionString);
 
@@ -47,6 +64,18 @@ public sealed class DatabaseFixture : IAsyncLifetime
         db.Database.Migrate();
 
         return Task.CompletedTask;
+    }
+
+    // Rewrite the Database= key on a connection string, provider-agnostically.
+    // DbConnectionStringBuilder parses the standard key/value form and indexes
+    // keys case-insensitively, so it finds Database / Db regardless of casing.
+    private static string WithDatabaseSuffix(string connectionString, string suffix)
+    {
+        var b = new System.Data.Common.DbConnectionStringBuilder { ConnectionString = connectionString };
+        var key = b.ContainsKey("Database") ? "Database" : (b.ContainsKey("Db") ? "Db" : "Database");
+        var current = b.TryGetValue(key, out var v) ? v?.ToString() : null;
+        b[key] = (string.IsNullOrWhiteSpace(current) ? "tamp_findings_test" : current) + suffix;
+        return b.ConnectionString;
     }
 
     public Task DisposeAsync()
@@ -62,15 +91,14 @@ public sealed class DatabaseFixture : IAsyncLifetime
 
     private sealed class IntegrationFactory(string connectionString) : WebApplicationFactory<Program>
     {
-        protected override IHost CreateHost(IHostBuilder builder)
-        {
-            // The app migrates on startup, which is what we want here — it is
-            // the same path a real deployment takes, so a broken migration
-            // fails the suite rather than only failing production.
-            Environment.SetEnvironmentVariable("TAMP_FINDINGS_DB", connectionString);
-            Environment.SetEnvironmentVariable("TAMP_FINDINGS_SKIP_MIGRATE", "false");
-            return base.CreateHost(builder);
-        }
+        protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+            // HOST-LOCAL, not a process-global env var — a global set races the
+            // other test hosts booting in parallel (TFND-173). Migration is left
+            // ON (no skip-migrate setting): the app migrates this assembly's own
+            // isolated database on startup, the same path a real deployment
+            // takes, so a broken migration fails the suite rather than only
+            // failing production.
+            builder.UseSetting("ConnectionStrings:Findings", connectionString);
     }
 }
 
