@@ -6,9 +6,12 @@
    safe, and — when separation of duties is enforced — routes the recycle through
    a second key manager. *@
 
+@using Microsoft.Extensions.DependencyInjection
+@using Tamp.Findings.Application.Authorization
 @inject ProjectKeyService Keys
 @inject ApprovalService Approvals
 @inject CurrentUser Me
+@inject IServiceScopeFactory Scopes
 
 <Card>
     <div class="row row--between">
@@ -145,24 +148,69 @@
     private PendingState? _pending;
     private Guid? _awaitingId;
 
+    // This is an InteractiveServer child card, so OnParametersSetAsync fires on
+    // every parent re-render (prerender, interactive, StateHasChanged). Its data
+    // load is several sequential queries on the circuit-scoped DbContext, and two
+    // overlapping runs on one DbContext throw "A second operation was started on
+    // this context" (TFND: hub 500). So: load ONCE per project — the guard below
+    // is atomic on the circuit's single-threaded context (no await between the
+    // check and the set) — and serialise any load through a gate so an action's
+    // refresh can never overlap a render-driven one on the shared context.
+    private Guid _loadedProject;
+    private readonly System.Threading.SemaphoreSlim _loadGate = new(1, 1);
+
     private ScopeTarget Scope => ScopeTarget.Project(Project.ClientId, Project.ProjectId);
 
     protected override async Task OnParametersSetAsync()
     {
-        _key = await Keys.CurrentAsync(Project.ProjectId);
-        _canManage = await Me.CanAsync(Capability.ManageIngestKey, Scope);
-        _sodEnforced = await Keys.RecycleRequiresApprovalAsync();
+        if (Project.ProjectId == _loadedProject) return;
+        _loadedProject = Project.ProjectId;
+        await LoadAsync();
+    }
 
-        // The recycle request has no key row to hang a marker on, so it is
-        // subject-keyed by the project id.
-        _pending = await Approvals.ForSubjectAsync("IngestToken", Project.ProjectId);
-        _awaitingId = null;
-        if (_pending is not null && await Me.AtAsync(Scope) is { } principal)
+    private async Task LoadAsync()
+    {
+        await _loadGate.WaitAsync();
+        try
         {
-            var awaiting = await Approvals.AwaitingAsync(principal, t => Me.AtAsync(t));
-            var mine = awaiting.FirstOrDefault(
-                a => a.Kind == ApprovalKind.IngestKeyRecycle && a.SubjectId == Project.ProjectId);
-            _awaitingId = mine is null ? null : mine.ApprovalId;
+            // Do ALL the reads in a fresh DI scope, so they run on their own
+            // DbContext rather than the circuit-shared one. Sharing it is what
+            // let this card's async load race the hub's other render work (and
+            // the prerender scope's teardown) and 500 the page with "a second
+            // operation was started on this context". The user id comes from the
+            // claim (no DB) on the circuit; everything else is resolved against
+            // this scope's context.
+            var userId = await Me.UserIdAsync();
+            using var scope = Scopes.CreateScope();
+            var sp = scope.ServiceProvider;
+            var keys = sp.GetRequiredService<ProjectKeyService>();
+            var approvals = sp.GetRequiredService<ApprovalService>();
+            var caps = sp.GetRequiredService<CapabilityEvaluator>();
+            var resolver = sp.GetRequiredService<PrincipalResolver>();
+
+            var principal = userId is { } uid ? await resolver.ResolveAsync(uid, Scope) : null;
+
+            _key = await keys.CurrentAsync(Project.ProjectId);
+            _canManage = principal is null
+                ? AuthorizationDecision.Deny("You are not signed in, or your account is awaiting approval.")
+                : caps.Evaluate(principal, Capability.ManageIngestKey);
+            _sodEnforced = await keys.RecycleRequiresApprovalAsync();
+
+            // The recycle request has no key row to hang a marker on, so it is
+            // subject-keyed by the project id.
+            _pending = await approvals.ForSubjectAsync("IngestToken", Project.ProjectId);
+            _awaitingId = null;
+            if (_pending is not null && principal is not null)
+            {
+                var awaiting = await approvals.AwaitingAsync(principal, t => resolver.ResolveAsync(userId!.Value, t));
+                var mine = awaiting.FirstOrDefault(
+                    a => a.Kind == ApprovalKind.IngestKeyRecycle && a.SubjectId == Project.ProjectId);
+                _awaitingId = mine is null ? null : mine.ApprovalId;
+            }
+        }
+        finally
+        {
+            _loadGate.Release();
         }
     }
 
@@ -177,7 +225,7 @@
         if (!result.Success) { _error = result.Error; return; }
 
         _minted = result.Value;
-        await OnParametersSetAsync();
+        await LoadAsync();
     }
 
     private async Task RequestRecycle()
@@ -192,7 +240,7 @@
         _requesting = false;
         if (!result.Success) { _error = result.Error; return; }
 
-        await OnParametersSetAsync();
+        await LoadAsync();
     }
 
     private async Task ApproveRecycle(Guid approvalId)
@@ -205,7 +253,7 @@
         if (!result.Success) { _error = result.Error; return; }
 
         _minted = result.Value;
-        await OnParametersSetAsync();
+        await LoadAsync();
     }
 
     private async Task Reject(Guid approvalId)
@@ -217,6 +265,6 @@
         var result = await Approvals.DecideAsync(actor, approvalId, approve: false);
         if (!result.Success) { _error = result.Error; return; }
 
-        await OnParametersSetAsync();
+        await LoadAsync();
     }
 }
