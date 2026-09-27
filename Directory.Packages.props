@@ -57,7 +57,13 @@
          1.13.0 (TAM-274/275) adds SecurityPipelineMetrics auto-target —
          emits tamp.security.scan.findings_count + sbom.components_count
          counters for free under `tamp Security`. -->
-    <PackageVersion Include="Tamp.Security.Pipeline" Version="1.13.0" />
+    <!-- 1.15.1 (tamp ADR 0022 PATCH) ships the fixes for the two frictions we
+         reported adopting 1.15: #68 (the json reporter now emits the canonical
+         ADR-0019 envelope) and #71 (tamp mcp entrypoint guidance + capability
+         fluent-API docs), plus #70 (arg parsing fails closed; unknown flags now
+         hard-error). Security.Pipeline is in tamp's core solution, so it shipped
+         at 1.15.1 and pulls Tamp.Core 1.15.1 transitively — no direct Core pin. -->
+    <PackageVersion Include="Tamp.Security.Pipeline" Version="1.15.1" />
     <!-- Not in the meta package — secrets scanning satellite. -->
     <PackageVersion Include="Tamp.TruffleHog.V3" Version="0.1.1" />
     <!-- TAM-276: TS/JS style + best-practice (the ReSharper analogue for the
@@ -75,7 +81,7 @@
          lets SarifIngestMapper stop passing Snippet: null — that improves
          cross-build dedup for EVERY SARIF scanner, not just the DAST ones.
          Transitive pinning is on, so this wins over the transitive version. -->
-    <PackageVersion Include="Tamp.Sarif" Version="1.14.0" />
+    <PackageVersion Include="Tamp.Sarif" Version="1.15.1" />
     <!-- Versioning + GitHub CLI for release/PR plumbing. -->
     <PackageVersion Include="Tamp.GitVersion.V6" Version="0.2.0" />
     <PackageVersion Include="Tamp.GitHubCli.V2" Version="0.1.1" />

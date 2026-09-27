@@ -179,6 +179,7 @@ class Build : SecurityPipelineBuild
     // less precise than dotnet-CycloneDX's project graph traversal, but the
     // cross-ecosystem coverage is the bigger win.
     protected override Target Sbom => _ => _
+        .Produces("artifacts/security/*.cdx.json")
         .DependsOn(SbomDependencies)
         .Description("Cross-ecosystem CycloneDX SBOM via Syft (.NET + npm + anything else Syft catalogs).")
         .Executes(() =>
@@ -274,6 +275,7 @@ class Build : SecurityPipelineBuild
     // engine the IDE uses. SARIF output. Excludes test projects (their bugs
     // are noise) and the build orchestrator itself (would re-invoke us).
     Target SecurityScanResharper => _ => _
+        .Produces("artifacts/security/resharper.sarif")
         .Description("InspectCode SARIF over the full solution. Requires JetBrains.ReSharper.GlobalTools (dotnet tool install -g JetBrains.ReSharper.GlobalTools).")
         .Executes(() =>
         {
@@ -302,6 +304,7 @@ class Build : SecurityPipelineBuild
     // and never enters the pnpm workspace). Skips cleanly when no ESLint
     // install is found, same posture as OpenGrep / ReSharper.
     Target SecurityScanEslint => _ => _
+        .Produces("artifacts/security/eslint.sarif")
         .Description("ESLint v9 SARIF. Skips unless a JavaScript/TypeScript source tree and an eslint install are present — there is none in this repository since TFND-128, and the target stays for tenants that have one.")
         .Executes(() =>
         {
@@ -338,6 +341,7 @@ class Build : SecurityPipelineBuild
     // the Docker / restricted-runner case; first-time runs may need
     // `npx playwright install chromium` as a one-off pre-step.
     Target SecurityScanAxeCore => _ => _
+        .RequiresNetwork().Produces("artifacts/security/axe-core.sarif")
         .Description("axe-core a11y SARIF against the running app (TFND-27 / TFND-131). Requires @axe-core/cli + axe-sarif-converter under build/tools/node.")
         .Executes(() =>
         {
@@ -503,6 +507,7 @@ class Build : SecurityPipelineBuild
         """.Replace("TOOL_NAME", toolName);
 
     Target SecurityScanZap => _ => _
+        .RequiresDocker().RequiresNetwork().Capability(CapabilityTier.SideEffectful).Produces("artifacts/security/zap.sarif")
         .Description("ZAP DAST (anonymous baseline) against the deployed app; SARIF for /ingest/findings. Requires Docker.")
         .Executes(() =>
         {
@@ -592,6 +597,7 @@ class Build : SecurityPipelineBuild
     // code change to explain it. -ni keeps out-of-band callbacks off a
     // third-party interactsh server.
     Target SecurityScanNuclei => _ => _
+        .RequiresNetwork().Capability(CapabilityTier.SideEffectful).Produces("artifacts/security/nuclei.sarif")
         .Description("Nuclei template scan against the deployed app; SARIF for /ingest/findings. Requires the nuclei binary on PATH.")
         .Executes(() =>
         {
@@ -701,6 +707,7 @@ class Build : SecurityPipelineBuild
             .SetNoRestore(true)));
 
     Target Test => _ => _
+        .Produces("artifacts/test-results/*.trx")
         .DependsOn(nameof(Compile))
         .Description("Run all tests with XPlat Code Coverage (OpenCover format for downstream tooling).")
         .Executes(() => DotNet.Test(s => s
@@ -718,6 +725,7 @@ class Build : SecurityPipelineBuild
     // reads as a tooling problem rather than as a target that should not exist.
 
     Target Coverage => _ => _
+        .Produces("artifacts/coverage/**")
         .DependsOn(nameof(Test))
         .Description("Aggregate coverage reports across test projects into artifacts/coverage/.")
         .Executes(() =>
@@ -729,6 +737,7 @@ class Build : SecurityPipelineBuild
     // ----- Grype CVE enrichment -------------------------------------------
 
     Target SecurityScanGrype => _ => _
+        .RequiresNetwork().Produces("artifacts/security/tamp.findings.cves.cdx.json")
         .DependsOn(nameof(Sbom))
         .Requires(() => GrypeTool is not null)
         .Description("Run Grype against the CycloneDX SBOM, emit an enriched CycloneDX file with CVEs folded in. First run downloads Grype's vuln DB (~5 min); subsequent runs are seconds.")
@@ -740,6 +749,7 @@ class Build : SecurityPipelineBuild
     // ----- TruffleHog secrets ---------------------------------------------
 
     Target SecurityScanSecrets => _ => _
+        .Produces("artifacts/security/trufflehog.jsonl")
         .Requires(() => TrufflehogTool is not null)
         .Description("TruffleHog filesystem scan emitting JSONL findings (one per line). --no-verification keeps this offline and fast; verification can be re-enabled in CI when network egress is allowed. NOTE: bypasses Tamp.TruffleHog.V3.SetOutput due to TAM-263 — TruffleHog v3 has no --output flag, so we capture stdout to a file directly.")
         .Executes(() => RunTrufflehog());
@@ -782,6 +792,7 @@ class Build : SecurityPipelineBuild
     // ----- Ingestion -------------------------------------------------------
 
     Target InspectContainerImage => _ => _
+        .RequiresDocker().RequiresNetwork().Capability(CapabilityTier.SideEffectful)
         .Description("TFND-134: inspect the built image and its base, then POST both to /ingest/container-image. Requires trivy on PATH and the API up. Run DockerBuildImage first.")
         .Executes(async () =>
         {
@@ -948,6 +959,7 @@ class Build : SecurityPipelineBuild
     }
 
     Target Ingest => _ => _
+        .RequiresNetwork().Capability(CapabilityTier.SideEffectful)
         .Description("POST every artifact under artifacts/security/ to the running tamp.findings API. Run ScanAll first to produce the artifacts; the API process must be up.")
         .Executes(async () =>
         {
@@ -1134,7 +1146,8 @@ class Build : SecurityPipelineBuild
                     Branch: ctx.Branch,
                     BuildId: ctx.BuildId,
                     PullRequestRef: ctx.PullRequestRef,
-                    Receipts: dedup);
+                    Receipts: dedup,
+                    Actor: ctx.Actor);
                 var resp = await client.PostScanRunsAsync(payload);
                 Console.WriteLine($"[ingest] ScanRuns   → {resp.GetProperty("receiptsUpserted")} receipt(s) ({string.Join(", ", dedup.Select(r => $"{r.Scanner}={r.FindingsCount}"))})");
             }
@@ -1175,6 +1188,7 @@ class Build : SecurityPipelineBuild
     string ImageRefLatestTag => $"{ImageRegistry}/{ImageName}:latest";
 
     Target DockerBuildImage => _ => _
+        .RequiresDocker()
         .Description("Build the multi-stage container image: pnpm build SPA → dotnet publish API → ASP.NET 10 alpine runtime. Tags both :<short-sha> and :latest.")
         .Executes(() =>
         {
@@ -1198,6 +1212,7 @@ class Build : SecurityPipelineBuild
         });
 
     Target DockerPushImage => _ => _
+        .RequiresDocker().RequiresNetwork().Capability(CapabilityTier.SideEffectful)
         .DependsOn(nameof(DockerBuildImage))
         .Description("Push both tags to the configured registry.")
         .Executes(() =>
@@ -1214,6 +1229,7 @@ class Build : SecurityPipelineBuild
         });
 
     Target Deploy => _ => _
+        .RequiresDocker().RequiresNetwork().Capability(CapabilityTier.SideEffectful)
         .DependsOn(nameof(DockerPushImage))
         .Description("Apply deploy/k8s/ then pin the api Deployment to the just-pushed image SHA and wait for rollout. KUBECONFIG flows from env.")
         .Executes(() =>
@@ -1278,6 +1294,7 @@ class Build : SecurityPipelineBuild
     // wrong when the DAST target is somebody else's app, because it would file
     // this repo's SBOM, coverage and SAST findings under that hierarchy.
     Target IngestDast => _ => _
+        .RequiresNetwork().Capability(CapabilityTier.SideEffectful)
         .Description("POST only the DAST SARIF + scan receipts. Use with the INGEST_CLIENT/PROJECT/COMPONENT overrides when the scan target isn't this repo.")
         .Executes(async () =>
         {
@@ -1311,7 +1328,8 @@ class Build : SecurityPipelineBuild
                     Branch: ctx.Branch,
                     BuildId: ctx.BuildId,
                     PullRequestRef: ctx.PullRequestRef,
-                    Receipts: dedup);
+                    Receipts: dedup,
+                    Actor: ctx.Actor);
                 var resp = await client.PostScanRunsAsync(payload);
                 Console.WriteLine($"[ingest] ScanRuns   → {resp.GetProperty("receiptsUpserted")} receipt(s) ({string.Join(", ", dedup.Select(r => $"{r.Scanner}={r.FindingsCount}"))})");
             }
@@ -1341,7 +1359,59 @@ class Build : SecurityPipelineBuild
             CommitSha: sha,
             Branch: Git.Branch,
             BuildId: IsLocalBuild ? "local" : Environment.GetEnvironmentVariable("CI_BUILD_ID"),
-            PullRequestRef: null);
+            PullRequestRef: null,
+            Actor: ResolveIngestActor());
+    }
+
+    // tamp resolves a canonical workerId internally (WorkerIdResolver), but that
+    // type is `internal` in Tamp.Core 1.15.1 — a consumer build target can't read
+    // the resolved id (friction #3, reported to tamp for a public accessor). Until
+    // then we re-derive it here with tamp's own precedence so ingest attribution
+    // (TFND-165) flows now: TAMP_WORKER_ID → GITHUB_ACTOR → git author → OS user.
+    // A "kind:id" workerId maps to actor {Id, Kind}; a bare value is a human.
+    static IngestActorDto? ResolveIngestActor()
+    {
+        var workerId =
+            FirstNonBlank(Environment.GetEnvironmentVariable("TAMP_WORKER_ID"))
+            ?? Prefix("human:", Environment.GetEnvironmentVariable("GITHUB_ACTOR"))
+            ?? Prefix("human:", GitAuthorEmail())
+            ?? Prefix("human:", Environment.UserName);
+
+        if (string.IsNullOrWhiteSpace(workerId)) return null;
+
+        var sep = workerId.IndexOf(':');
+        if (sep <= 0) return new IngestActorDto(workerId, "Human");
+        var prefix = workerId[..sep];
+        var id = workerId[(sep + 1)..];
+        if (string.IsNullOrWhiteSpace(id)) return new IngestActorDto(workerId, "Human");
+        var kind = prefix.Equals("agent", StringComparison.OrdinalIgnoreCase) ? "Agent" : "Human";
+        return new IngestActorDto(id, kind);
+
+        static string? FirstNonBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+        static string? Prefix(string p, string? s) => string.IsNullOrWhiteSpace(s) ? null : p + s.Trim();
+    }
+
+    static string? GitAuthorEmail()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("git", "config user.email")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p is null) return null;
+            var outp = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit(3000);
+            return string.IsNullOrWhiteSpace(outp) ? null : outp;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     static async Task PostSarifAsync(IngestClient client, IngestBuildContext ctx, AbsolutePath path, string label)

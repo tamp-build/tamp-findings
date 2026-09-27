@@ -160,4 +160,5 @@ public sealed record ScanRunIngestRequestDto(
     string? Branch,
     string? BuildId,
     string? PullRequestRef,
-    IReadOnlyList<ScanRunReceiptDto> Receipts);
+    IReadOnlyList<ScanRunReceiptDto> Receipts,
+    IngestActorDto? Actor = null);

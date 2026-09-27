@@ -76,6 +76,7 @@ public static class TrufflehogIngestMapper
             BuildId: ctx.BuildId,
             PullRequestRef: ctx.PullRequestRef,
             Scanner: ScannerKind.TruffleHog,
-            Findings: findings);
+            Findings: findings,
+            Actor: ctx.Actor);
     }
 }

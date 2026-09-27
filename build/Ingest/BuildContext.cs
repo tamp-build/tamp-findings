@@ -1,3 +1,5 @@
+using Tamp.Findings.Build.Adapters;
+
 namespace Tamp.Findings.Build.Ingest;
 
 // Static build-context fields the build orchestrator stamps onto every
@@ -13,4 +15,8 @@ public sealed record IngestBuildContext(
     string? CommitSha,
     string? Branch,
     string? BuildId,
-    string? PullRequestRef);
+    string? PullRequestRef,
+    // Who produced this build's ingest (tamp workerId → actor). Stamped onto
+    // every payload so the dashboard attributes the CV to a human or an agent
+    // (TFND-165). Null when unresolved — the API treats absent actor as legacy.
+    IngestActorDto? Actor = null);

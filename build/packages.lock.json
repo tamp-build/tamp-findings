@@ -96,20 +96,20 @@
       },
       "Tamp.Security.Pipeline": {
         "type": "Direct",
-        "requested": "[1.13.0, )",
-        "resolved": "1.13.0",
-        "contentHash": "g5+5aBfK/QgCfnHdmk71gYvcy1uPdZgdhpaYiNtsCxeGmIZ45p5M/93tftSomk2XCdiqN3dc1TteZd10rersZw==",
+        "requested": "[1.15.1, )",
+        "resolved": "1.15.1",
+        "contentHash": "0pV6j9yIlUKp57WzPlrx1/bh5uH5UD99qXvDTe6Sk6BLIItz26E/paRh930oNNuGqycVGOJ4+FnmnrPCTs9ffw==",
         "dependencies": {
-          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
-          "Tamp.Core": "1.13.0",
+          "Microsoft.Extensions.FileSystemGlobbing": "10.0.0",
+          "Tamp.Core": "1.15.1",
           "Tamp.CycloneDx.V6": "1.11.2",
           "Tamp.DefectDojo.V2": "1.11.2",
           "Tamp.DependencyTrack.V1": "1.11.2",
-          "Tamp.NetCli.V10": "1.13.0",
+          "Tamp.NetCli.V10": "1.15.1",
           "Tamp.OpenGrep": "1.11.2",
           "Tamp.OsvScanner.V2": "1.11.2",
-          "Tamp.Sarif": "1.13.0",
-          "Tamp.Sbom": "1.13.0",
+          "Tamp.Sarif": "1.15.1",
+          "Tamp.Sbom": "1.15.1",
           "Tamp.Trivy": "1.11.2"
         }
       },
@@ -143,15 +143,15 @@
       },
       "Microsoft.Extensions.FileSystemGlobbing": {
         "type": "Transitive",
-        "resolved": "9.0.0",
-        "contentHash": "jGFKZiXs2HNseK3NK/rfwHNNovER71jSj4BD1a/649ml9+h6oEtYd0GSALZDNW8jZ2Rh+oAeadOa6sagYW1F2A=="
+        "resolved": "10.0.0",
+        "contentHash": "5hfVl/e+bx1px2UkN+1xXhd3hu7Ui6ENItBzckFaRDQXfr+SHT/7qrCDrlQekCF/PBtEu2vtk87U2+gDEF8EhQ=="
       },
       "Tamp.Core": {
         "type": "Transitive",
-        "resolved": "1.14.0",
-        "contentHash": "mCwMGSqiCqzRYM9ZxjbDoreKCpfn2A1jtbvdE1jG6qRR0Lc7BK0w2i1adHe0LTe0aJO5nbc74YxU/R3rDz1L3Q==",
+        "resolved": "1.15.1",
+        "contentHash": "HHb1KuD+fNrWoQ6k6c0sdAnpM9Db6UN0cm+zcZZPgQRMMkwOTZa4qV5wlcjTjMEXqx/omNHpNUe3uB3GT8rq/g==",
         "dependencies": {
-          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0"
+          "Microsoft.Extensions.FileSystemGlobbing": "10.0.0"
         }
       },
       "Tamp.CycloneDx.V6": {
@@ -182,11 +182,11 @@
       },
       "Tamp.NetCli.V10": {
         "type": "Transitive",
-        "resolved": "1.13.0",
-        "contentHash": "5Zy1nvS+QrAYB1uT2JTYef63hw4CtlHadf5ZQpWCgbbGuzy3SC7nLF1eZoC0vty+WqALW7yqT/oNqK9WPrqr+w==",
+        "resolved": "1.15.1",
+        "contentHash": "I+RWAMjF+ALbaQwAxa8GlLPxmeIrpQspjYlBHLFjg9XS+h/jgKIYTx4T0SMCGTgTfvONJMxHB+/myD63ikfHyQ==",
         "dependencies": {
-          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
-          "Tamp.Core": "1.13.0"
+          "Microsoft.Extensions.FileSystemGlobbing": "10.0.0",
+          "Tamp.Core": "1.15.1"
         }
       },
       "Tamp.OpenGrep": {
@@ -207,11 +207,11 @@
       },
       "Tamp.Sbom": {
         "type": "Transitive",
-        "resolved": "1.13.0",
-        "contentHash": "uPqlXDq1U+2IcCm7WejhcGSZfgebb/J9Io7pqzU+RZSIllQigFv1izUtInP3318kYKTFdjJ50wlvKQ0hKXdMLQ==",
+        "resolved": "1.15.1",
+        "contentHash": "4xi0hM5v02WgtvH2reLyXp4YfnymwNkJWVaA2z1N43jDLPoVqCNoAc4piTI1r1w4ctB47vQlySsN0ccQk2Swrg==",
         "dependencies": {
-          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
-          "Tamp.Core": "1.13.0"
+          "Microsoft.Extensions.FileSystemGlobbing": "10.0.0",
+          "Tamp.Core": "1.15.1"
         }
       },
       "Tamp.Trivy": {
@@ -227,12 +227,12 @@
       },
       "Tamp.Sarif": {
         "type": "CentralTransitive",
-        "requested": "[1.14.0, )",
-        "resolved": "1.14.0",
-        "contentHash": "NpVeVm4B07mV2IiowRtEyJn8NgK/ClmXzjRLoLnuMuNdqQII5g+6TAi3fW+ogOnxBQE5Tpt46nva9RTBFHVcaw==",
+        "requested": "[1.15.1, )",
+        "resolved": "1.15.1",
+        "contentHash": "Y+ygUM7d8e3AniWKjh5bm2sz/exNiXULlDeC0Bhm/8gQ04UZWqOI3eq9C6llZHSxRFycKLqhp2Ot1LPWo/dEYg==",
         "dependencies": {
-          "Microsoft.Extensions.FileSystemGlobbing": "9.0.0",
-          "Tamp.Core": "1.14.0"
+          "Microsoft.Extensions.FileSystemGlobbing": "10.0.0",
+          "Tamp.Core": "1.15.1"
         }
       }
     }

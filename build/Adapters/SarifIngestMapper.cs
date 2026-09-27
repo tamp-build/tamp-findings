@@ -155,7 +155,8 @@ public static class SarifIngestMapper
                 BuildId: ctx.BuildId,
                 PullRequestRef: ctx.PullRequestRef,
                 Scanner: scanner,
-                Findings: findings);
+                Findings: findings,
+                Actor: ctx.Actor);
         }
     }
 

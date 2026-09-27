@@ -7,6 +7,11 @@ namespace Tamp.Findings.Build.Adapters;
 // types because the build orchestrator deliberately has no reference to
 // the API runtime; only the wire contract matters. If the contract ever
 // drifts, integration tests will catch it.
+// TFND: who produced this ingest (tamp workerId → actor {id,kind}, wire contract
+// tamp-ingest-v1 v1.3; persisted by the API per TFND-165). Kind is "Agent" | "Human"
+// (PascalCase — matches the API's IngestActorKind JsonStringEnumConverter).
+public sealed record IngestActorDto(string Id, string Kind);
+
 public sealed record IngestRequestDto(
     string Client,
     string Project,
@@ -19,7 +24,8 @@ public sealed record IngestRequestDto(
     string? BuildId,
     string? PullRequestRef,
     ScannerKind Scanner,
-    IReadOnlyList<IngestFindingDto> Findings);
+    IReadOnlyList<IngestFindingDto> Findings,
+    IngestActorDto? Actor = null);
 
 public sealed record IngestFindingDto(
     string RuleId,
@@ -49,7 +55,8 @@ public sealed record SbomIngestRequestDto(
     IReadOnlyList<SbomComponentDto> Components,
     IReadOnlyList<SbomDependencyDto> Dependencies,
     // TFND-21: full CycloneDX metadata.tools shape, list of property bags.
-    IReadOnlyList<Dictionary<string, string?>>? MetadataTools = null);
+    IReadOnlyList<Dictionary<string, string?>>? MetadataTools = null,
+    IngestActorDto? Actor = null);
 
 public sealed record SbomComponentDto(
     string Purl,
