@@ -96,20 +96,20 @@
       },
       "Tamp.Security.Pipeline": {
         "type": "Direct",
-        "requested": "[1.15.1, )",
-        "resolved": "1.15.1",
-        "contentHash": "0pV6j9yIlUKp57WzPlrx1/bh5uH5UD99qXvDTe6Sk6BLIItz26E/paRh930oNNuGqycVGOJ4+FnmnrPCTs9ffw==",
+        "requested": "[1.15.2, )",
+        "resolved": "1.15.2",
+        "contentHash": "00b4TJk4ls69Pe0emVLPNoEe5XJUW4tajot67tlUhdy9EiQ7FGxPURiFFTYI/V+Vuqw/OI0UKpFhvQfUiaQ7Ig==",
         "dependencies": {
           "Microsoft.Extensions.FileSystemGlobbing": "10.0.0",
-          "Tamp.Core": "1.15.1",
+          "Tamp.Core": "1.15.2",
           "Tamp.CycloneDx.V6": "1.11.2",
           "Tamp.DefectDojo.V2": "1.11.2",
           "Tamp.DependencyTrack.V1": "1.11.2",
-          "Tamp.NetCli.V10": "1.15.1",
+          "Tamp.NetCli.V10": "1.15.2",
           "Tamp.OpenGrep": "1.11.2",
           "Tamp.OsvScanner.V2": "1.11.2",
-          "Tamp.Sarif": "1.15.1",
-          "Tamp.Sbom": "1.15.1",
+          "Tamp.Sarif": "1.15.2",
+          "Tamp.Sbom": "1.15.2",
           "Tamp.Trivy": "1.11.2"
         }
       },
@@ -148,8 +148,8 @@
       },
       "Tamp.Core": {
         "type": "Transitive",
-        "resolved": "1.15.1",
-        "contentHash": "HHb1KuD+fNrWoQ6k6c0sdAnpM9Db6UN0cm+zcZZPgQRMMkwOTZa4qV5wlcjTjMEXqx/omNHpNUe3uB3GT8rq/g==",
+        "resolved": "1.15.2",
+        "contentHash": "q8ScYeVGzBwf0nMhKOaRnpB/Cq6VtPfqLEjbxPu91LOCFvliKg2lqnWGUL0oo9xQDQ2IsP37+D+MTnU5N+h6rA==",
         "dependencies": {
           "Microsoft.Extensions.FileSystemGlobbing": "10.0.0"
         }
@@ -182,11 +182,11 @@
       },
       "Tamp.NetCli.V10": {
         "type": "Transitive",
-        "resolved": "1.15.1",
-        "contentHash": "I+RWAMjF+ALbaQwAxa8GlLPxmeIrpQspjYlBHLFjg9XS+h/jgKIYTx4T0SMCGTgTfvONJMxHB+/myD63ikfHyQ==",
+        "resolved": "1.15.2",
+        "contentHash": "ai1XLbtSy6w6GOl+67+pMI1wa/aO5ShOCRjd760hYk9pMfH/tmVFZM58D6UWG7jqCpPO5QgiKpxXvpL+Mzsx1A==",
         "dependencies": {
           "Microsoft.Extensions.FileSystemGlobbing": "10.0.0",
-          "Tamp.Core": "1.15.1"
+          "Tamp.Core": "1.15.2"
         }
       },
       "Tamp.OpenGrep": {
@@ -207,11 +207,11 @@
       },
       "Tamp.Sbom": {
         "type": "Transitive",
-        "resolved": "1.15.1",
-        "contentHash": "4xi0hM5v02WgtvH2reLyXp4YfnymwNkJWVaA2z1N43jDLPoVqCNoAc4piTI1r1w4ctB47vQlySsN0ccQk2Swrg==",
+        "resolved": "1.15.2",
+        "contentHash": "61zPyS645i7kfP9sMxjSIBi/uv53fbif290BhTbGLKC8IbM+3FaMERup8SejHkHRVJoLfoaD0M2c2vJEeczTBg==",
         "dependencies": {
           "Microsoft.Extensions.FileSystemGlobbing": "10.0.0",
-          "Tamp.Core": "1.15.1"
+          "Tamp.Core": "1.15.2"
         }
       },
       "Tamp.Trivy": {
@@ -227,12 +227,12 @@
       },
       "Tamp.Sarif": {
         "type": "CentralTransitive",
-        "requested": "[1.15.1, )",
-        "resolved": "1.15.1",
-        "contentHash": "Y+ygUM7d8e3AniWKjh5bm2sz/exNiXULlDeC0Bhm/8gQ04UZWqOI3eq9C6llZHSxRFycKLqhp2Ot1LPWo/dEYg==",
+        "requested": "[1.15.2, )",
+        "resolved": "1.15.2",
+        "contentHash": "bc8g4uDCm6BYjsL84fxQDNJ/mA7g3Fftwbs5lOgjHUhpWR7kSteqKpRET0hMD+ExfPXHZtNp32xNbJCFqbLs4g==",
         "dependencies": {
           "Microsoft.Extensions.FileSystemGlobbing": "10.0.0",
-          "Tamp.Core": "1.15.1"
+          "Tamp.Core": "1.15.2"
         }
       }
     }
