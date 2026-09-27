@@ -1047,18 +1047,25 @@ class Build : SecurityPipelineBuild
             // different artefact from the compiled service, even though one
             // process now serves both.
             var webCtx = ctx with { Flavor = "web" };
-            await PostSarifAsync(client, webCtx, SecuritySarifEslintFile, "ESLint");
+            // TFND-171: ESLint is gone — the React SPA it linted (web/) was
+            // retired (TFND-128). Its only findings were React-specific rules
+            // (react-refresh/only-export-components) against a tree that no
+            // longer exists. axe-core stays: it scans the RENDERED UI, which the
+            // Blazor surface still has.
             // TFND-27 / TFND-131: axe-core scans the rendered UI.
             await PostSarifAsync(client, webCtx, SecuritySarifAxeCoreFile, "AxeCore");
 
-            // TFND-38: DAST findings attach to a "deployed" flavor rather than
-            // "web". ESLint and axe-core scan web ASSETS; ZAP and Nuclei scan
-            // the running SERVICE — API and SPA as one deployed unit — so
-            // folding them into "web" would conflate two different things and
-            // leave nowhere to hang which environment was scanned.
-            var deployedCtx = ctx with { Flavor = "deployed" };
-            await PostSarifAsync(client, deployedCtx, SecuritySarifZapFile, "ZAP");
-            await PostSarifAsync(client, deployedCtx, SecuritySarifNucleiFile, "Nuclei");
+            // TFND-38 / TFND-170: DAST (ZAP + Nuclei) is deliberately NOT swept
+            // here. The self-Ingest attributes everything to THIS repo's
+            // hierarchy, but the DAST target (TAMP_FINDINGS_DAST_TARGET_URL) is
+            // frequently an external fixture — the Security Lab juice-shop —
+            // whose findings are not ours. Filing juice-shop's SQL-injection
+            // under tamp-findings/deployed is exactly the two-hosts
+            // misattribution we hit. DAST flows through the dedicated IngestDast
+            // target instead, which takes explicit INGEST_CLIENT/PROJECT/
+            // COMPONENT overrides naming whatever was actually scanned — our own
+            // deployed instance, or the fixture, on purpose rather than by
+            // accident.
 
             // TruffleHog jsonl is not SARIF — its own adapter.
             var trufflehog = TrufflehogIngestMapper.Map(TrufflehogJsonFile.Value, ctx);
@@ -1117,14 +1124,15 @@ class Build : SecurityPipelineBuild
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifResharperFile.Value));
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifCveFile.Value));
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifTrivyFile.Value));
-            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifEslintFile.Value));
             // TFND-27: axe-core receipt — same SARIF shape as the others.
             receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifAxeCoreFile.Value));
-            // TFND-38: DAST receipts. These are what flip RanDast, which in
-            // turn is what lets SSDF PW.8.1 answer "Yes" instead of capping at
-            // "Partial — no dynamic analysis".
-            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifZapFile.Value));
-            receipts.AddRange(ScanRunReceiptBuilder.FromSarif(SecuritySarifNucleiFile.Value));
+            // TFND-171: ESLint dropped — the React SPA (web/) was retired
+            // (TFND-128), so there is no TS/JS surface for it to lint; its
+            // receipt/findings were stale React rules.
+            // TFND-38 / TFND-170: DAST receipts are NOT emitted here for the same
+            // reason DAST findings are not — the target is usually an external
+            // fixture. RanDast for THIS project is set by IngestDast when the
+            // deployed app under test is actually tamp-findings.
             var thReceipt = ScanRunReceiptBuilder.FromTrufflehogJsonl(TrufflehogJsonFile.Value);
             if (thReceipt is not null) receipts.Add(thReceipt);
             // Dedup by scanner (the merged sast.sarif may have already
