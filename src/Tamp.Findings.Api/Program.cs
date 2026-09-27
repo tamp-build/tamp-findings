@@ -398,6 +398,11 @@ app.UseRequestLocalization(new Microsoft.AspNetCore.Builder.RequestLocalizationO
     .AddSupportedUICultures(supportedCultures));
 
 app.UseAuthentication();
+// TFND-167 (dev-only, REMOVE LATER): inline ?__design=<token> auth for Claude
+// Design's stateless single-GET fetcher — authenticates the request before
+// authorization runs, so the page renders authenticated with no cookie and no
+// redirect. No-op unless the design env vars are set.
+app.UseDesignTokenAuth();
 app.UseAuthorization();
 
 // TFND-12: bearer-token auth for the agent surface, attached to the PATH
