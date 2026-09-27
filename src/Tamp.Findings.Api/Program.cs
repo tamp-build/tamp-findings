@@ -480,6 +480,21 @@ app.MapGet("/version", () => Results.Ok(new
 // /auth/github/callback), /auth/me, /auth/logout, /auth/denied.
 app.MapAuth();
 
+// TEMPORARY / DEV-ONLY (TFND-167): pure-URL access for Claude Design. Off unless
+// TAMP_FINDINGS_DESIGN_TOKEN + TAMP_FINDINGS_DESIGN_LOGIN are set. Remove this
+// call and Endpoints/DesignAccessEndpoints.cs when the design work is done.
+app.MapDesignAccess();
+if (Tamp.Findings.Api.Endpoints.DesignAccessEndpoints.Enabled)
+{
+    app.Services.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Tamp.Findings.DesignAccess")
+        .LogWarning(
+            "DEV-ONLY design access is ENABLED (TFND-167): /auth/design mints an auth cookie "
+            + "for '{Login}' to anyone holding the token. This is an auth bypass — unset "
+            + "TAMP_FINDINGS_DESIGN_TOKEN to disable it.",
+            Environment.GetEnvironmentVariable(Tamp.Findings.Api.Endpoints.DesignAccessEndpoints.LoginVar));
+}
+
 // Ingest-token CRUD — SPA-facing, behind the cookie-auth fallback.
 app.MapIngestTokens();
 
