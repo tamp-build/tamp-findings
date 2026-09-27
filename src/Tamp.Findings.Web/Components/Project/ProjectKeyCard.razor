@@ -6,9 +6,12 @@
    safe, and — when separation of duties is enforced — routes the recycle through
    a second key manager. *@
 
+@using Microsoft.Extensions.DependencyInjection
+@using Tamp.Findings.Application.Authorization
 @inject ProjectKeyService Keys
 @inject ApprovalService Approvals
 @inject CurrentUser Me
+@inject IServiceScopeFactory Scopes
 
 <Card>
     <div class="row row--between">
@@ -170,17 +173,36 @@
         await _loadGate.WaitAsync();
         try
         {
-            _key = await Keys.CurrentAsync(Project.ProjectId);
-            _canManage = await Me.CanAsync(Capability.ManageIngestKey, Scope);
-            _sodEnforced = await Keys.RecycleRequiresApprovalAsync();
+            // Do ALL the reads in a fresh DI scope, so they run on their own
+            // DbContext rather than the circuit-shared one. Sharing it is what
+            // let this card's async load race the hub's other render work (and
+            // the prerender scope's teardown) and 500 the page with "a second
+            // operation was started on this context". The user id comes from the
+            // claim (no DB) on the circuit; everything else is resolved against
+            // this scope's context.
+            var userId = await Me.UserIdAsync();
+            using var scope = Scopes.CreateScope();
+            var sp = scope.ServiceProvider;
+            var keys = sp.GetRequiredService<ProjectKeyService>();
+            var approvals = sp.GetRequiredService<ApprovalService>();
+            var caps = sp.GetRequiredService<CapabilityEvaluator>();
+            var resolver = sp.GetRequiredService<PrincipalResolver>();
+
+            var principal = userId is { } uid ? await resolver.ResolveAsync(uid, Scope) : null;
+
+            _key = await keys.CurrentAsync(Project.ProjectId);
+            _canManage = principal is null
+                ? AuthorizationDecision.Deny("You are not signed in, or your account is awaiting approval.")
+                : caps.Evaluate(principal, Capability.ManageIngestKey);
+            _sodEnforced = await keys.RecycleRequiresApprovalAsync();
 
             // The recycle request has no key row to hang a marker on, so it is
             // subject-keyed by the project id.
-            _pending = await Approvals.ForSubjectAsync("IngestToken", Project.ProjectId);
+            _pending = await approvals.ForSubjectAsync("IngestToken", Project.ProjectId);
             _awaitingId = null;
-            if (_pending is not null && await Me.AtAsync(Scope) is { } principal)
+            if (_pending is not null && principal is not null)
             {
-                var awaiting = await Approvals.AwaitingAsync(principal, t => Me.AtAsync(t));
+                var awaiting = await approvals.AwaitingAsync(principal, t => resolver.ResolveAsync(userId!.Value, t));
                 var mine = awaiting.FirstOrDefault(
                     a => a.Kind == ApprovalKind.IngestKeyRecycle && a.SubjectId == Project.ProjectId);
                 _awaitingId = mine is null ? null : mine.ApprovalId;

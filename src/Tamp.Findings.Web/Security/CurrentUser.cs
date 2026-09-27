@@ -93,6 +93,22 @@ public sealed class CurrentUser
             : _capabilities.Evaluate(principal, capability);
     }
 
+    /// <summary>
+    /// The signed-in user's id from the claim only — NO database call.
+    ///
+    /// For a component that must do its data work in its OWN DI scope to avoid
+    /// racing the circuit-shared DbContext: it reads the id here (cheap, no DB)
+    /// and then resolves the principal against its own scope's context. Returns
+    /// null for an anonymous caller.
+    /// </summary>
+    public async Task<Guid?> UserIdAsync()
+    {
+        var state = await _auth.GetAuthenticationStateAsync();
+        var claims = state.User;
+        if (claims.Identity?.IsAuthenticated != true) return null;
+        return Guid.TryParse(claims.FindFirstValue(TampUserIdClaim), out var id) ? id : null;
+    }
+
     // Duplicated from AuthExtensions rather than referenced: Web must not
     // depend on Api (ADR 0002). The claim type is a wire contract between the
     // two, and a test asserts they still agree.
