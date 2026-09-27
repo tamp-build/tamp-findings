@@ -1351,7 +1351,7 @@ class Build : SecurityPipelineBuild
         var version = $"0.1.0-alpha+{(sha is null ? "local" : sha[..7])}";
         return new IngestBuildContext(
             Client: IngestClientOverride ?? "BrewingCoder",
-            Project: IngestProjectOverride ?? "tamp",
+            Project: IngestProjectOverride ?? "tamp-findings",
             Component: IngestComponentOverride ?? "tamp-findings",
             ComponentKind: "solution",
             Flavor: "net10",
