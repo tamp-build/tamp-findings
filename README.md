@@ -4,6 +4,16 @@ Self-hosted security/quality dashboard built on the [Tamp](https://github.com/ta
 
 It ingests SARIF, SBOMs, coverage, and test results from any CI pipeline, scores each build against a configurable risk policy, and produces federal-ready evidence — CISA SSDF attestation, VEX, POA&M, KEV exposure, VDP, SLSA/in-toto provenance — for the work you ship.
 
+> ## ⚠️ Status: Alpha
+>
+> tamp.findings is currently **Alpha**. We are still fleshing out the entity
+> relationships, project structure, and overall data model — **expect the
+> data/entity model to change**, including breaking schema, migration, and API
+> changes, with no backward-compatibility guarantees between builds.
+>
+> Don't build anything load-bearing on the current shapes yet. We'll move to
+> **Beta** once the entity model and project structure are solidified.
+
 ![tamp.findings dashboard — Risk Rings, Code Quality, SBOM health, Licenses, Secrets, IaC, Test Coverage](docs/dashboard-overview.png)
 
 > Tracked internally in YouTrack project **TFND** — epic **TFND-1**, federal-readiness epic **TFND-24**. GitHub Issues is disabled on this repo (the internal tracker is canonical).
