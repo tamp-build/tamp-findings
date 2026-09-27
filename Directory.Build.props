@@ -10,6 +10,8 @@
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <NeutralLanguage>en-US</NeutralLanguage>
+    <!-- #3: ship XML docs next to each .dll in the nupkg. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <!-- Emit packages.lock.json on restore so reproducible builds are the
          default and Syft's dotnet-packages-lock cataloger can see the .NET
