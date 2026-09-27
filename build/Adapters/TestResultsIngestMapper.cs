@@ -150,7 +150,8 @@ public static class TestResultsIngestMapper
             DurationMs: totalDuration,
             StartedAt: (runStart ?? DateTimeOffset.UtcNow).ToUniversalTime(),
             CompletedAt: (runEnd ?? DateTimeOffset.UtcNow).ToUniversalTime(),
-            Suites: suites);
+            Suites: suites,
+            Actor: ctx.Actor);
     }
 
     private static TestOutcome MapOutcome(string? raw) => raw switch
@@ -211,7 +212,8 @@ public sealed record TestResultsIngestRequestDto(
     double DurationMs,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
-    IReadOnlyList<TestSuiteDto> Suites);
+    IReadOnlyList<TestSuiteDto> Suites,
+    IngestActorDto? Actor = null);
 
 public sealed record TestSuiteDto(
     string AssemblyName,

@@ -237,7 +237,8 @@ public static class CoverageIngestMapper
             CoveredBranches: (int)rootCoveredBr,
             TotalBranches: (int)rootTotalBr,
             Modules: modules,
-            SourceFiles: sourceFiles);
+            SourceFiles: sourceFiles,
+            Actor: ctx.Actor);
     }
 
     private static string NormaliseRelativePath(string absolutePath, string repoRoot)
@@ -319,7 +320,8 @@ public sealed record CoverageIngestRequestDto(
     int CoveredBranches,
     int TotalBranches,
     IReadOnlyList<CoverageModuleDto> Modules,
-    IReadOnlyList<CoverageSourceFileDto> SourceFiles);
+    IReadOnlyList<CoverageSourceFileDto> SourceFiles,
+    IngestActorDto? Actor = null);
 
 public sealed record CoverageModuleDto(
     string Name,

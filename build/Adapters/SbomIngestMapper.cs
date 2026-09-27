@@ -97,7 +97,8 @@ public static class SbomIngestMapper
             ToolName: null,
             ToolVersion: null,
             Components: components,
-            Dependencies: dependencies);
+            Dependencies: dependencies,
+            Actor: ctx.Actor);
     }
 
     private static Dictionary<string, List<VulnerabilityDto>> BuildRefToVulnsIndex(CycloneDxBom bom)
