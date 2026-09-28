@@ -142,6 +142,14 @@
             // Visually separated: a top hairline, extra padding above, and a
             // group label in the accent rather than neutral — it sits outside
             // the project scope and the nav says so.
+            // Manage — cross-scope authoring (ADR 0007). Policy templates are the
+            // top layer clients inherit; kept out of System because they are a
+            // policy-authoring concern, not an instance-operations one.
+            groups.Add(new(new Microsoft.Extensions.Localization.LocalizedString("Manage", "Manage"),
+            [
+                new(new Microsoft.Extensions.Localization.LocalizedString("Policy templates", "Policy templates"), Routes.PolicyTemplates()),
+            ], Instance: true));
+
             groups.Add(new(L["Nav.Group.System"],
             [
                 new(L["Nav.Users"], Routes.System(SystemPanels.Users)),
