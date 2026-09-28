@@ -1,9 +1,15 @@
 # ADR 0006: ADR-conformance as an evidence source, and freezing non-pure verdicts at the snapshot
 
-* Status: Accepted
+* Status: Accepted (§3 superseded in part by [ADR 0012](0012-findings-as-the-authoritative-conformance-rules-store.md))
 * Date: 2026-09-28
 * Deciders: scott
 * Tracking: TFND-174 (ADR-conformance as a CI/CD evidence source)
+
+> **Note (2026-09-28):** ADR 0012 makes tamp.findings the authoritative store for the
+> rules (generation-push + ruleset-fetch). The governed repo's `adr-rules.json` remains
+> the generation source and the human-review diff surface described in §3, but the served
+> copy the analyzer runs against now lives in findings. The invariants below on *results*
+> (frozen, provenance-stamped, four-valued verdicts) are unchanged.
 
 ## Context and Problem Statement
 

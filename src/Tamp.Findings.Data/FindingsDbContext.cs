@@ -69,6 +69,9 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<ZtSystemPick> ZtSystemPicks => Set<ZtSystemPick>();
     public DbSet<MandatePack> MandatePacks => Set<MandatePack>();
 
+    // Authoritative conformance-rules store (TFND-190 / ADR 0012).
+    public DbSet<ConformanceRule> ConformanceRules => Set<ConformanceRule>();
+
     /// <summary>
     /// ASP.NET Data Protection key ring (TFND-111).
     ///
@@ -733,6 +736,26 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.Version).HasMaxLength(64).IsRequired();
             e.Property(x => x.Mandates).HasColumnType("jsonb").IsRequired();
             e.HasIndex(x => x.IsCurrent).IsUnique().HasFilter("\"IsCurrent\" = true");
+        });
+
+        b.Entity<ConformanceRule>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.AdrRef).HasMaxLength(64).IsRequired();
+            e.Property(x => x.RuleId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Intent).HasColumnType("text");
+            e.Property(x => x.CheckSpec).HasColumnType("text");
+            e.Property(x => x.ControlRefs).HasColumnType("jsonb");
+            e.Property(x => x.ZtPillar).HasMaxLength(128);
+            e.Property(x => x.ZtFunction).HasMaxLength(128);
+            e.Property(x => x.MandateId).HasMaxLength(128);
+            e.Property(x => x.RulesSha).HasMaxLength(128);
+            e.Property(x => x.ExtractionModelId).HasMaxLength(128);
+            // Upsert key: one row per rule per project (retire toggles RetiredAt on it).
+            e.HasIndex(x => new { x.ProjectId, x.AdrRef, x.RuleId }).IsUnique();
+            // The active-set fetch scans by project + not-retired.
+            e.HasIndex(x => new { x.ProjectId, x.RetiredAt });
+            e.HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<CoverageClass>(e =>

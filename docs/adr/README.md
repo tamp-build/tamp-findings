@@ -21,3 +21,4 @@ Numbering starts at 0001 for tamp.findings-local decisions.
 | [0009](0009-control-disposition-and-the-no-unmapped-meta-gate.md) | Control disposition and the no-unmapped meta-gate | Proposed |
 | [0010](0010-zero-trust-maturity-and-operational-mandates.md) | Zero Trust maturity + operational mandates in tamp.findings | Proposed |
 | [0011](0011-executive-order-mandate-provenance-registry.md) | Executive-order mandate provenance registry | Proposed |
+| [0012](0012-findings-as-the-authoritative-conformance-rules-store.md) | Findings as the authoritative conformance-rules store (amends 0006 §3) | Proposed |
