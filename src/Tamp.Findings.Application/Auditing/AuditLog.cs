@@ -194,6 +194,8 @@ public static class AuditActions
     public const string ClientTemplateSwitched = "client.template_switched";
     public const string ComplianceProfileRead = "compliance_profile.read";
     public const string ZtProfileRead = "zt_profile.read";
+    public const string AdrRulesPushed = "adr_rules.pushed";
+    public const string AdrRulesetRead = "adr_ruleset.read";
     public const string ConformanceIngested = "conformance.ingested";
 
     // Access — who can do what changed.
