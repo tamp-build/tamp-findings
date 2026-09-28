@@ -42,6 +42,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
     public DbSet<PolicyTemplate> PolicyTemplates => Set<PolicyTemplate>();
+    public DbSet<ControlCatalog> ControlCatalogs => Set<ControlCatalog>();
+    public DbSet<Framework> Frameworks => Set<Framework>();
     public DbSet<KevAdvisory> KevAdvisories => Set<KevAdvisory>();
     public DbSet<VexStatement> VexStatements => Set<VexStatement>();
     public DbSet<PoamItem> PoamItems => Set<PoamItem>();
@@ -549,6 +551,28 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => new { x.Name, x.Version }).IsUnique();
             // Link the scoring policy; SetNull so deleting it drops the link.
             e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<ControlCatalog>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Source).HasMaxLength(512).IsRequired();
+            e.Property(x => x.Version).HasMaxLength(64).IsRequired();
+            // The controls travel inline as jsonb — a catalog is read whole.
+            e.Property(x => x.Controls).HasColumnType("jsonb").IsRequired();
+            // At most one current catalog, like the default RiskPolicy.
+            e.HasIndex(x => x.IsCurrent).IsUnique().HasFilter("\"IsCurrent\" = true");
+        });
+
+        b.Entity<Framework>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Slug).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Source).HasMaxLength(512).IsRequired();
+            e.Property(x => x.Version).HasMaxLength(64).IsRequired();
+            e.HasIndex(x => x.Slug).IsUnique();
         });
 
         b.Entity<CoverageClass>(e =>

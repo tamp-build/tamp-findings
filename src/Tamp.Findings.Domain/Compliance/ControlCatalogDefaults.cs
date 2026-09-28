@@ -1,0 +1,110 @@
+namespace Tamp.Findings.Domain.Compliance;
+
+/// <summary>
+/// A curated NIST SP 800-53 Rev 5 subset (v3 §6), seeded so the frameworks and
+/// the control-statement panel have real controls to render before a full OSCAL
+/// 1.2 catalog is imported. Statements are the catalog's own prose with
+/// organization-defined parameters left inline for the parser.
+/// </summary>
+public static class ControlCatalogDefaults
+{
+    public const string CatalogName = "NIST SP 800-53 Rev 5.2.0";
+    public const string CatalogVersion = "5.2.0";
+
+    private static Control C(string id, string title, string family, string bases, params string[] stmt) => new()
+    {
+        Id = id, Title = title, Family = family,
+        Baselines = ControlStatementParser.ParseBaselines(bases),
+        StatementLines = [.. stmt],
+    };
+
+    public static List<Control> Build80053Rev5() =>
+    [
+        C("AC-3", "Access Enforcement", "Access Control", "LMH",
+            "Enforce approved authorizations for logical access to information and system resources in accordance with applicable access control policies."),
+        C("AC-4", "Information Flow Enforcement", "Access Control", "MH",
+            "Enforce approved authorizations for controlling the flow of information within the system and between connected systems based on [Assignment: organization-defined information flow control policies]."),
+        C("AU-3", "Content of Audit Records", "Audit and Accountability", "LMH",
+            "Ensure that audit records contain information that establishes the following:",
+            "a. What type of event occurred;", "b. When the event occurred;", "c. Where the event occurred;",
+            "d. Source of the event;", "e. Outcome of the event; and",
+            "f. Identity of any individuals, subjects, or objects/entities associated with the event."),
+        C("AU-11", "Audit Record Retention", "Audit and Accountability", "LMH",
+            "Retain audit records for [Assignment: organization-defined time period consistent with records retention policy] to provide support for after-the-fact investigations of incidents and to meet regulatory and organizational information retention requirements."),
+        C("CM-2", "Baseline Configuration", "Configuration Management", "LMH",
+            "a. Develop, document, and maintain under configuration control, a current baseline configuration of the system; and",
+            "b. Review and update the baseline configuration of the system: 1. [Assignment: organization-defined frequency]; 2. When required due to [Assignment: organization-defined circumstances]; and 3. When system components are installed or upgraded."),
+        C("CM-3", "Configuration Change Control", "Configuration Management", "MH",
+            "a. Determine and document the types of changes to the system that are configuration-controlled;",
+            "b. Review proposed configuration-controlled changes to the system and approve or disapprove such changes with explicit consideration for security and privacy impact analyses;",
+            "c. Document configuration change decisions associated with the system;",
+            "d. Implement approved configuration-controlled changes to the system;",
+            "e. Retain records of configuration-controlled changes to the system for [Assignment: organization-defined time period];",
+            "f. Monitor and review activities associated with configuration-controlled changes to the system; and",
+            "g. Coordinate and provide oversight for configuration change control activities through [Assignment: organization-defined configuration change control element] that convenes [Selection (one or more): [Assignment: organization-defined frequency]; when [Assignment: organization-defined configuration change conditions]]."),
+        C("CM-6", "Configuration Settings", "Configuration Management", "LMH",
+            "a. Establish and document configuration settings for components employed within the system that reflect the most restrictive mode consistent with operational requirements using [Assignment: organization-defined common secure configurations];",
+            "b. Implement the configuration settings;",
+            "c. Identify, document, and approve any deviations from established configuration settings for [Assignment: organization-defined system components] based on [Assignment: organization-defined operational requirements]; and",
+            "d. Monitor and control changes to the configuration settings in accordance with organizational policies and procedures."),
+        C("CM-7", "Least Functionality", "Configuration Management", "LMH",
+            "a. Configure the system to provide only [Assignment: organization-defined mission essential capabilities]; and",
+            "b. Prohibit or restrict the use of the following functions, ports, protocols, software, and/or services: [Assignment: organization-defined prohibited or restricted functions, system ports, protocols, software, and/or services]."),
+        C("IA-5", "Authenticator Management", "Identification and Authentication", "LMH",
+            "Manage system authenticators by:",
+            "a. Verifying, as part of the initial authenticator distribution, the identity of the individual, group, role, service, or device receiving the authenticator;",
+            "b. Establishing initial authenticator content for any authenticators issued by the organization;",
+            "c. Ensuring that authenticators have sufficient strength of mechanism for their intended use;",
+            "d. Establishing and implementing administrative procedures for initial authenticator distribution, for lost or compromised or damaged authenticators, and for revoking authenticators;",
+            "e. Changing default authenticators prior to first use;",
+            "f. Changing or refreshing authenticators [Assignment: organization-defined time period by authenticator type] or when [Assignment: organization-defined events] occur;",
+            "g. Protecting authenticator content from unauthorized disclosure and modification;",
+            "h. Requiring individuals to take, and having devices implement, specific controls to protect authenticators; and",
+            "i. Changing authenticators for group or role accounts when membership to those accounts changes."),
+        C("RA-5", "Vulnerability Monitoring and Scanning", "Risk Assessment", "LMH",
+            "a. Monitor and scan for vulnerabilities in the system and hosted applications [Assignment: organization-defined frequency and/or randomly in accordance with organization-defined process] and when new vulnerabilities potentially affecting the system are identified and reported;",
+            "b. Employ vulnerability monitoring tools and techniques that facilitate interoperability among tools and automate parts of the vulnerability management process by using standards for enumerating platforms, software flaws, and improper configurations; formatting checklists and test procedures; and measuring vulnerability impact;",
+            "c. Analyze vulnerability scan reports and results from vulnerability monitoring;",
+            "d. Remediate legitimate vulnerabilities [Assignment: organization-defined response times] in accordance with an organizational assessment of risk;",
+            "e. Share information obtained from the vulnerability monitoring process and control assessments with [Assignment: organization-defined personnel or roles] to help eliminate similar vulnerabilities in other systems; and",
+            "f. Employ vulnerability monitoring tools that include the capability to readily update the vulnerabilities to be scanned."),
+        C("SA-8", "Security and Privacy Engineering Principles", "System and Services Acquisition", "LMH",
+            "Apply the following systems security and privacy engineering principles in the specification, design, development, implementation, and modification of the system and system components: [Assignment: organization-defined systems security and privacy engineering principles]."),
+        C("SA-11", "Developer Testing and Evaluation", "System and Services Acquisition", "MH",
+            "Require the developer of the system, system component, or system service, at all post-design stages of the system development life cycle, to:",
+            "a. Develop and implement a plan for ongoing security and privacy control assessments;",
+            "b. Perform [Selection (one or more): unit; integration; system; regression] testing/evaluation [Assignment: organization-defined frequency] at [Assignment: organization-defined depth and coverage];",
+            "c. Produce evidence of the execution of the assessment plan and the results of the testing and evaluation;",
+            "d. Implement a verifiable flaw remediation process; and",
+            "e. Correct flaws identified during testing and evaluation."),
+        C("SA-15", "Development Process, Standards, and Tools", "System and Services Acquisition", "MH",
+            "a. Require the developer of the system, system component, or system service to follow a documented development process that: 1. Explicitly addresses security and privacy requirements; 2. Identifies the standards and tools used in the development process; 3. Documents the specific tool options and tool configurations used in the development process; and 4. Documents, manages, and ensures the integrity of changes to the process and/or tools used in development; and",
+            "b. Review the development process, standards, tools, tool options, and tool configurations [Assignment: organization-defined frequency] to determine if the process, standards, tools, tool options and tool configurations selected and employed can satisfy the following security and privacy requirements: [Assignment: organization-defined security and privacy requirements]."),
+        C("SA-17", "Developer Security and Privacy Architecture and Design", "System and Services Acquisition", "H",
+            "Require the developer of the system, system component, or system service to produce a design specification and security and privacy architecture that:",
+            "a. Is consistent with the organization’s security and privacy architecture that is an integral part the organization’s enterprise architecture;",
+            "b. Accurately and completely describes the required security and privacy functionality, and the allocation of controls among physical and logical components; and",
+            "c. Expresses how individual security and privacy functions, mechanisms, and services work together to provide required security and privacy capabilities and a unified approach to protection."),
+        C("SC-7", "Boundary Protection", "System and Communications Protection", "LMH",
+            "a. Monitor and control communications at the external managed interfaces to the system and at key internal managed interfaces within the system;",
+            "b. Implement subnetworks for publicly accessible system components that are [Selection: physically; logically] separated from internal organizational networks; and",
+            "c. Connect to external networks or systems only through managed interfaces consisting of boundary protection devices arranged in accordance with an organizational security and privacy architecture."),
+        C("SC-13", "Cryptographic Protection", "System and Communications Protection", "LMH",
+            "a. Determine the [Assignment: organization-defined cryptographic uses]; and",
+            "b. Implement the following types of cryptography required for each specified cryptographic use: [Assignment: organization-defined types of cryptography for each specified cryptographic use]."),
+        C("SC-23", "Session Authenticity", "System and Communications Protection", "MH",
+            "Protect the authenticity of communications sessions."),
+        C("SI-2", "Flaw Remediation", "System and Information Integrity", "LMH",
+            "a. Identify, report, and correct system flaws;",
+            "b. Test software and firmware updates related to flaw remediation for effectiveness and potential side effects before installation;",
+            "c. Install security-relevant software and firmware updates within [Assignment: organization-defined time period] of the release of the updates; and",
+            "d. Incorporate flaw remediation into the organizational configuration management process."),
+        C("SI-6", "Security and Privacy Function Verification", "System and Information Integrity", "H",
+            "a. Verify the correct operation of [Assignment: organization-defined security and privacy functions];",
+            "b. Perform the verification of the functions specified in SI-6a [Selection (one or more): [Assignment: organization-defined system transitional states]; upon command by user with appropriate privilege; [Assignment: organization-defined frequency]];",
+            "c. Alert [Assignment: organization-defined personnel or roles] to failed security and privacy verification tests; and",
+            "d. [Selection (one or more): Shut the system down; Restart the system; [Assignment: organization-defined alternative action(s)]] when anomalies are discovered."),
+        C("SI-10", "Information Input Validation", "System and Information Integrity", "MH",
+            "Check the validity of the following information inputs: [Assignment: organization-defined information inputs to the system]."),
+    ];
+}

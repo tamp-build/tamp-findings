@@ -387,6 +387,27 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
         });
         await db.SaveChangesAsync();
     }
+
+    // Seed the control catalog (ADR — v3 §6) and the frameworks, idempotently.
+    // A curated 800-53 Rev 5 subset until a full OSCAL 1.2 import lands (TFND-180).
+    if (!await db.ControlCatalogs.AnyAsync())
+    {
+        db.ControlCatalogs.Add(new Tamp.Findings.Domain.Entities.ControlCatalog
+        {
+            Name = Tamp.Findings.Domain.Compliance.ControlCatalogDefaults.CatalogName,
+            Source = "Curated 800-53 Rev 5 subset (pending OSCAL import)",
+            Version = Tamp.Findings.Domain.Compliance.ControlCatalogDefaults.CatalogVersion,
+            IsSeeded = true,
+            IsCurrent = true,
+            Controls = Tamp.Findings.Domain.Compliance.ControlCatalogDefaults.Build80053Rev5(),
+        });
+        await db.SaveChangesAsync();
+    }
+    if (!await db.Frameworks.AnyAsync())
+    {
+        db.Frameworks.AddRange(Tamp.Findings.Domain.Compliance.FrameworkDefaults.Build());
+        await db.SaveChangesAsync();
+    }
 }
 
 // ForwardedHeaders MUST run before anything that reads Request.Scheme
