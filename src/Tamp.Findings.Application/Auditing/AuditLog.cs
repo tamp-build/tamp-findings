@@ -187,6 +187,11 @@ public static class AuditActions
     public const string VexPublished = "vex.published";
     public const string PolicySaved = "policy.saved";
     public const string GateChanged = "gate.changed";
+    // Three-layer policy (ADR 0007).
+    public const string PolicyTemplateSaved = "policy_template.saved";
+    public const string PolicyTemplateLoosened = "policy_template.loosened";
+    public const string ClientPolicySaved = "client_policy.saved";
+    public const string ClientTemplateSwitched = "client.template_switched";
 
     // Access — who can do what changed.
     // The two bootstrap paths to administrator — the single most privileged,

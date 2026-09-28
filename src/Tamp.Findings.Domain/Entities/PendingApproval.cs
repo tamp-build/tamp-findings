@@ -81,6 +81,11 @@ public enum ApprovalKind
     AttestationSignOff = 4,
     // Recycling an ingest key breaks CI until pipelines redeploy.
     IngestKeyRecycle = 5,
+    // Loosening a policy template lowers the floor for every client and project
+    // under it (ADR 0007) — an InfoSec risk decision, not a policy edit.
+    LoosenPolicyTemplate = 6,
+    // Switching a client's template swaps its whole inherited baseline (ADR 0007).
+    SwitchClientTemplate = 7,
 }
 
 public enum ApprovalState
