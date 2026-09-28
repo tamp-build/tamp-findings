@@ -1,0 +1,222 @@
+@page "/c/{Client}/p/{Project}/build/{Sha}/score/{Key}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject RouteScope Scope
+@inject ProjectHubQuery Hub
+@inject Tamp.Findings.Application.Risk.CategoryFindingsQuery CategoryFindings
+@inject CurrentUser Me
+
+<PageTitle>@Label(Key) — tamp.findings</PageTitle>
+
+@if (_loading)
+{
+    <p class="muted">Loading…</p>
+}
+else if (_project is null || _row is null)
+{
+    <div class="stack">
+        <h1>@Label(Key)</h1>
+        <Card>
+            <p>No scored category <code class="mono">@Key</code> for <code class="mono">@Client / @Project</code>.</p>
+            <p class="field__help"><a href="@HubHref">← Back to the project</a></p>
+        </Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <nav class="crumbs">
+            <a href="@Routes.Portfolio">Portfolio</a>
+            <span class="crumbs__sep">/</span>
+            <a href="@HubHref">@_project.ProjectName</a>
+            <span class="crumbs__sep">/</span>
+            <span>@Label(Key)</span>
+        </nav>
+
+        <div class="cathero">
+            <div>
+                <h1>@Label(Key) <span class="cathero__key mono">@Key</span></h1>
+            </div>
+            <div class="cathero__points" style="color: @PointsColor">
+                @_row.Contribution.ToString("F1")<span class="cathero__max">/ @_row.EffectiveMax.ToString("F0")</span>
+                @if (_row.Saturated)
+                {
+                    <span class="cathero__sat mono">SAT</span>
+                }
+            </div>
+        </div>
+
+        <div class="cattabs">
+            <button class="cattab @(_tab == Tab.Current ? "cattab--active" : null)" @onclick="() => _tab = Tab.Current">Current</button>
+            <button class="cattab @(_tab == Tab.History ? "cattab--active" : null)" @onclick="() => _tab = Tab.History">History</button>
+        </div>
+
+        @if (_tab == Tab.Current)
+        {
+            @if (!Tamp.Findings.Application.Risk.CategoryFindingsQuery.IsFindingsCategory(Key))
+            {
+                <Card>
+                    <p class="muted">The detailed view for <strong>@Label(Key)</strong> lands with its own phase-3 pass.</p>
+                    <p class="field__help">
+                        This category is scored from a source other than the findings table
+                        (@SourceHint(Key)), so its table is built separately. The score above is live.
+                    </p>
+                </Card>
+            }
+            else if (_findings.Count == 0)
+            {
+                <Card>
+                    <div class="row">
+                        @if (!_row.Enabled)
+                        {
+                            <Chip Label="Disabled" Tone="var(--color-neutral-500)" Style="Chip.ChipStyle.Dashed" />
+                            <span>This category is disabled in policy.</span>
+                        }
+                        else
+                        {
+                            <Chip Label="Nothing found" Tone="var(--color-pass)" Glyph="✓" />
+                            <span>No findings in this category for this build.</span>
+                        }
+                    </div>
+                    <p class="field__help">A missing scan is not a clean scan — check the Missing scanners category.</p>
+                </Card>
+            }
+            else
+            {
+                <Card Padded="false">
+                    <ScrollBox Label="@Label(Key)">
+                        <table class="table table--rows">
+                            <thead>
+                                <tr>
+                                    <th>Severity</th><th>Finding</th><th>Location</th>
+                                    <th>First seen</th><th>Status</th><th>Gate</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var f in _findings)
+                                {
+                                    <tr>
+                                        <td><SeverityBadge Severity="f.Severity" /></td>
+                                        <td>
+                                            <div>@f.Title</div>
+                                            <div class="mono muted cat__rule">@f.Scanner · @f.RuleId</div>
+                                        </td>
+                                        <td class="mono">
+                                            @if (f.FilePath is { } path)
+                                            {
+                                                <span title="@path">@Shorten(path)@(f.Line is { } ln ? $":{ln}" : "")</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="muted">—</span>
+                                            }
+                                        </td>
+                                        <td class="mono">@f.FirstSeen.ToString("yyyy-MM-dd")</td>
+                                        <td class="mono muted">@f.Status</td>
+                                        <td class="mono">@GateMark(f.Severity)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </ScrollBox>
+                </Card>
+                <p class="field__help">@_findings.Count finding@(_findings.Count == 1 ? "" : "s") contributing to this category.</p>
+            }
+        }
+        else
+        {
+            <Card>
+                <p class="muted">Per-build history for this category lands with the category-history pass (phase 3).</p>
+            </Card>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+    [Parameter] public string Sha { get; set; } = "";
+    [Parameter] public string Key { get; set; } = "";
+
+    private enum Tab { Current, History }
+
+    private ProjectRef? _project;
+    private Tamp.Findings.Domain.Risk.RiskCategoryBreakdown? _row;
+    private IReadOnlyList<Tamp.Findings.Application.Risk.CategoryFinding> _findings = [];
+    private Tab _tab = Tab.Current;
+    private bool _loading = true;
+    private string? _commitSha;
+
+    private string HubHref => Routes.ProjectHub(Client, Project, Sha);
+
+    private string PointsColor =>
+        _row is null ? "var(--color-neutral-600)"
+        : _row.Saturated ? "var(--color-critical)"
+        : _row.Contribution > 0 ? "var(--color-band-orange)"
+        : "var(--color-neutral-600)";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project, Sha);
+        _loading = true;
+        _tab = Tab.Current;
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
+            var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
+            var data = _project is null ? null : await Hub.LoadAsync(_project, sha);
+            _row = data?.Risk.Breakdown.FirstOrDefault(b => b.Key == Key);
+            _commitSha = data?.CommitSha;
+
+            _findings = _project is null || _row is null
+                ? []
+                : await CategoryFindings.LoadAsync(_project.ProjectId, _commitSha, Key);
+        }
+        catch
+        {
+            _project = null;
+            _row = null;
+            _findings = [];
+        }
+        _loading = false;
+    }
+
+    // Only enabled gates block; the severe categories map to blocking gates when
+    // the finding is critical/high, so mark those.
+    private static string GateMark(Domain.Values.Severity sev) =>
+        sev is Domain.Values.Severity.Critical or Domain.Values.Severity.High ? "gated" : "—";
+
+    private static string Shorten(string path)
+    {
+        var parts = path.Replace('\\', '/').Split('/');
+        return parts.Length <= 3 ? path : ".../" + string.Join('/', parts[^2..]);
+    }
+
+    private static string SourceHint(string key) => key switch
+    {
+        "cve" => "SBOM vulnerabilities",
+        "coverage" => "coverage reports",
+        "tests" => "test results",
+        "license" => "SBOM component licences",
+        "sbomStaleness" => "SBOM component drift",
+        "missingScanners" => "scan-run receipts",
+        _ => "another source",
+    };
+
+    private static string Label(string key) => key switch
+    {
+        "cve" => "Known CVEs",
+        "secrets" => "Secrets",
+        "sastSevere" => "Static analysis (severe)",
+        "sastLow" => "Static analysis (low)",
+        "dastSevere" => "Dynamic scan (severe)",
+        "dastLow" => "Dynamic scan (low)",
+        "iacSevere" => "IaC misconfig (severe)",
+        "coverage" => "Coverage",
+        "tests" => "Tests",
+        "sbomStaleness" => "SBOM freshness",
+        "license" => "Licences",
+        "missingScanners" => "Missing scanners",
+        _ => key,
+    };
+}
