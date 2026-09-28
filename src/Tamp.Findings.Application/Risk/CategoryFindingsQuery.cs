@@ -96,6 +96,102 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db)
             tb == 0 ? 0 : 100.0 * cb / tb, cb, tb);
     }
 
+    /// <summary>Test outcomes for the `tests` category. Suite-level — per-test flaky/skipped
+    /// detail is not ingested yet (a known model gap), so this reports the suites that failed
+    /// or skipped, plus the run totals.</summary>
+    public async Task<TestsSummary?> TestsAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
+        if (cvIds.Length == 0) return null;
+
+        var reports = await db.TestRunReports.AsNoTracking()
+            .Where(r => cvIds.Contains(r.ComponentVersionId))
+            .Select(r => new { r.Id, r.TotalCount, r.PassedCount, r.FailedCount, r.SkippedCount })
+            .ToListAsync(ct);
+        if (reports.Count == 0) return null;
+
+        var reportIds = reports.Select(r => r.Id).ToArray();
+        var suites = await db.TestSuiteResults.AsNoTracking()
+            .Where(s => reportIds.Contains(s.TestRunReportId) && (s.FailedCount > 0 || s.SkippedCount > 0))
+            .OrderByDescending(s => s.FailedCount).ThenByDescending(s => s.SkippedCount)
+            .Select(s => new TestSuiteRow(s.AssemblyName + " · " + s.ClassName, s.FailedCount, s.SkippedCount))
+            .Take(200).ToListAsync(ct);
+
+        return new TestsSummary(
+            reports.Sum(r => r.TotalCount), reports.Sum(r => r.PassedCount),
+            reports.Sum(r => r.FailedCount), reports.Sum(r => r.SkippedCount), suites);
+    }
+
+    /// <summary>Licence mix for the `license` category.</summary>
+    public async Task<IReadOnlyList<LicenseGroup>> LicensesAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var snapIds = await SnapshotIdsAsync(projectId, commitSha, ct);
+        if (snapIds.Length == 0) return [];
+
+        var groups = await db.SbomComponents.AsNoTracking()
+            .Where(c => snapIds.Contains(c.SbomSnapshotId))
+            .GroupBy(c => c.License)
+            .Select(g => new { g.Key, Count = g.Count() })
+            .OrderByDescending(g => g.Count)
+            .ToListAsync(ct);
+
+        return groups.Select(g => new LicenseGroup(g.Key ?? "unknown", g.Count)).ToArray();
+    }
+
+    /// <summary>The outdated SBOM components behind the `sbomStaleness` score.
+    ///
+    /// Mirrors RiskInputsBuilder EXACTLY so the list and the number cannot
+    /// disagree: skip vulnerable rows (they score under cve, not here), keep the
+    /// rows with a newer version available (<c>outdated</c>), and mark the ones
+    /// whose newer release itself shipped over 180 days ago (<c>stale</c> — you
+    /// have had the time to adopt it and have not).</summary>
+    public async Task<IReadOnlyList<StaleComponent>> SbomStalenessAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var snapIds = await SnapshotIdsAsync(projectId, commitSha, ct);
+        if (snapIds.Length == 0) return [];
+
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-180);
+        var rows = await db.SbomComponents.AsNoTracking()
+            .Where(c => snapIds.Contains(c.SbomSnapshotId)
+                && c.Vulnerabilities.Count == 0
+                && c.LatestVersion != null && c.LatestVersion != "" && c.LatestVersion != c.Version)
+            .Select(c => new { c.Name, c.Version, c.LatestVersion, c.LatestReleasedAt })
+            .ToListAsync(ct);
+
+        var now = DateTimeOffset.UtcNow;
+        return rows
+            .Select(c => new StaleComponent(
+                c.Name, c.Version, c.LatestVersion,
+                c.LatestReleasedAt is { } at ? (int)(now - at).TotalDays : null,
+                c.LatestReleasedAt is { } s && s < cutoff))
+            .OrderByDescending(c => c.Stale)
+            .ThenByDescending(c => c.DaysBehind ?? -1)
+            .ThenBy(c => c.Name)
+            .Take(100).ToArray();
+    }
+
+    /// <summary>Scan-run receipts for the `missingScanners` category — which scanners ran.</summary>
+    public async Task<IReadOnlyList<ReceiptRow>> ReceiptsAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
+        if (cvIds.Length == 0) return [];
+
+        return await db.ScanRunReceipts.AsNoTracking()
+            .Where(r => cvIds.Contains(r.ComponentVersionId))
+            .OrderBy(r => r.Scanner)
+            .Select(r => new ReceiptRow(r.Scanner, r.Status.ToString(), r.FindingsCount, r.CompletedAt, r.ToolName))
+            .ToListAsync(ct);
+    }
+
+    private async Task<Guid[]> SnapshotIdsAsync(Guid projectId, string? commitSha, CancellationToken ct)
+    {
+        var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
+        if (cvIds.Length == 0) return [];
+        return await db.SbomSnapshots.AsNoTracking()
+            .Where(s => cvIds.Contains(s.ComponentVersionId))
+            .Select(s => s.Id).ToArrayAsync(ct);
+    }
+
     // Whether a category key is answered by this query (a findings table).
     public static bool IsFindingsCategory(string key) => key is
         "sastSevere" or "sastLow" or "secrets" or "iacSevere";
@@ -140,3 +236,15 @@ public sealed record CveRow(
 public sealed record CoverageSummary(
     double SequencePercent, int CoveredSequences, int TotalSequences,
     double BranchPercent, int CoveredBranches, int TotalBranches);
+
+public sealed record TestsSummary(
+    int Total, int Passed, int Failed, int Skipped, IReadOnlyList<TestSuiteRow> Suites);
+
+public sealed record TestSuiteRow(string Suite, int Failed, int Skipped);
+
+public sealed record LicenseGroup(string License, int Count);
+
+public sealed record StaleComponent(string Name, string Version, string? LatestVersion, int? DaysBehind, bool Stale);
+
+public sealed record ReceiptRow(
+    ScannerKind Scanner, string Status, int FindingsCount, DateTimeOffset? CompletedAt, string? ToolName);
