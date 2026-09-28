@@ -582,6 +582,20 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 .hubhead { padding-left: var(--space-3); }
 .hubhead__back { display: inline-block; font-size: var(--text-kicker); color: var(--color-accent-700); margin-bottom: 4px; }
 
+/* Category detail page (v3 §3). */
+.crumbs { font-size: 11px; color: var(--color-neutral-600); display: flex; gap: 6px; align-items: center; }
+.crumbs a { color: var(--color-accent-700); }
+.crumbs__sep { color: var(--color-neutral-500); }
+.cathero { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); }
+.cathero__key { font-size: var(--text-secondary); color: var(--color-neutral-600); font-weight: 400; margin-left: 8px; }
+.cathero__points { font-family: var(--font-heading); font-weight: 600; font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
+.cathero__max { font-size: 18px; color: var(--color-neutral-600); margin-left: 6px; }
+.cathero__sat { font-size: 11px; color: var(--color-critical); margin-left: 8px; vertical-align: middle; }
+.cattabs { display: flex; border-bottom: 1px solid var(--color-divider); }
+.cattab { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; color: var(--color-neutral-600); cursor: pointer; font-family: var(--font-body); font-size: var(--text-body); }
+.cattab--active { color: var(--color-text); border-bottom-color: var(--color-accent); }
+.cat__rule { font-size: var(--text-meta); }
+
 /* Evidence tiles (v3 §2.4): auto-fill grid, 2px top border in the status colour. */
 .evtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-3); margin-top: var(--space-2); }
 .evtile {

@@ -41,7 +41,9 @@
         {
             <div class="contrib__row @(row.Contribution > 0 ? "contrib__row--hot" : null) @(row.Enabled ? null : "contrib__row--off")">
                 <div>
-                    <div class="contrib__label">@Label(row.Key)</div>
+                    @* Every scored category has a detail page (v3 §3); the label
+                       links to it in the accent colour. *@
+                    <a class="contrib__label" href="@CategoryHref(row.Key)">@Label(row.Key)</a>
                     <div class="contrib__key mono">@row.Key</div>
                 </div>
 
@@ -112,6 +114,10 @@
         TrendSeries.Count < 2 ? ""
         : $"{TrendSeries.Count} builds: {TrendSeries[0]:F1} → {TrendSeries[^1]:F1} "
           + $"({(TrendFlat ? "flat" : TrendImproving ? "improving" : "worsening")})";
+
+    private string CategoryHref(string key) =>
+        Routes.Category(Data.Project.ClientName, Data.Project.ProjectName,
+            Data.CommitSha ?? Routes.LatestBuild, key);
 
     private static string Signed(double d) => d > 0 ? $"+{d:F1}" : d.ToString("F1");
 

@@ -36,6 +36,10 @@ public static class Routes
     public static string ProjectHub(string client, string project, string? sha = null) =>
         $"/c/{E(client)}/p/{E(project)}/build/{E(sha ?? LatestBuild)}";
 
+    /// <summary>A scored-category detail page (v3 §3), e.g. sastSevere, cve, coverage.</summary>
+    public static string Category(string client, string project, string sha, string key) =>
+        $"/c/{E(client)}/p/{E(project)}/build/{E(sha)}/score/{E(key)}";
+
     /// <param name="spine">sast | dast | sbom | coverage | tests</param>
     /// <param name="selection">
     /// A file path, host, advisory or suite id. Not escaped as a whole: it may
