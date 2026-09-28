@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Tamp.Findings.Domain.Compliance;
 
 /// <summary>
@@ -44,7 +46,9 @@ public sealed class Control
     /// <summary>Whether this control is in a given baseline.</summary>
     public bool InBaseline(BaselineLevel level) => (Baselines & level) == level && level != BaselineLevel.None;
 
-    /// <summary>The organization-defined parameters across the whole statement.</summary>
+    /// <summary>The organization-defined parameters across the whole statement.
+    /// Computed — not persisted (this class is stored as jsonb).</summary>
+    [JsonIgnore]
     public IReadOnlyList<StatementSegment> Parameters =>
         StatementLines.SelectMany(ControlStatementParser.Parse).Where(s => s.IsParameter).ToArray();
 }
