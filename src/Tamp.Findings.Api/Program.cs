@@ -492,6 +492,41 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
         if (corpus is not null)
             await Tamp.Findings.Application.Eo.EoCorpusSeeder.SeedAsync(db, corpus);
     }
+
+    // Seed the shipped CISA ZTMM v2.0 model (ADR 0010). Ships with the product
+    // (Content/ztmm/), hash-seeded like the OSCAL catalog: re-imports only when the
+    // file changes, retires the prior current model, keeps history for reproducibility.
+    var ztmmPath = Path.Combine(builder.Environment.ContentRootPath, "Content", "ztmm", "ztmm-2.0.json");
+    if (File.Exists(ztmmPath))
+    {
+        var bytes = await File.ReadAllBytesAsync(ztmmPath);
+        var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+        var currentModel = await db.MaturityModelCatalogs.FirstOrDefaultAsync(m => m.IsCurrent);
+        if (currentModel?.ImportedSha != sha)
+        {
+            var model = System.Text.Json.JsonSerializer.Deserialize<Tamp.Findings.Domain.Entities.MaturityModelCatalog>(
+                bytes, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+            if (model is not null)
+            {
+                model.ImportedSha = sha;
+                model.IsSeeded = true;
+                model.IsCurrent = true;
+                if (currentModel is not null) { currentModel.IsCurrent = false; await db.SaveChangesAsync(); }
+                db.MaturityModelCatalogs.Add(model);
+                await db.SaveChangesAsync();
+            }
+        }
+    }
+
+    // Seed the shipped mandate pack (ADR 0010 §7). Idempotent by Version: retire the
+    // prior current pack and add this one when the shipped version changes.
+    var currentPack = await db.MandatePacks.FirstOrDefaultAsync(p => p.IsCurrent);
+    if (currentPack?.Version != Tamp.Findings.Domain.Compliance.MandatePackDefaults.PackVersion)
+    {
+        if (currentPack is not null) { currentPack.IsCurrent = false; await db.SaveChangesAsync(); }
+        db.MandatePacks.Add(Tamp.Findings.Domain.Compliance.MandatePackDefaults.Build());
+        await db.SaveChangesAsync();
+    }
 }
 
 // ForwardedHeaders MUST run before anything that reads Request.Scheme
@@ -670,6 +705,7 @@ app.MapSbomEnrich();
 app.MapSbomVulnerabilities();
 app.MapGate();
 app.MapComplianceProfile();
+app.MapZtProfile();
 app.MapConformanceIngest();
 
 // SPA-facing query endpoints — protected by the fallback policy

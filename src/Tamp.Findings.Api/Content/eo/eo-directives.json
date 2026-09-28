@@ -24,6 +24,8 @@
 
     { "ref": "M-21-07-ipv6", "instrument": "M-21-07", "section": "4", "who": "agencies", "mustDo": "Complete transition so at least 80% of IP-enabled assets operate IPv6-only.", "type": "SelfExecutingDated", "applicability": "WhereApplicable", "byWhen": { "kind": "Absolute", "date": "2025-09-30" }, "crosswalk": { "target": "Ztt", "ref": "ipv6" }, "reviewStatus": "Reviewed" },
 
+    { "ref": "M-21-31-logging", "instrument": "M-21-31", "section": "1", "who": "agencies", "mustDo": "Achieve enterprise event-logging maturity (EL1+ advancing to EL3).", "type": "SelfExecutingDated", "applicability": "AllSystems", "byWhen": { "kind": "Absolute", "date": "2023-08-27" }, "crosswalk": { "target": "Ztt", "ref": "logging-maturity" }, "reviewStatus": "Reviewed" },
+
     { "ref": "M-22-18-attestation", "instrument": "M-22-18", "section": "3", "who": "agencies", "mustDo": "Obtain a secure-software-development self-attestation from producers of software the agency uses.", "type": "SelfExecutingDated", "applicability": "AllSystems", "byWhen": { "kind": "Absolute", "date": "2024-06-11" }, "crosswalk": { "target": "Findings", "ref": "secure-software-attestation" }, "reviewStatus": "Reviewed" },
 
     { "ref": "EO14144-attestation-machine-readable", "instrument": "EO 14144", "section": "2(b)", "who": "agencies / CISA", "mustDo": "Require machine-readable secure-software attestations and supporting artifacts.", "type": "SelfExecutingDated", "applicability": "AllSystems", "byWhen": { "kind": "Relative", "offsetDays": 365, "anchor": "SigningDate" }, "crosswalk": { "target": "Findings", "ref": "secure-software-attestation-machine-readable" }, "reviewStatus": "Reviewed" },

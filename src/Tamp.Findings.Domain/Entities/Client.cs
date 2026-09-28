@@ -27,5 +27,16 @@ public sealed class Client
     // v3 §6). Null → none assigned. Projects inherit it.
     public Guid? FrameworkId { get; set; }
 
+    // Zero Trust (TFND-188 / ADR 0010). ZTMM rides its OWN axis, separate from the
+    // singular FrameworkId, because a client held to a control baseline is also
+    // ZT-scored. Null → the client's systems are not ZT-scored.
+    public Guid? MaturityModelId { get; set; }
+    // Per-client attestation policy for inheritance edges (ADR 0010 §5): the cadence
+    // after which an edge-attested inheritance goes stale, and what evidence an
+    // attestation must carry (a statement is always mandatory). Null → a sensible
+    // default applied by the resolver.
+    public int? ZtAttestationExpiryDays { get; set; }
+    public string? ZtAttestationRequirement { get; set; }
+
     public ICollection<Project> Projects { get; set; } = [];
 }

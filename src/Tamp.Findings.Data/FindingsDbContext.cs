@@ -61,6 +61,14 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<DirectiveStatusChange> DirectiveStatusChanges => Set<DirectiveStatusChange>();
     public DbSet<DirectiveCrosswalk> DirectiveCrosswalks => Set<DirectiveCrosswalk>();
 
+    // tamp-ztt (TFND-188 / ADR 0010): the ZT maturity + operational-mandate model.
+    public DbSet<MaturityModelCatalog> MaturityModelCatalogs => Set<MaturityModelCatalog>();
+    public DbSet<ZtSystem> ZtSystems => Set<ZtSystem>();
+    public DbSet<EnterpriseOffering> EnterpriseOfferings => Set<EnterpriseOffering>();
+    public DbSet<ZtInheritanceEdge> ZtInheritanceEdges => Set<ZtInheritanceEdge>();
+    public DbSet<ZtSystemPick> ZtSystemPicks => Set<ZtSystemPick>();
+    public DbSet<MandatePack> MandatePacks => Set<MandatePack>();
+
     /// <summary>
     /// ASP.NET Data Protection key ring (TFND-111).
     ///
@@ -503,6 +511,10 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.MitigationPlan).HasColumnType("text");
             e.Property(x => x.ResourcesRequired).HasMaxLength(2048);
             e.Property(x => x.ReferenceUrl).HasMaxLength(1024);
+            // Source discriminator (TFND-188 / ADR 0010 §9).
+            e.Property(x => x.SourceRef).HasMaxLength(256);
+            e.Property(x => x.MandatePackVersion).HasMaxLength(64);
+            e.HasIndex(x => new { x.SourceKind, x.SourceRef });
             // Linked Finding/Vulnerability Guids as jsonb. EnableDynamicJson
             // (see ServiceCollectionExtensions) lets Npgsql round-trip the
             // List<Guid> without a converter.
@@ -596,7 +608,12 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.DispositionJustification).HasColumnType("text");
             // Control refs travel as jsonb, like other string lists here.
             e.Property(x => x.ControlRefs).HasColumnType("jsonb");
+            // ZT maturity / mandate signal (TFND-188).
+            e.Property(x => x.ZtPillar).HasMaxLength(128);
+            e.Property(x => x.ZtFunction).HasMaxLength(128);
+            e.Property(x => x.MandateId).HasMaxLength(128);
             e.HasIndex(x => x.ComponentVersionId);
+            e.HasIndex(x => x.MandateId);
         });
 
         // ── tamp-EOProvenance (ADR 0011) ──
@@ -649,6 +666,73 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => x.DirectiveId);
             // No mandate double-scored: one directive per (Target, TargetRef).
             e.HasIndex(x => new { x.Target, x.TargetRef }).IsUnique();
+        });
+
+        // ── tamp-ztt (TFND-188 / ADR 0010) ──
+        b.Entity<MaturityModelCatalog>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Version).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Source).HasMaxLength(512).IsRequired();
+            e.Property(x => x.Pillars).HasColumnType("jsonb").IsRequired();
+            e.HasIndex(x => x.IsCurrent).IsUnique().HasFilter("\"IsCurrent\" = true");
+        });
+
+        b.Entity<ZtSystem>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            e.Property(x => x.CsamId).HasMaxLength(128);
+            e.Property(x => x.SystemKind).HasMaxLength(64);
+            e.HasIndex(x => new { x.ClientId, x.Name }).IsUnique();
+            e.HasIndex(x => x.ProjectId);
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<EnterpriseOffering>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ServiceLevelId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Description).HasColumnType("text");
+            e.Property(x => x.FunctionScores).HasColumnType("jsonb").IsRequired();
+            e.HasIndex(x => new { x.ClientId, x.ServiceLevelId }).IsUnique();
+            e.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ZtInheritanceEdge>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Pillar).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Function).HasMaxLength(128).IsRequired();
+            e.Property(x => x.AttesterName).HasMaxLength(256);
+            e.Property(x => x.AttesterLogin).HasMaxLength(256);
+            e.Property(x => x.Statement).HasColumnType("text");
+            e.Property(x => x.EvidenceRef).HasMaxLength(1024);
+            // One inheritance source per function per system.
+            e.HasIndex(x => new { x.SystemId, x.Pillar, x.Function }).IsUnique();
+            e.HasOne<ZtSystem>().WithMany().HasForeignKey(x => x.SystemId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<EnterpriseOffering>().WithMany().HasForeignKey(x => x.OfferingId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ZtSystemPick>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Pillar).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Function).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Justification).HasColumnType("text");
+            e.HasIndex(x => new { x.SystemId, x.Pillar, x.Function }).IsUnique();
+            e.HasOne<ZtSystem>().WithMany().HasForeignKey(x => x.SystemId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<MandatePack>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Version).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Mandates).HasColumnType("jsonb").IsRequired();
+            e.HasIndex(x => x.IsCurrent).IsUnique().HasFilter("\"IsCurrent\" = true");
         });
 
         b.Entity<CoverageClass>(e =>

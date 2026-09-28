@@ -45,6 +45,16 @@ public sealed class ConformanceFinding
     /// control filter chips.</summary>
     public List<string> ControlRefs { get; set; } = [];
 
+    // --- ZT maturity / mandate (TFND-188, ADR 0010 §6) ---
+    // A conformance event is a MATURITY signal when the zt-trio is set (a ZTMM
+    // pillar/function and the STAGE the decision represents — orthogonal to the
+    // verdict/grade), a MANDATE signal when MandateId is set, and a plain control
+    // signal when neither is (today's behaviour). All additive/nullable.
+    public string? ZtPillar { get; set; }
+    public string? ZtFunction { get; set; }
+    public int? ZtStage { get; set; }
+    public string? MandateId { get; set; }
+
     // --- Disposition (accepted deviation) — the finding stays listed ---
     public bool Dispositioned { get; set; }
     public string? DispositionJustification { get; set; }
