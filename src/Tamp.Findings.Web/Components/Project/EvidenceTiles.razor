@@ -15,14 +15,14 @@
     <div class="evtiles">
         @foreach (var t in Tiles)
         {
-            <div class="evtile @(t.Dashed ? "evtile--dashed" : null)" style="border-top-color: @t.Color">
+            <a class="evtile @(t.Dashed ? "evtile--dashed" : null)" href="@EvidenceHref(t.Key)" style="border-top-color: @t.Color">
                 <div class="evtile__head">
                     <span class="evtile__label">@t.Label</span>
                     <span class="evtile__mark" style="color: @t.Color">@t.Mark</span>
                 </div>
                 <div class="evtile__status">@t.Status</div>
                 <div class="evtile__gate mono" style="color: @t.GateColor">@t.GateLine</div>
-            </div>
+            </a>
         }
     </div>
 </Card>
@@ -33,7 +33,10 @@
     [Parameter] public string? Sha { get; set; }
 
     private sealed record Tile(
-        string Label, string Mark, string Color, bool Dashed, string Status, string GateLine, string GateColor);
+        string Key, string Label, string Mark, string Color, bool Dashed, string Status, string GateLine, string GateColor);
+
+    private string EvidenceHref(string key) =>
+        Routes.Evidence(Data.Project.ClientName, Data.Project.ProjectName, Data.CommitSha ?? Routes.LatestBuild, key);
 
     // (mark, colour, dashed) for each status.
     private static readonly (string Mark, string Color, bool Dashed) Ok = ("✓", "var(--color-pass)", false);
@@ -49,32 +52,32 @@
         var tiles = new List<Tile>();
 
         // ADR conformance — no producer (phase 7). Honest not-scanned.
-        tiles.Add(Make("ADR conformance", Missing, "Not scanned", Gate()));
+        tiles.Add(Make(EvidenceKeys.Conformance, "ADR conformance", Missing, "Not scanned", Gate()));
 
         // Dynamic scan (DAST).
         var dast = i.DastCritical + i.DastHigh + i.DastMedium + i.DastLow;
         var dastGate = Gate(GateKeys.CriticalDast, GateKeys.HighDast);
         tiles.Add(!i.RanDast
-            ? Make("Dynamic scan", Missing, "Not scanned", dastGate)
+            ? Make(EvidenceKeys.Dast, "Dynamic scan", Missing, "Not scanned", dastGate)
             : dast == 0
-                ? Make("Dynamic scan", Ok, "No alerts", dastGate)
-                : Make("Dynamic scan", ForGate(dastGate), $"{dast} alert{Plural(dast)}", dastGate));
+                ? Make(EvidenceKeys.Dast, "Dynamic scan", Ok, "No alerts", dastGate)
+                : Make(EvidenceKeys.Dast, "Dynamic scan", ForGate(dastGate), $"{dast} alert{Plural(dast)}", dastGate));
 
         // KEV exposure.
         var kevGate = Gate(GateKeys.KevExposure);
         tiles.Add(i.KevListedCves == 0
-            ? Make("KEV exposure", Ok, "None exposed", kevGate)
-            : Make("KEV exposure", ForGate(kevGate), $"{i.KevListedCves} KEV-listed CVE{Plural(i.KevListedCves)}", kevGate));
+            ? Make(EvidenceKeys.Kev, "KEV exposure", Ok, "None exposed", kevGate)
+            : Make(EvidenceKeys.Kev, "KEV exposure", ForGate(kevGate), $"{i.KevListedCves} KEV-listed CVE{Plural(i.KevListedCves)}", kevGate));
 
         // Design & quality (not gated).
         tiles.Add(i.RanQuality
-            ? Make("Design & quality", Ok, "Checked", Gate())
-            : Make("Design & quality", Missing, "Not scanned", Gate()));
+            ? Make(EvidenceKeys.Quality, "Design & quality", Ok, "Checked", Gate())
+            : Make(EvidenceKeys.Quality, "Design & quality", Missing, "Not scanned", Gate()));
 
         // Accessibility (not gated).
         tiles.Add(i.RanAccessibility
-            ? Make("Accessibility", Ok, "Checked", Gate())
-            : Make("Accessibility", Missing, "Not scanned", Gate()));
+            ? Make(EvidenceKeys.Accessibility, "Accessibility", Ok, "Checked", Gate())
+            : Make(EvidenceKeys.Accessibility, "Accessibility", Missing, "Not scanned", Gate()));
 
         // Base image age.
         var baseGate = Gate(GateKeys.BaseImageAge);
@@ -86,14 +89,14 @@
         // warning. >30 days needs attention; a blocking gate makes it ✕.
         var baseStatus = baseGate.Line == "✕ blocks ship" ? Bad : oldest > 30 ? Warn : Ok;
         tiles.Add(oldest < 0
-            ? Make("Base image age", Missing, "No image inspected", baseGate)
-            : Make("Base image age", baseStatus, $"Oldest base image {oldest} day{Plural(oldest)}", baseGate));
+            ? Make(EvidenceKeys.BaseImage, "Base image age", Missing, "No image inspected", baseGate)
+            : Make(EvidenceKeys.BaseImage, "Base image age", baseStatus, $"Oldest base image {oldest} day{Plural(oldest)}", baseGate));
 
         // POA&M due dates.
         var poamGate = Gate(GateKeys.PoamPastDue);
         tiles.Add(PoamPastDue == 0
-            ? Make("POA&M due dates", Ok, "None past due", poamGate)
-            : Make("POA&M due dates", ForGate(poamGate), $"{PoamPastDue} past due", poamGate));
+            ? Make(EvidenceKeys.Poam, "POA&M due dates", Ok, "None past due", poamGate)
+            : Make(EvidenceKeys.Poam, "POA&M due dates", ForGate(poamGate), $"{PoamPastDue} past due", poamGate));
 
         return tiles;
     }
@@ -115,8 +118,8 @@
         gate.Line == "✕ blocks ship" ? Bad : Warn;
 
     private static Tile Make(
-        string label, (string Mark, string Color, bool Dashed) s, string status, (string Line, string Color) gate) =>
-        new(label, s.Mark, s.Color, s.Dashed, status, gate.Line, gate.Color);
+        string key, string label, (string Mark, string Color, bool Dashed) s, string status, (string Line, string Color) gate) =>
+        new(key, label, s.Mark, s.Color, s.Dashed, status, gate.Line, gate.Color);
 
     private static string Plural(int n) => n == 1 ? "" : "s";
 }

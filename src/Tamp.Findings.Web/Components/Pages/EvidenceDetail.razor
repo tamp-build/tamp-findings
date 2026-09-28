@@ -1,0 +1,519 @@
+@page "/c/{Client}/p/{Project}/build/{Sha}/evidence/{Key}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject RouteScope Scope
+@inject ProjectHubQuery Hub
+@inject CurrentUser Me
+@inject Tamp.Findings.Application.Evidence.EvidenceQuery Evidence
+@inject Tamp.Findings.Application.Poam.PoamQuery Poam
+@inject Tamp.Findings.Application.Vex.VexQuery Vex
+@inject Tamp.Findings.Application.Attestation.SsdfAttestationBuilder Ssdf
+@using Tamp.Findings.Domain.Risk
+@using Tamp.Findings.Application.Evidence
+
+@* Collected-evidence detail (v3 §4). One frame, one key. Distinct from the
+   category-detail page: a category page explains a SCORE; an evidence page shows
+   what a source produced and whether a gate or SSDF practice rides on it.
+
+   The frame — breadcrumb, title + sub-line + gate line, a right-aligned status
+   chip, Current / History tabs — is shared. The body switches on the key. Gate
+   vocabulary is the SAME as the project-hub EvidenceTiles, so a tile and the
+   page it opens cannot disagree. Never green for an absent receipt. *@
+
+<PageTitle>@Label(Key) — tamp.findings</PageTitle>
+
+@if (_loading)
+{
+    <p class="muted">Loading…</p>
+}
+else if (_project is null)
+{
+    <div class="stack">
+        <h1>@Label(Key)</h1>
+        <Card>
+            <p>No project <code class="mono">@Client / @Project</code>.</p>
+            <p class="field__help"><a href="@Routes.Portfolio">← Portfolio</a></p>
+        </Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <nav class="crumbs">
+            <a href="@Routes.Portfolio">Portfolio</a>
+            <span class="crumbs__sep">/</span>
+            <a href="@HubHref">@_project.ProjectName</a>
+            <span class="crumbs__sep">/</span>
+            <span>@Label(Key)</span>
+        </nav>
+
+        <div class="cathero">
+            <div>
+                <h1>@Label(Key) <span class="cathero__key mono">@Key</span></h1>
+                <div class="muted">@SubLine</div>
+                <div class="field__help mono" style="color: @_gate.Color">@_gate.Line</div>
+            </div>
+            <span class="evstatus @(_status.Dashed ? "evstatus--dashed" : null)" style="border-color: @_status.Color; color: @_status.Color">
+                <span class="mono">@_status.Mark</span> @_status.Text
+            </span>
+        </div>
+
+        <div class="cattabs">
+            <button class="cattab @(_tab == Tab.Current ? "cattab--active" : null)" @onclick="() => _tab = Tab.Current">Current</button>
+            <button class="cattab @(_tab == Tab.History ? "cattab--active" : null)" @onclick="() => _tab = Tab.History">History</button>
+        </div>
+
+        @if (_tab == Tab.History)
+        {
+            <Card>
+                <p class="muted">Per-build history for this evidence lands with the history pass.</p>
+            </Card>
+        }
+        else
+        {
+            @switch (Key)
+            {
+                case EvidenceKeys.Dast:
+                case EvidenceKeys.Quality:
+                case EvidenceKeys.Accessibility:
+                    @if (!_scanRan)
+                    {
+                        <NotScanned />
+                    }
+                    else if (_findings.Count == 0)
+                    {
+                        <NothingFound Message="No findings from this scanner for this build." />
+                    }
+                    else
+                    {
+                        <Card Padded="false">
+                            <ScrollBox Label="@Label(Key)">
+                                <table class="table table--rows">
+                                    <thead>
+                                        <tr><th>Severity</th><th>@(Key == EvidenceKeys.Accessibility ? "Rule" : "Finding")</th><th>@(Key == EvidenceKeys.Dast ? "URL" : "Location")</th><th>First seen</th><th>Status</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var f in _findings)
+                                        {
+                                            <tr>
+                                                <td><SeverityBadge Severity="f.Severity" /></td>
+                                                <td>
+                                                    <div>@f.Title</div>
+                                                    <div class="mono muted cat__rule">@f.Scanner · @f.RuleId</div>
+                                                </td>
+                                                <td class="mono">
+                                                    @if (f.Location is { } loc)
+                                                    {
+                                                        <span title="@loc">@Shorten(loc)@(f.Line is { } ln ? $":{ln}" : "")</span>
+                                                    }
+                                                    else { <span class="muted">—</span> }
+                                                </td>
+                                                <td class="mono">@f.FirstSeen.ToString("yyyy-MM-dd")</td>
+                                                <td class="mono muted">@f.Status</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </ScrollBox>
+                        </Card>
+                        <p class="field__help">@_findings.Count finding@(_findings.Count == 1 ? "" : "s") from this source.</p>
+                    }
+                    break;
+
+                case EvidenceKeys.Kev:
+                    @if (_kev.Count == 0)
+                    {
+                        <NothingFound Message="None of this build's CVEs are on the CISA KEV catalog." />
+                    }
+                    else
+                    {
+                        <Card Padded="false">
+                            <ScrollBox Label="KEV-listed CVEs">
+                                <table class="table table--rows">
+                                    <thead>
+                                        <tr><th>Severity</th><th>CVE</th><th>Product</th><th>Added</th><th>Due</th><th>Ransomware</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var k in _kev)
+                                        {
+                                            <tr>
+                                                <td><SeverityBadge Severity="k.Severity" /></td>
+                                                <td class="mono">@k.CveId</td>
+                                                <td>@(k.Product ?? "—") <span class="mono muted">@k.VulnerabilityName</span></td>
+                                                <td class="mono">@k.DateAdded.ToString("yyyy-MM-dd")</td>
+                                                <td class="mono">@k.DueDate.ToString("yyyy-MM-dd")</td>
+                                                <td>@(k.KnownRansomware ? "⚠ yes" : "—")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </ScrollBox>
+                        </Card>
+                        <p class="field__help">@_kev.Count CVE@(_kev.Count == 1 ? "" : "s") on the CISA Known Exploited Vulnerabilities catalog — actively exploited in the wild.</p>
+                    }
+                    break;
+
+                case EvidenceKeys.BaseImage:
+                    @if (_images.Count == 0)
+                    {
+                        <NotScanned Message="No container image was inspected for this build." />
+                    }
+                    else
+                    {
+                        <Card Padded="false">
+                            <ScrollBox Label="Container images">
+                                <table class="table table--rows">
+                                    <thead>
+                                        <tr><th>Image</th><th>Base image</th><th class="align-end">Age at build</th><th>OS</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var im in _images)
+                                        {
+                                            <tr>
+                                                <td class="mono">@im.Reference</td>
+                                                <td class="mono muted">@(im.BaseImageReference ?? "—")</td>
+                                                <td class="mono align-end" style="color: @AgeColor(im.AgeDays)">@(im.AgeDays is { } d ? $"{d:N0}d" : "—")</td>
+                                                <td class="mono muted">@(im.OsFamily is null ? "—" : $"{im.OsFamily} {im.OsVersion}")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </ScrollBox>
+                        </Card>
+                        <p class="field__help">Age is measured at build, not today. Over 30 days amber, over 90 red.</p>
+                    }
+                    break;
+
+                case EvidenceKeys.Poam:
+                    @if (_poam is null || _poam.Items.Count == 0)
+                    {
+                        <NothingFound Message="No open POA&M items for this project." />
+                    }
+                    else
+                    {
+                        <Card Padded="false">
+                            <ScrollBox Label="POA&M items">
+                                <table class="table table--rows">
+                                    <thead>
+                                        <tr><th>Severity</th><th>Weakness</th><th>Owner</th><th>Due</th><th>Status</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var p in _poam.Items)
+                                        {
+                                            <tr>
+                                                <td><SeverityBadge Severity="p.Severity" /></td>
+                                                <td>
+                                                    <div>@p.Title</div>
+                                                    <div class="mono muted cat__rule">@Truncate(p.WeaknessDescription, 90)</div>
+                                                </td>
+                                                <td class="mono">@p.Owner</td>
+                                                <td class="mono">
+                                                    @if (p.ScheduledCompletionDate is { } due)
+                                                    {
+                                                        <span style="color: @(p.PastDue ? "var(--color-critical)" : "inherit")">
+                                                            @due.ToString("yyyy-MM-dd")@(p.PastDue ? $" · {(int)(DateTimeOffset.UtcNow - due).TotalDays}d overdue" : "")
+                                                        </span>
+                                                    }
+                                                    else { <span class="muted">unscheduled</span> }
+                                                </td>
+                                                <td class="mono muted">@p.Status</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </ScrollBox>
+                        </Card>
+                        <p class="field__help">
+                            @_poam.Stats.PastDue past due · @_poam.Stats.Open open · @_poam.Stats.InProgress in progress.
+                            <a href="@Routes.Poam(Client, Project)">Open the POA&M board →</a>
+                        </p>
+                    }
+                    break;
+
+                case EvidenceKeys.Vex:
+                    @if (_vex.Count == 0)
+                    {
+                        <NothingFound Message="No VEX statements for this project." />
+                    }
+                    else
+                    {
+                        <Card Padded="false">
+                            <ScrollBox Label="VEX statements">
+                                <table class="table table--rows">
+                                    <thead>
+                                        <tr><th>Advisory</th><th>Component</th><th>Status</th><th>Justification</th><th>Suppresses</th><th>Author</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var v in _vex)
+                                        {
+                                            <tr>
+                                                <td class="mono">@v.AdvisoryId</td>
+                                                <td class="mono muted" title="@v.Purl">@(v.ComponentVersion ?? Shorten(v.Purl))</td>
+                                                <td class="mono">@v.Status</td>
+                                                <td class="mono muted">@(v.Justification?.ToString() ?? "—")</td>
+                                                <td>@(v.Suppresses ? "✓ yes" : "—")</td>
+                                                <td class="mono muted">@v.Author</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </ScrollBox>
+                        </Card>
+                        <p class="field__help">
+                            @_vex.Count(v => v.Suppresses) of @_vex.Count statement@(_vex.Count == 1 ? "" : "s") take a CVE out of the gating picture.
+                            <a href="@Routes.Vex(Client, Project)">Open VEX authoring →</a>
+                        </p>
+                    }
+                    break;
+
+                case EvidenceKeys.Provenance:
+                case EvidenceKeys.Vdp:
+                    @if (_practice is null)
+                    {
+                        <NotScanned Message="No attestation has been built for this project yet." />
+                    }
+                    else
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="@PracticeChipLabel(_practice.Status)" Tone="@PracticeTone(_practice.Status)" Glyph="@PracticeGlyph(_practice.Status)" />
+                                <span><strong>@_practice.Id</strong> @_practice.Label</span>
+                            </div>
+                            <p class="field__help">@_practice.Intent</p>
+                            <p>@_practice.Evidence</p>
+                            <p class="field__help"><a href="@Routes.Attestation(Client, Project, Sha)">Open the SSDF attestation →</a></p>
+                        </Card>
+                    }
+                    break;
+
+                case EvidenceKeys.Conformance:
+                    <Card>
+                        <div class="row">
+                            <Chip Label="Not scanned" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
+                            <span>ADR conformance has no producer yet.</span>
+                        </div>
+                        <p class="field__help">
+                            The conformance ingest (core ADR 0023 · ADR 0006) lands with phase 7. Until then this
+                            evidence is honestly <strong>not scanned</strong> — never a false green.
+                        </p>
+                    </Card>
+                    break;
+
+                default:
+                    <Card><p class="muted">Unknown evidence key <code class="mono">@Key</code>.</p></Card>
+                    break;
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+    [Parameter] public string Sha { get; set; } = "";
+    [Parameter] public string Key { get; set; } = "";
+
+    private enum Tab { Current, History }
+
+    private ProjectRef? _project;
+    private ProjectHubData? _data;
+    private string? _commitSha;
+    private Tab _tab = Tab.Current;
+    private bool _loading = true;
+
+    private (string Line, string Color) _gate = ("not gated", "var(--color-neutral-500)");
+    private (string Mark, string Color, bool Dashed, string Text) _status = ("•", "var(--color-neutral-500)", false, "collected");
+
+    private bool _scanRan;
+    private IReadOnlyList<EvidenceFinding> _findings = [];
+    private IReadOnlyList<KevRow> _kev = [];
+    private IReadOnlyList<BaseImageRow> _images = [];
+    private Tamp.Findings.Application.Poam.PoamBoard? _poam;
+    private IReadOnlyList<Tamp.Findings.Application.Vex.VexRow> _vex = [];
+    private Tamp.Findings.Application.Attestation.SsdfPractice? _practice;
+
+    private string HubHref => Routes.ProjectHub(Client, Project, Sha);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project, Sha);
+        _loading = true;
+        _tab = Tab.Current;
+        Reset();
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
+            var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
+            _data = _project is null ? null : await Hub.LoadAsync(_project, sha);
+            _commitSha = _data?.CommitSha;
+
+            if (_project is not null && _data is not null)
+            {
+                _gate = GateFor(Key, _data);
+                await LoadBodyAsync(_project.ProjectId);
+            }
+        }
+        catch
+        {
+            _project = null;
+            _data = null;
+            Reset();
+        }
+        _loading = false;
+    }
+
+    private void Reset()
+    {
+        _scanRan = false;
+        _findings = [];
+        _kev = [];
+        _images = [];
+        _poam = null;
+        _vex = [];
+        _practice = null;
+    }
+
+    private async Task LoadBodyAsync(Guid projectId)
+    {
+        var i = _data!.Inputs;
+        switch (Key)
+        {
+            case EvidenceKeys.Dast:
+                _scanRan = i.RanDast;
+                _findings = await Evidence.DastAsync(projectId, _commitSha);
+                SetScanStatus(_scanRan, _findings.Count);
+                break;
+            case EvidenceKeys.Quality:
+                _scanRan = i.RanQuality;
+                _findings = await Evidence.QualityAsync(projectId, _commitSha);
+                SetScanStatus(_scanRan, _findings.Count);
+                break;
+            case EvidenceKeys.Accessibility:
+                _scanRan = i.RanAccessibility;
+                _findings = await Evidence.AccessibilityAsync(projectId, _commitSha);
+                SetScanStatus(_scanRan, _findings.Count);
+                break;
+            case EvidenceKeys.Kev:
+                _kev = await Evidence.KevAsync(projectId, _commitSha);
+                _status = _kev.Count == 0
+                    ? ("✓", "var(--color-pass)", false, "none exposed")
+                    : (_gate.Line == "✕ blocks ship" ? "✕" : "!", _gate.Line == "✕ blocks ship" ? "var(--color-critical)" : "var(--color-medium)", false, $"{_kev.Count} KEV-listed");
+                break;
+            case EvidenceKeys.BaseImage:
+                _images = await Evidence.BaseImagesAsync(projectId, _commitSha);
+                var oldest = _images.Select(im => im.AgeDays ?? -1).DefaultIfEmpty(-1).Max();
+                _status = _images.Count == 0
+                    ? ("—", "var(--color-high)", true, "no image")
+                    : _gate.Line == "✕ blocks ship" ? ("✕", "var(--color-critical)", false, "blocks ship")
+                    : oldest > 90 ? ("✕", "var(--color-critical)", false, $"oldest {oldest}d")
+                    : oldest > 30 ? ("!", "var(--color-medium)", false, $"oldest {oldest}d")
+                    : ("✓", "var(--color-pass)", false, $"oldest {oldest}d");
+                break;
+            case EvidenceKeys.Poam:
+                _poam = await Poam.BoardAsync(projectId, DateTimeOffset.UtcNow);
+                var pastDue = _poam.Stats.PastDue;
+                _status = pastDue == 0
+                    ? ("✓", "var(--color-pass)", false, "none past due")
+                    : (_gate.Line == "✕ blocks ship" ? "✕" : "!", _gate.Line == "✕ blocks ship" ? "var(--color-critical)" : "var(--color-medium)", false, $"{pastDue} past due");
+                break;
+            case EvidenceKeys.Vex:
+                _vex = await Vex.ListAsync(projectId);
+                _status = ("•", "var(--color-neutral-500)", false, $"{_vex.Count} statement{(_vex.Count == 1 ? "" : "s")}");
+                break;
+            case EvidenceKeys.Provenance:
+            case EvidenceKeys.Vdp:
+                var doc = await Ssdf.BuildAsync(projectId, _commitSha);
+                var wanted = Key == EvidenceKeys.Provenance ? "PS.2.1" : "RV.3.1";
+                _practice = doc?.Practices.FirstOrDefault(p => p.Id == wanted);
+                _status = _practice is null
+                    ? ("—", "var(--color-high)", true, "not attested")
+                    : (PracticeGlyph(_practice.Status), PracticeTone(_practice.Status), _practice.Status == "No" || _practice.Status is null, _practice.Status ?? "manual");
+                break;
+            case EvidenceKeys.Conformance:
+                _status = ("—", "var(--color-high)", true, "not scanned");
+                break;
+        }
+    }
+
+    private void SetScanStatus(bool ran, int count) =>
+        _status = !ran
+            ? ("—", "var(--color-high)", true, "not scanned")
+            : count == 0
+                ? ("✓", "var(--color-pass)", false, "nothing found")
+                : (_gate.Line == "✕ blocks ship" ? "✕" : "!", _gate.Line == "✕ blocks ship" ? "var(--color-critical)" : "var(--color-medium)", false, $"{count} finding{(count == 1 ? "" : "s")}");
+
+    private static (string Line, string Color) GateFor(string key, ProjectHubData data)
+    {
+        var keys = GateKeysFor(key);
+        if (keys.Length == 0) return ("not gated", "var(--color-neutral-500)");
+        var gates = data.Gates.Results.Where(r => keys.Contains(r.Key)).ToArray();
+        var enabled = gates.Where(g => g.Enabled).ToArray();
+        if (enabled.Any(g => g.Blocks)) return ("✕ blocks ship", "var(--color-critical)");
+        if (enabled.Length > 0) return ("gated · passing", "var(--color-pass)");
+        if (gates.Length > 0) return ("gate disabled", "var(--color-neutral-500)");
+        return ("not gated", "var(--color-neutral-500)");
+    }
+
+    private static string[] GateKeysFor(string key) => key switch
+    {
+        EvidenceKeys.Dast => [GateKeys.CriticalDast, GateKeys.HighDast],
+        EvidenceKeys.Kev => [GateKeys.KevExposure],
+        EvidenceKeys.BaseImage => [GateKeys.BaseImageAge],
+        EvidenceKeys.Poam => [GateKeys.PoamPastDue],
+        _ => [],
+    };
+
+    private static string AgeColor(int? age) =>
+        age is not { } d ? "inherit" : d > 90 ? "var(--color-critical)" : d > 30 ? "var(--color-medium)" : "var(--color-pass)";
+
+    private static string PracticeChipLabel(string? status) => status switch
+    {
+        "Yes" => "Attested", "Partial" => "Partial", "No" => "Not met", _ => "Manual",
+    };
+    private static string PracticeTone(string? status) => status switch
+    {
+        "Yes" => "var(--color-pass)", "Partial" => "var(--color-medium)", "No" => "var(--color-high)", _ => "var(--color-neutral-500)",
+    };
+    private static string PracticeGlyph(string? status) => status switch
+    {
+        "Yes" => "✓", "Partial" => "!", "No" => "✕", _ => "•",
+    };
+
+    private static string Shorten(string s)
+    {
+        var parts = s.Replace('\\', '/').Split('/');
+        return parts.Length <= 3 ? s : ".../" + string.Join('/', parts[^2..]);
+    }
+
+    private static string Truncate(string s, int n) => s.Length <= n ? s : s[..n] + "…";
+
+    private static string Label(string key) => key switch
+    {
+        EvidenceKeys.Dast => "Dynamic scan",
+        EvidenceKeys.Kev => "KEV exposure",
+        EvidenceKeys.Quality => "Design & quality",
+        EvidenceKeys.Accessibility => "Accessibility",
+        EvidenceKeys.BaseImage => "Base image age",
+        EvidenceKeys.Poam => "POA&M",
+        EvidenceKeys.Provenance => "Provenance",
+        EvidenceKeys.Vdp => "Disclosure policy",
+        EvidenceKeys.Vex => "VEX statements",
+        EvidenceKeys.Conformance => "ADR conformance",
+        _ => key,
+    };
+
+    private string SubLine => Key switch
+    {
+        EvidenceKeys.Dast => "Dynamic scan of the deployed target (ZAP / Nuclei).",
+        EvidenceKeys.Kev => "CISA Known Exploited Vulnerabilities matched against this build's CVEs.",
+        EvidenceKeys.Quality => "Design and maintainability checks: OpenAPI lint, breaking-change, architecture, mutation.",
+        EvidenceKeys.Accessibility => "axe-core accessibility violations by rule.",
+        EvidenceKeys.BaseImage => "Container base-image age, measured at build.",
+        EvidenceKeys.Poam => "Plan of Action & Milestones — open weaknesses and their due dates.",
+        EvidenceKeys.Provenance => "SSDF PS.2.1 — signed provenance for released artifacts.",
+        EvidenceKeys.Vdp => "SSDF RV.3.1 — the project's vulnerability disclosure policy.",
+        EvidenceKeys.Vex => "SSDF RV.3.2 — VEX statements and unexpired risk acceptances.",
+        EvidenceKeys.Conformance => "ADR conformance verdicts (core ADR 0023). Lands with the conformance ingest.",
+        _ => "",
+    };
+}

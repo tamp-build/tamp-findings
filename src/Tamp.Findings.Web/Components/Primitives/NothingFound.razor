@@ -1,0 +1,13 @@
+@* The scanner ran and found nothing — a genuine clean result, so green. Only
+   reach for this when a receipt exists; use NotScanned when it does not. *@
+
+<Card>
+    <div class="row">
+        <Chip Label="Nothing found" Tone="var(--color-pass)" Glyph="✓" />
+        <span>@(Message ?? "No findings for this build.")</span>
+    </div>
+</Card>
+
+@code {
+    [Parameter] public string? Message { get; set; }
+}

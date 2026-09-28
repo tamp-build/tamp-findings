@@ -1,0 +1,14 @@
+@* Honest empty state for evidence that never ran. Orange dashed — never green,
+   because "a missing scan is not a clean scan". *@
+
+<Card>
+    <div class="row">
+        <Chip Label="Not scanned" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
+        <span>@(Message ?? "This scanner did not run for this build.")</span>
+    </div>
+    <p class="field__help">A missing scan is not a clean scan.</p>
+</Card>
+
+@code {
+    [Parameter] public string? Message { get; set; }
+}
