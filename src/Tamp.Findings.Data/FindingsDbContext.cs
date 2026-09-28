@@ -80,6 +80,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // template drops the link rather than the client.
             e.HasOne<PolicyTemplate>().WithMany().HasForeignKey(x => x.PolicyTemplateId).OnDelete(DeleteBehavior.SetNull);
             e.Property(x => x.PolicyLayer).HasColumnType("jsonb");
+            // TFND-177: the compliance framework this client's projects follow.
+            e.HasOne<Framework>().WithMany().HasForeignKey(x => x.FrameworkId).OnDelete(DeleteBehavior.SetNull);
         });
 
         b.Entity<Project>(e =>

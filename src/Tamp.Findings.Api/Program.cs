@@ -408,6 +408,20 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
         db.Frameworks.AddRange(Tamp.Findings.Domain.Compliance.FrameworkDefaults.Build());
         await db.SaveChangesAsync();
     }
+    // Backfill Baseline (TFND-177) on frameworks seeded before the column existed.
+    var baselineBySlug = Tamp.Findings.Domain.Compliance.FrameworkDefaults.Build()
+        .ToDictionary(f => f.Slug, f => f.Baseline);
+    var unbaselined = await db.Frameworks
+        .Where(f => f.Baseline == Tamp.Findings.Domain.Compliance.BaselineLevel.None)
+        .ToListAsync();
+    var fixedAny = false;
+    foreach (var f in unbaselined)
+        if (baselineBySlug.TryGetValue(f.Slug, out var bl) && bl != Tamp.Findings.Domain.Compliance.BaselineLevel.None)
+        {
+            f.Baseline = bl;
+            fixedAny = true;
+        }
+    if (fixedAny) await db.SaveChangesAsync();
 }
 
 // ForwardedHeaders MUST run before anything that reads Request.Scheme

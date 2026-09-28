@@ -23,5 +23,9 @@ public sealed class Client
     public Guid? PolicyTemplateId { get; set; }
     public Risk.PolicyLayer? PolicyLayer { get; set; }
 
+    // The compliance framework this client's projects are held to (TFND-177,
+    // v3 §6). Null → none assigned. Projects inherit it.
+    public Guid? FrameworkId { get; set; }
+
     public ICollection<Project> Projects { get; set; } = [];
 }
