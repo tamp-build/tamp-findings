@@ -81,8 +81,9 @@ public static partial class OscalCatalogParser
         }
     }
 
-    // "ac-1" -> "AC-1"; "ac-2.1" -> "AC-2(1)" (enhancement).
-    private static string DisplayId(string? id)
+    /// <summary>"ac-1" → "AC-1"; "ac-2.1" → "AC-2(1)" (enhancement). Public so a
+    /// baseline profile's original-form ids can be matched to parsed controls.</summary>
+    public static string DisplayId(string? id)
     {
         if (string.IsNullOrEmpty(id)) return "";
         var dot = id.IndexOf('.');
