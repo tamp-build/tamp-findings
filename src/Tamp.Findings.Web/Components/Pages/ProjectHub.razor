@@ -3,6 +3,7 @@
 @rendermode InteractiveServer
 @inject RouteScope Scope
 @inject ProjectHubQuery Hub
+@inject Tamp.Findings.Application.Poam.PoamQuery Poam
 @inject CurrentUser Me
 
 <PageTitle>@Project — tamp.findings</PageTitle>
@@ -85,6 +86,8 @@ else
             <ProjectKeyCard Project="_data.Project" />
         </div>
 
+        <EvidenceTiles Data="_data" PoamPastDue="_poamPastDue" Sha="@ShortSha" />
+
         <ScanReceipts Inputs="_data.Inputs" Sha="@ShortSha" />
 
         @* TFND-134. Below the receipts on purpose: it answers the same
@@ -106,6 +109,7 @@ else
 
     private ProjectRef? _project;
     private ProjectHubData? _data;
+    private int _poamPastDue;
     private bool _loading = true;
     private string? _error;
 
@@ -135,6 +139,11 @@ else
             // nothing, and render a scanned project as never-scanned.
             var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
             _data = _project is null ? null : await Hub.LoadAsync(_project, sha);
+            // POA&M past-due count feeds the evidence tile; a cheap board read
+            // reusing the same past-due rule the gate uses.
+            _poamPastDue = _data is null || _project is null
+                ? 0
+                : (await Poam.BoardAsync(_project.ProjectId, DateTimeOffset.UtcNow)).Stats.PastDue;
         }
         catch (Exception ex)
         {
