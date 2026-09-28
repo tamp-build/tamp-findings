@@ -55,13 +55,91 @@ else
         {
             @if (!Tamp.Findings.Application.Risk.CategoryFindingsQuery.IsFindingsCategory(Key))
             {
-                <Card>
-                    <p class="muted">The detailed view for <strong>@Label(Key)</strong> lands with its own phase-3 pass.</p>
-                    <p class="field__help">
-                        This category is scored from a source other than the findings table
-                        (@SourceHint(Key)), so its table is built separately. The score above is live.
-                    </p>
-                </Card>
+                @if (Key == "cve")
+                {
+                    @if (_cves.Count == 0)
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="Nothing found" Tone="var(--color-pass)" Glyph="✓" />
+                                <span>No known CVEs in this build's components.</span>
+                            </div>
+                        </Card>
+                    }
+                    else
+                    {
+                        <Card Padded="false">
+                            <ScrollBox Label="Known CVEs">
+                                <table class="table table--rows">
+                                    <thead>
+                                        <tr><th>Severity</th><th>Advisory</th><th>Package</th><th class="align-end">CVSS</th><th>Fixed in</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var v in _cves)
+                                        {
+                                            <tr>
+                                                <td><SeverityBadge Severity="v.Severity" /></td>
+                                                <td class="mono">
+                                                    @if (v.ReferenceUrl is { } u)
+                                                    {
+                                                        <a href="@u" target="_blank" rel="noopener">@v.AdvisoryId</a>
+                                                    }
+                                                    else
+                                                    {
+                                                        @v.AdvisoryId
+                                                    }
+                                                </td>
+                                                <td class="mono">@v.Package <span class="muted">@v.Version</span></td>
+                                                <td class="mono align-end">@(v.Cvss?.ToString("F1") ?? "—")</td>
+                                                <td class="mono">@(v.FixedIn ?? "—")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </ScrollBox>
+                        </Card>
+                        <p class="field__help">@_cves.Count known CVE@(_cves.Count == 1 ? "" : "s") across this build's SBOM components.</p>
+                    }
+                }
+                else if (Key == "coverage")
+                {
+                    @if (_coverage is null)
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="Not measured" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
+                                <span>No coverage was ingested for this build.</span>
+                            </div>
+                            <p class="field__help">A missing measurement is not full coverage.</p>
+                        </Card>
+                    }
+                    else
+                    {
+                        <Card>
+                            <div class="covgrid">
+                                <div class="covstat">
+                                    <div class="covstat__value">@_coverage.SequencePercent.ToString("F1")%</div>
+                                    <div class="covstat__label">Sequence coverage</div>
+                                    <div class="covstat__sub mono">@_coverage.CoveredSequences.ToString("N0") / @_coverage.TotalSequences.ToString("N0") points</div>
+                                </div>
+                                <div class="covstat">
+                                    <div class="covstat__value">@_coverage.BranchPercent.ToString("F1")%</div>
+                                    <div class="covstat__label">Branch coverage</div>
+                                    <div class="covstat__sub mono">@_coverage.CoveredBranches.ToString("N0") / @_coverage.TotalBranches.ToString("N0") branches</div>
+                                </div>
+                            </div>
+                        </Card>
+                    }
+                }
+                else
+                {
+                    <Card>
+                        <p class="muted">The detailed view for <strong>@Label(Key)</strong> lands with its own phase-3 pass.</p>
+                        <p class="field__help">
+                            This category is scored from @SourceHint(Key), so its table is built separately. The score above is live.
+                        </p>
+                    </Card>
+                }
             }
             else if (_findings.Count == 0)
             {
@@ -143,6 +221,8 @@ else
     private ProjectRef? _project;
     private Tamp.Findings.Domain.Risk.RiskCategoryBreakdown? _row;
     private IReadOnlyList<Tamp.Findings.Application.Risk.CategoryFinding> _findings = [];
+    private IReadOnlyList<Tamp.Findings.Application.Risk.CveRow> _cves = [];
+    private Tamp.Findings.Application.Risk.CoverageSummary? _coverage;
     private Tab _tab = Tab.Current;
     private bool _loading = true;
     private string? _commitSha;
@@ -168,15 +248,23 @@ else
             _row = data?.Risk.Breakdown.FirstOrDefault(b => b.Key == Key);
             _commitSha = data?.CommitSha;
 
-            _findings = _project is null || _row is null
-                ? []
-                : await CategoryFindings.LoadAsync(_project.ProjectId, _commitSha, Key);
+            if (_project is not null && _row is not null)
+            {
+                if (Tamp.Findings.Application.Risk.CategoryFindingsQuery.IsFindingsCategory(Key))
+                    _findings = await CategoryFindings.LoadAsync(_project.ProjectId, _commitSha, Key);
+                else if (Key == "cve")
+                    _cves = await CategoryFindings.CvesAsync(_project.ProjectId, _commitSha);
+                else if (Key == "coverage")
+                    _coverage = await CategoryFindings.CoverageAsync(_project.ProjectId, _commitSha);
+            }
         }
         catch
         {
             _project = null;
             _row = null;
             _findings = [];
+            _cves = [];
+            _coverage = null;
         }
         _loading = false;
     }

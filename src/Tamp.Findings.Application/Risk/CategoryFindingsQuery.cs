@@ -19,10 +19,9 @@ namespace Tamp.Findings.Application.Risk;
 /// </summary>
 public sealed class CategoryFindingsQuery(FindingsDbContext db)
 {
-    public async Task<IReadOnlyList<CategoryFinding>> LoadAsync(
-        Guid projectId, string? commitSha, string categoryKey, CancellationToken ct = default)
+    // The build's CV set: the requested commit, or the latest canonical one.
+    private async Task<Guid[]> ResolveCvIdsAsync(Guid projectId, string? commitSha, CancellationToken ct)
     {
-        // The build's CV set: the requested commit, or the latest canonical one.
         var sha = commitSha;
         if (string.IsNullOrWhiteSpace(sha))
         {
@@ -34,11 +33,17 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db)
         }
         if (sha is null) return [];
 
-        var cvIds = await db.ComponentVersions.AsNoTracking()
+        return await db.ComponentVersions.AsNoTracking()
             .Where(cv => cv.CommitSha == sha
                 && db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == projectId))
             .Select(cv => cv.Id)
             .ToArrayAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<CategoryFinding>> LoadAsync(
+        Guid projectId, string? commitSha, string categoryKey, CancellationToken ct = default)
+    {
+        var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
         if (cvIds.Length == 0) return [];
 
         var q = db.Findings.AsNoTracking().Where(f => cvIds.Contains(f.ComponentVersionId));
@@ -53,6 +58,42 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db)
                 f.Id, f.Scanner, f.RuleId, f.Severity, f.Title, f.Description,
                 f.FilePath, f.Line, f.Snippet, f.SubCategory, f.Status, f.FirstSeen))
             .ToListAsync(ct);
+    }
+
+    /// <summary>Known-CVE rows for the `cve` category, from the SBOM vulnerabilities.</summary>
+    public async Task<IReadOnlyList<CveRow>> CvesAsync(
+        Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
+        if (cvIds.Length == 0) return [];
+
+        return await db.Vulnerabilities.AsNoTracking()
+            .Where(v => cvIds.Contains(v.SbomComponent!.SbomSnapshot!.ComponentVersionId))
+            .OrderByDescending(v => v.Severity).ThenByDescending(v => v.CvssScore ?? 0)
+            .Select(v => new CveRow(
+                v.AdvisoryId, v.Severity, v.SbomComponent!.Name, v.SbomComponent!.Version,
+                v.CvssScore, v.FixedInVersion, v.ReferenceUrl))
+            .ToListAsync(ct);
+    }
+
+    /// <summary>Aggregated coverage for the `coverage` category, or null when never measured.</summary>
+    public async Task<CoverageSummary?> CoverageAsync(
+        Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
+        if (cvIds.Length == 0) return null;
+
+        var reports = await db.CoverageReports.AsNoTracking()
+            .Where(r => cvIds.Contains(r.ComponentVersionId))
+            .Select(r => new { r.CoveredSequences, r.TotalSequences, r.CoveredBranches, r.TotalBranches })
+            .ToListAsync(ct);
+        if (reports.Count == 0) return null;
+
+        var cs = reports.Sum(r => r.CoveredSequences); var ts = reports.Sum(r => r.TotalSequences);
+        var cb = reports.Sum(r => r.CoveredBranches); var tb = reports.Sum(r => r.TotalBranches);
+        return new CoverageSummary(
+            ts == 0 ? 0 : 100.0 * cs / ts, cs, ts,
+            tb == 0 ? 0 : 100.0 * cb / tb, cb, tb);
     }
 
     // Whether a category key is answered by this query (a findings table).
@@ -91,3 +132,11 @@ public sealed record CategoryFinding(
     string? SubCategory,
     FindingStatus Status,
     DateTimeOffset FirstSeen);
+
+public sealed record CveRow(
+    string AdvisoryId, Severity Severity, string Package, string Version,
+    double? Cvss, string? FixedIn, string? ReferenceUrl);
+
+public sealed record CoverageSummary(
+    double SequencePercent, int CoveredSequences, int TotalSequences,
+    double BranchPercent, int CoveredBranches, int TotalBranches);
