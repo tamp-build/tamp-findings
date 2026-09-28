@@ -58,8 +58,10 @@ src/
   Tamp.Findings.Application/ Authorization, queries, commands, audit — the one
                              place access is decided (ADR 0002)
   Tamp.Findings.Web/         Blazor Server RCL — every screen
-  Tamp.Findings.Workflows/   Elsa runtime + workflow definitions (off by default)
-  Tamp.Findings.Api/         Minimal API host — endpoints, auth, ingest; hosts Web
+  Tamp.Findings.Api/         Minimal API host — endpoints, auth, ingest; hosts Web.
+                             Scheduled work runs here as hosted BackgroundService
+                             workers; approvals are PendingApproval rows (ADR 0005,
+                             which removed Elsa)
 build/                       Nuke build (security pipeline + ingest target)
 docker/                      docker-compose.dev.yml with bundled Postgres
 docs/                        ADRs, the redesign hand-off, attestation artifacts

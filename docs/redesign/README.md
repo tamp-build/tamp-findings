@@ -1,5 +1,9 @@
 # Handoff: tamp.findings UX rework
 
+> **Superseded in part by [`design_handoff_tamp_findings_v3/`](design_handoff_tamp_findings_v3/README.md).** The v3 pass reworks the portfolio and project dashboard and adds per-category detail pages, a unified evidence surface (incl. ADR conformance), a control-catalog/frameworks screen, and a three-layer harden-only policy system; where the two disagree, **v3 wins**. Screens not covered by v3 (explorer, POA&M editor, VEX editor, attestation, System panels) are still described here.
+>
+> **Elsa is gone (ADR 0005).** This document was written when scheduled work and approvals were planned on Elsa. Read every "Elsa"/"workflow runtime" reference below as history: scheduled work now runs as hosted `BackgroundService` workers, and approvals are `PendingApproval` rows resolved in the Application layer. The target stack is **Blazor on .NET 10** (no Elsa, no MudBlazor).
+
 ## Overview
 
 tamp.findings is a self-hosted security and quality dashboard that ingests scanner output across many
