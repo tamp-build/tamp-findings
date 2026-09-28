@@ -1,9 +1,3 @@
-@* Portfolio does NOT claim "/" while the React SPA still serves the root — an
-   explicit Blazor route would shadow index.html. At cutover (TFND-128) add
-   `@page "/"` here and update Routes.Portfolio. *@
-@* TFND-128: the root belongs to Blazor now. Both routes are kept — /portfolio
-   is in links, bookmarks and this repo's own docs, and breaking them to save a
-   line would be a gratuitous 404. *@
 @page "/"
 @page "/portfolio"
 @attribute [Authorize]
@@ -25,11 +19,8 @@
             <p class="muted">Which project is worst right now.</p>
         </div>
         <div class="row">
-            @* The hand-off renders these but lists the create-hierarchy flow
-               as not covered. Buttons with no destination read as broken, so
-               they are wired here (TFND-85). *@
-            <Button Disabled="@(!_canCreateClient.Allowed)" DisabledReason="@_canCreateClient.Reason"
-                    OnClick="() => _newClient = true">New client</Button>
+            @* v3: no "New client" button — clients are managed under Manage.
+               Only "New project" lives here. *@
             <Button Variant="Button.ButtonVariant.Primary"
                     Disabled="@(!_canCreateProject.Allowed)" DisabledReason="@_canCreateProject.Reason"
                     OnClick="OpenNewProject">New project</Button>
@@ -58,38 +49,73 @@
     }
     else
     {
+        <div class="row row--between portfolio__filter">
+            <label class="field field--inline">
+                <span class="field__label">Client</span>
+                <select class="select" @bind="_clientFilter" @bind:after="StateHasChanged">
+                    <option value="">All clients (@_clientCounts.Count)</option>
+                    @foreach (var c in _clientCounts.OrderBy(c => c.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <option value="@c.Key">@c.Key (@c.Value)</option>
+                    }
+                </select>
+            </label>
+            <span class="field__help mono">
+                @Filtered.Count of @_rows.Count projects · click a column to sort
+            </span>
+        </div>
+
         <Card Padded="false">
             <ScrollBox Label="Portfolio">
-                <table class="table table--rows">
+                <table class="table table--rows portfolio__table">
                     <thead>
                         <tr>
-                            <th>Project</th><th>Client</th><th class="align-end">Score</th>
-                            <th>Band</th><th>Ship</th><th>Blocking</th><th>Last build</th>
+                            @SortHead(SortCol.Project, "Project")
+                            @SortHead(SortCol.Client, "Client")
+                            @SortHead(SortCol.Score, "Score", end: true)
+                            <th>30-day trend</th>
+                            @SortHead(SortCol.Band, "Band")
+                            @SortHead(SortCol.Ship, "Ship")
+                            <th>Blocking</th>
+                            @SortHead(SortCol.LastBuild, "Last build")
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var row in _rows)
+                        @foreach (var row in Sorted)
                         {
                             <tr @onclick="() => Open(row)">
-                                <td style="font-family: var(--font-heading); font-weight: 600; font-size: var(--text-emphasis)">
-                                    @row.ProjectName
-                                </td>
+                                <td class="portfolio__project">@row.ProjectName</td>
                                 <td>
-                                    @* The client tier is navigable from here,
-                                       which is what stops it being a gap in a
-                                       hierarchy the product calls load-bearing.
-                                       stopPropagation: the row itself opens the
-                                       project. *@
+                                    @* The client tier is navigable from here — it
+                                       stops being a gap in a hierarchy the product
+                                       calls load-bearing. stopPropagation: the row
+                                       itself opens the project. *@
                                     <a href="@Routes.Client(row.ClientName)"
                                        @onclick:stopPropagation="true">@row.ClientName</a>
                                 </td>
-                                <td class="num align-end">@(row.Score?.ToString("F1") ?? "—")</td>
+                                <td class="align-end">
+                                    @if (row.Score is { } s)
+                                    {
+                                        <span class="portfolio__score" style="color: @BandColor(row.Band)">@s.ToString("F1")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="muted">—</span>
+                                    }
+                                </td>
+                                <td>
+                                    @{ var t = TrendOf(row); }
+                                    <div class="portfolio__trend" title="@t.Title">
+                                        <Sparkline Points="row.Trend" Color="@t.Color" AriaLabel="@t.Title" />
+                                        <span class="mono portfolio__delta" style="color: @t.Color">@t.Text</span>
+                                    </div>
+                                </td>
                                 <td>
                                     @if (row.Band is { } band)
                                     {
-                                        @* The band name is always written out — never
-                                           colour alone. *@
-                                        <Chip Label="@band" Tone="@BandTone(band)" />
+                                        @* The band name is always written — never colour alone. *@
+                                        <Chip Label="@band" Tone="@BandColor(band)" />
                                     }
                                     else
                                     {
@@ -113,9 +139,19 @@
                                     }
                                 </td>
                                 <td class="portfolio__blocking">
-                                    @* Named in prose. "3 blocking" tells a security lead
-                                       nothing they can act on. *@
-                                    @(row.Blocking.Count == 0 ? "—" : string.Join("; ", row.Blocking))
+                                    @* One blocker per line, named in prose. "3 blocking"
+                                       tells a security lead nothing they can act on. *@
+                                    @if (row.Blocking.Count == 0)
+                                    {
+                                        <span class="muted">—</span>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var b in row.Blocking)
+                                        {
+                                            <div class="portfolio__blocker">@b</div>
+                                        }
+                                    }
                                 </td>
                                 <td class="mono">
                                     @if (row.LastBuild is { } at)
@@ -129,6 +165,9 @@
                                         <span class="muted">never</span>
                                     }
                                 </td>
+                                <td class="align-end portfolio__actions">
+                                    <span class="portfolio__open" aria-hidden="true">→</span>
+                                </td>
                             </tr>
                         }
                     </tbody>
@@ -137,26 +176,11 @@
         </Card>
 
         <p class="field__help">
-            Ordered worst-posture-first. A project with a green score and no recent scan is not
-            healthy, so staleness blocks alongside a failing gate.
+            Lower is better. A project with a green score and no recent scan is not healthy, so
+            staleness blocks alongside a failing gate.
         </p>
     }
 </div>
-
-<Dialog Open="_newClient" OpenChanged="v => _newClient = v" Title="New client" Width="560">
-    <ChildContent>
-        <TextField Label="Name" @bind-Value="_clientName"
-                   Help="An organisation or customer. The top of the hierarchy — every project and component sits beneath one." />
-        @if (_formError is not null)
-        {
-            <p style="color: var(--color-critical)">@_formError</p>
-        }
-    </ChildContent>
-    <Footer>
-        <Button Variant="Button.ButtonVariant.Primary" OnClick="CreateClient">Create client</Button>
-        <Button OnClick="() => _newClient = false">Cancel</Button>
-    </Footer>
-</Dialog>
 
 <Dialog Open="_newProject" OpenChanged="v => _newProject = v" Title="New project" Width="560">
     <ChildContent>
@@ -193,23 +217,115 @@
 </Dialog>
 
 @code {
+    private enum SortCol { Project, Client, Score, Band, Ship, LastBuild }
+
     private IReadOnlyList<PortfolioRow> _rows = [];
     private IReadOnlyList<ClientRow> _clients = [];
-    private AuthorizationDecision _canCreateClient = AuthorizationDecision.Deny("Checking…");
+    private Dictionary<string, int> _clientCounts = new(StringComparer.OrdinalIgnoreCase);
     private AuthorizationDecision _canCreateProject = AuthorizationDecision.Deny("Checking…");
-    private bool _newClient, _newProject;
-    private string? _clientName, _projectName, _projectDescription, _formError;
+    private bool _newProject;
+    private string? _projectName, _projectDescription, _formError;
     private Guid _selectedClientId;
     private bool _loading = true;
     private string? _error;
 
-    private static string BandTone(string band) => band switch
+    // v3 default sort: Client ascending, ties by name.
+    private string _clientFilter = "";
+    private SortCol _sortCol = SortCol.Client;
+    private bool _sortAsc = true;
+
+    private IReadOnlyList<PortfolioRow> Filtered =>
+        string.IsNullOrEmpty(_clientFilter)
+            ? _rows
+            : _rows.Where(r => string.Equals(r.ClientName, _clientFilter, StringComparison.OrdinalIgnoreCase)).ToArray();
+
+    private IReadOnlyList<PortfolioRow> Sorted
+    {
+        get
+        {
+            var rows = Filtered;
+            IOrderedEnumerable<PortfolioRow> ordered = _sortCol switch
+            {
+                SortCol.Project    => By(rows, r => r.ProjectName, StringComparer.OrdinalIgnoreCase),
+                SortCol.Client     => By(rows, r => r.ClientName, StringComparer.OrdinalIgnoreCase),
+                SortCol.Score      => By(rows, r => r.Score ?? double.NegativeInfinity),
+                SortCol.Band       => By(rows, r => BandRank(r.Band)),
+                SortCol.Ship       => By(rows, r => ShipRank(r.Ship)),
+                SortCol.LastBuild  => By(rows, r => r.LastBuild ?? DateTimeOffset.MinValue),
+                _                  => By(rows, r => r.ClientName, StringComparer.OrdinalIgnoreCase),
+            };
+            // Deterministic tie-break (v3: ties by name), always ascending.
+            return ordered.ThenBy(r => r.ProjectName, StringComparer.OrdinalIgnoreCase).ToArray();
+        }
+    }
+
+    private IOrderedEnumerable<PortfolioRow> By<TKey>(
+        IEnumerable<PortfolioRow> rows, Func<PortfolioRow, TKey> key, IComparer<TKey>? cmp = null) =>
+        _sortAsc ? rows.OrderBy(key, cmp) : rows.OrderByDescending(key, cmp);
+
+    private RenderFragment SortHead(SortCol col, string label, bool end = false) => builder =>
+    {
+        var active = _sortCol == col;
+        builder.OpenElement(0, "th");
+        builder.AddAttribute(1, "class", $"sortable{(end ? " align-end" : "")}{(active ? " sortable--active" : "")}");
+        builder.AddAttribute(2, "role", "button");
+        builder.AddAttribute(3, "onclick", EventCallback.Factory.Create(this, () => Sort(col)));
+        builder.AddContent(4, label);
+        if (active)
+        {
+            builder.OpenElement(5, "span");
+            builder.AddAttribute(6, "class", "sortable__caret");
+            builder.AddContent(7, _sortAsc ? " ▲" : " ▼");
+            builder.CloseElement();
+        }
+        builder.CloseElement();
+    };
+
+    private void Sort(SortCol col)
+    {
+        if (_sortCol == col) { _sortAsc = !_sortAsc; }
+        else { _sortCol = col; _sortAsc = true; }
+    }
+
+    private static int BandRank(string? band) => band switch
+    {
+        "green" => 0, "yellow" => 1, "orange" => 2, "red" => 3, _ => 4,
+    };
+
+    // Worst-first ranking: a project nobody has scanned outranks a merely bad one.
+    private static int ShipRank(ShipState s) => s switch
+    {
+        ShipState.Clear => 0, ShipState.Blocked => 1, ShipState.NoScan => 2, _ => 3,
+    };
+
+    private static string BandColor(string? band) => band switch
     {
         "green" => "var(--color-band-green)",
         "yellow" => "var(--color-band-yellow)",
         "orange" => "var(--color-band-orange)",
-        _ => "var(--color-band-red)",
+        "red" => "var(--color-band-red)",
+        _ => "var(--color-neutral-600)",
     };
+
+    private readonly record struct Trend(string Color, string Text, string Title);
+
+    // Lower is better: a negative delta is an improvement (▼ green); positive is
+    // worsening (▲ red); no delta or fewer than two builds is flat (— grey).
+    private static Trend TrendOf(PortfolioRow row)
+    {
+        if (row.TrendDelta is not { } d || Math.Abs(d) < 0.05)
+        {
+            var flat = row.Trend.Count < 2 ? "— no scans" : "— flat";
+            return new Trend("var(--color-neutral-600)", flat, "30 days: flat");
+        }
+
+        var improving = d < 0;
+        var color = improving ? "var(--color-band-green)" : "var(--color-band-red)";
+        var arrow = improving ? "▼" : "▲";
+        var text = $"{arrow} {(d > 0 ? "+" : "−")}{Math.Abs(d):F1}";
+        var title = $"30 days: {row.Trend[0]:F1} → {row.Trend[^1]:F1} ({(improving ? "improving" : "worsening")})";
+        return new Trend(color, text, title);
+    }
 
     private void Open(PortfolioRow row) =>
         Nav.NavigateTo(Routes.ProjectHub(row.ClientName, row.ProjectName));
@@ -220,6 +336,9 @@
         try
         {
             _rows = await Query.LoadAsync(await Me.VisibleAsync());
+            _clientCounts = _rows
+                .GroupBy(r => r.ClientName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception ex)
         {
@@ -229,8 +348,7 @@
         }
         // Instance scope: a client sits above every project, so nothing
         // narrower can grant the right to create one.
-        _canCreateClient = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Instance);
-        _canCreateProject = _canCreateClient;
+        _canCreateProject = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Instance);
         _loading = false;
     }
 
@@ -240,20 +358,6 @@
         _clients = await Hierarchy.ClientsAsync();
         if (_clients.Count > 0 && _selectedClientId == Guid.Empty) _selectedClientId = _clients[0].Id;
         _newProject = true;
-    }
-
-    private async Task CreateClient()
-    {
-        _formError = null;
-        var actor = await Me.AtAsync(ScopeTarget.Instance);
-        if (actor is null) { _formError = "You are not signed in."; return; }
-
-        var result = await Hierarchy.CreateClientAsync(actor, _clientName ?? "");
-        if (!result.Success) { _formError = result.Error; return; }
-
-        _newClient = false;
-        _clientName = null;
-        await Reload();
     }
 
     private async Task CreateProject()
@@ -273,7 +377,13 @@
 
     private async Task Reload()
     {
-        try { _rows = await Query.LoadAsync(await Me.VisibleAsync()); }
+        try
+        {
+            _rows = await Query.LoadAsync(await Me.VisibleAsync());
+            _clientCounts = _rows
+                .GroupBy(r => r.ClientName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        }
         catch (Exception ex) { _error = ex.GetType().Name; }
     }
 }

@@ -683,7 +683,42 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 /* Blocking reasons are prose and can be long. They wrap rather than truncate:
    the reason IS the value of the column, and an ellipsis would hide the part
    that tells the reader what to do. */
-.portfolio__blocking { max-width: 42ch; white-space: normal; }
+/* v3: one blocker per line; the column takes only what its longest line needs
+   (width:1% + nowrap) and the row grows vertically instead. */
+.portfolio__blocking { width: 1%; white-space: nowrap; }
+.portfolio__blocker { line-height: 1.5; }
+.portfolio__blocker + .portfolio__blocker { margin-top: 2px; }
+
+/* Filter row above the table. */
+.portfolio__filter { align-items: flex-end; gap: 12px; }
+.field--inline { flex-direction: row; align-items: center; gap: 8px; }
+.field--inline .field__label { margin: 0; }
+
+/* Score: the loudest number on the row. Barlow Condensed 600 30px, band-coloured,
+   tabular so digits align down the column. */
+.portfolio__score {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 30px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+.portfolio__project { font-family: var(--font-heading); font-weight: 600; font-size: 15px; }
+
+/* 30-day trend: sparkline + arrow and signed delta on one line. */
+.portfolio__trend { display: flex; align-items: center; gap: 8px; }
+.portfolio__delta { font-size: 11px; white-space: nowrap; }
+
+/* Actions: a quiet open affordance; the whole row is already clickable. */
+.portfolio__actions { width: 1%; }
+.portfolio__open { color: var(--color-neutral-500); font-size: 13px; }
+.table--rows tbody tr:hover .portfolio__open { color: var(--color-accent-700); }
+
+/* Sortable headers (v3): active column in accent, with a ▲/▼ caret. */
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--color-neutral-800); }
+th.sortable--active { color: var(--color-accent-700); }
+.sortable__caret { font-size: 9px; }
 
 /* ── Sign-in ────────────────────────────────────────────────────────────
    Centred, narrow, no chrome. Vertically centred with min-height rather than
