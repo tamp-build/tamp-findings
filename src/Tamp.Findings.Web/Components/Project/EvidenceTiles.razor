@@ -82,9 +82,12 @@
             .Select(im => im.BaseImageAgeInDays)
             .Where(a => a is not null).Select(a => a!.Value)
             .DefaultIfEmpty(-1).Max();
+        // Age-driven, not presence-driven: a young base image is healthy, not a
+        // warning. >30 days needs attention; a blocking gate makes it ✕.
+        var baseStatus = baseGate.Line == "✕ blocks ship" ? Bad : oldest > 30 ? Warn : Ok;
         tiles.Add(oldest < 0
             ? Make("Base image age", Missing, "No image inspected", baseGate)
-            : Make("Base image age", ForGate(baseGate), $"Oldest base image {oldest} day{Plural(oldest)}", baseGate));
+            : Make("Base image age", baseStatus, $"Oldest base image {oldest} day{Plural(oldest)}", baseGate));
 
         // POA&M due dates.
         var poamGate = Gate(GateKeys.PoamPastDue);
