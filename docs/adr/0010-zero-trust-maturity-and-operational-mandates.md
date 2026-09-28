@@ -20,8 +20,17 @@ The decision this ADR records: **where and how the persistence, model, rulesets,
 and ingestion for tamp-ztt live inside tamp.findings**, reusing the existing
 substrate (the conformance engine, the four-valued verdict, the POA&M model, the
 framework-per-client vocabulary, frozen provenance, ingest-token auth) rather than
-standing up a parallel store. tamp-ztt's scoring math and UI live in that tool;
-tamp.findings owns the data foundation it reads and writes.
+standing up a parallel store. tamp.findings owns the data foundation it reads and writes.
+
+**The boundary (decided 2026-09-28): tamp.findings is the system of record for
+everything — all rules AND all results; tamp-ztt is a stateless analyzer.** ztt holds
+no store. It *consumes the rules findings serves* (`GET /projects/self/zt-profile`:
+the ZTMM model, the applicable operational-mandate definitions + derivation rules, the
+crosswalk), runs its scan/analysis over the repo + ADRs, and *posts results back*
+(`POST /ingest/conformance`, results carrying the pillar/function/stage or mandate id).
+This is the tamp-conformance pattern exactly. Supply-chain mandate results are produced
+by findings itself from build ingest it already receives; operational-mandate + maturity
+results are produced by ztt — but every definition and every result is stored here.
 
 The core property to preserve, end to end, is **conservative-by-construction**:
 the engine can only under-claim. Every number is a floor evidence or a corroborated
@@ -58,7 +67,8 @@ overload.
   stage scores it confers; the engine ships **no built-in catalog** and encodes
   nothing about any specific technology. Distinct tiers of one tool are distinct
   offerings with distinct scores. An offering is scored **once** and inherited by
-  N systems (§5).
+  N systems (§5). **Offerings are client-scoped** (decided 2026-09-28) — a client's
+  registry is its own.
 
 ### 3. ZTMM is a maturity model, assigned on its **own axis**
 
@@ -119,10 +129,12 @@ explicit edge. Three rules, all conservative:
   deliverable, not a truth claim. An edge with attester + statement + evidence is
   `edge-attested`; a bare pick is `edge-committed` (scored but flagged: "attest and
   attach proof").
-- **Attestations go stale.** Every attestation carries a date and an expiry; an
-  expired attestation degrades `edge-attested` back toward `edge-committed` until
-  refreshed — the same stale-evidence-is-no-evidence rule as the SBOM-age gate and
-  the conformance disposition expiry.
+- **Attestations go stale.** Every attestation carries a statement (mandatory) plus
+  evidence, a date, and an expiry; an expired attestation degrades `edge-attested` back
+  toward `edge-committed` until refreshed — the same stale-evidence-is-no-evidence rule
+  as the SBOM-age gate and the conformance disposition expiry. **The evidence
+  requirement and the expiry cadence are set per client** (decided 2026-09-28), not
+  globally — different authorizing boundaries hold different bars.
 
 ### 6. Maturity + mandate evidence derive from the conformance engine
 
@@ -173,11 +185,13 @@ owns the operational ones (encryption, MFA, IPv6). One shared POA&M model (§9).
 
 Roll-up walks the **graph, not the list** — a shared provider stuck at Initial is the
 ceiling on every system inheriting it, and that fact dominates where investment buys
-the most score. The aggregation math (per-function weights, per-pillar fold of the
-cross-cutting capabilities, **min across inherited functions**, how N/A is excluded,
-how committed-vs-verified is surfaced) is a single pinned `ZtmmScoringContract` in
-the Domain — pure and deterministic like `GateEvaluator` and `PolicyLayerMerge` — not
-a per-producer knob. If two producers folded cross-cutting differently, a combined
+the most score. The aggregation math is a single pinned `ZtmmScoringContract` in the Domain — pure and
+deterministic like `GateEvaluator` and `PolicyLayerMerge` — not a per-producer knob.
+**Pinned (2026-09-28): equal weights.** Every function weighs equally inside its
+pillar, so a pillar score is the arithmetic mean of its function stages (the
+cross-cutting capabilities fold in per-pillar at the same weight); an inherited
+function is **min-capped at the provider** before the mean; `not-applicable` is
+excluded from the denominator; `undetermined` counts as 1. If two producers folded cross-cutting differently, a combined
 total would be summing numbers computed by different rules. The mandate axis rolls up
 **separately**: a compliance count + a POA&M list, reported beside the gauge, never
 averaged in.

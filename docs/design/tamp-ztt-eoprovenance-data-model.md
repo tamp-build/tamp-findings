@@ -121,16 +121,22 @@ Unique `(ClientId, Name)`; FK `ClientId` cascade, `ProjectId` set-null; index on
 `ProjectId`. A `ZtSystem` with no `ProjectId` is an infra system — no derived
 evidence, every function floors at 1.
 
-Client opt-in axis (ADR 0010 §3), additive column on `Client`:
-`public Guid? MaturityModelId { get; set; }` (→ `MaturityModelCatalog`, distinct from
-the singular `FrameworkId`).
+Additive columns on `Client` (ADR 0010 §3, §5):
+```csharp
+public Guid? MaturityModelId { get; set; }        // ZTMM opt-in, distinct from the singular FrameworkId
+public int? ZtAttestationExpiryDays { get; set; }  // per-client attestation cadence (decided 2026-09-28)
+public string? ZtAttestationRequirement { get; set; } // per-client: what evidence an attestation must carry
+```
+The attestation *requirement* (a statement is always mandatory; what else must be
+attached) and the *expiry cadence* are **set per client**, not globally. An edge's
+`ExpiresAt` is derived as `AttestedAt + Client.ZtAttestationExpiryDays`.
 
 ### B3. Enterprise offering registry (ADR 0010 §2, §5)
 
 ```csharp
 public sealed class EnterpriseOffering {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid? ClientId { get; set; }             // null = instance-wide offering; else client-scoped
+    public Guid ClientId { get; set; }              // offerings are ALWAYS client-scoped (decided 2026-09-28)
     public required string ServiceLevelId { get; set; } // admin's free-form id, e.g. "splunk-premium"
     public required string Name { get; set; }
     public string? Description { get; set; }
@@ -153,13 +159,14 @@ public sealed class ZtInheritanceEdge {
     public Guid OfferingId { get; set; }            // → EnterpriseOffering
     public required string Pillar { get; set; }
     public required string Function { get; set; }    // the function inherited on this edge
-    // attestation (null block ⇒ edge-committed; present+unexpired ⇒ edge-attested)
+    // attestation: edge-attested requires a Statement (always) + evidence meeting the
+    // client's requirement, unexpired; otherwise edge-committed.
     public string? AttesterName { get; set; }
     public string? AttesterLogin { get; set; }
-    public string? Statement { get; set; }
+    public string? Statement { get; set; }           // MANDATORY for edge-attested
     public string? EvidenceRef { get; set; }         // uploaded artifact ref / URL / email id
     public DateTimeOffset? AttestedAt { get; set; }
-    public DateTimeOffset? ExpiresAt { get; set; }    // stale ⇒ degrades to edge-committed
+    public DateTimeOffset? ExpiresAt { get; set; }    // = AttestedAt + Client.ZtAttestationExpiryDays; stale ⇒ degrades to edge-committed
     public Guid AuthorUserId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
@@ -229,24 +236,39 @@ whole; the mandate roll-up is a query over `ConformanceFinding` where `MandateId
   contradicted · inherited edge-attested/edge-committed · not-applicable · undetermined→1),
   applying the default rule + N/A guard + attestation-expiry degrade. Mirrors
   `ControlDispositionResolver`.
-* `ZtmmScoringContract` (Domain/Risk) — the **single pinned** aggregation: min across
-  inherited functions, weighted within a pillar, cross-cutting folded per-pillar, N/A
-  off the denominator, committed-vs-verified surfaced. Pure/deterministic like
-  `GateEvaluator`. Roll-up walks the graph (systems + offerings + edges).
+* `ZtmmScoringContract` (Domain/Risk) — the **single pinned** aggregation. **Pinned
+  math (decided 2026-09-28): equal weights — every function weighs equally inside its
+  pillar.** So a pillar score is the arithmetic **mean of its function stages**,
+  including the cross-cutting functions folded into that pillar (they weigh the same
+  as any other function). An inherited function's stage is **min-capped at the
+  provider** before it enters the mean; `not-applicable` functions are **excluded from
+  the denominator**; `undetermined` counts as its floor of 1. Pure/deterministic like
+  `GateEvaluator`. Roll-up walks the graph (systems + offerings + edges); the portfolio
+  view uses the same equal-weight principle across systems, with provider-leverage
+  ranking layered on top (which provider lifts the most consumers).
 * Mandate roll-up is a **count + POA&M list**, computed separately, never averaged in.
 
-### B8. ztt ingestion endpoints (house style, `IngestAuthFilter`)
+### B8. The findings ↔ ztt boundary — findings owns all data; ztt is analysis-only
 
-| Route | Purpose | Scope resolution |
-|---|---|---|
-| `POST /ingest/zt-evidence` | maturity + mandate conformance events already flow through **`/ingest/conformance`** (they're conformance events carrying zt*/mandateId) — no new endpoint; A3 covers it | commit-sha (existing) |
-| `POST /zt/systems` (+ registry CRUD) | admin defines systems, offerings, offering scores, edges, picks | cookie-authed admin, not ingest-token — this is human config, not tool ingestion |
+**Decided 2026-09-28: tamp.findings is the system of record for everything; tamp-ztt
+is a stateless analyzer.** ztt holds no store, no UI-of-record. It *consumes the rules
+findings serves*, runs its scan/analysis over the repo + ADRs, and *posts results
+back* — exactly the tamp-conformance pattern (consume compliance-profile → produce
+conformance events). Three surfaces:
 
-So tool **ingestion** reuses `/ingest/conformance` verbatim (the events just carry the
-new fields); the offering registry, edges, and picks are **admin surfaces**
-(cookie-authed via the existing authorization boundary, ADR 0002), not token ingest.
-That keeps the "attested by an accountable human" property (ADR 0010 §5) — an edge is
-created by a signed-in accountable party, never by an anonymous token.
+| Surface | Direction | Auth | Purpose |
+|---|---|---|---|
+| **`GET /projects/self/zt-profile`** | findings → ztt | ingest-token (`prj_`) | **serves ztt its rules**: the current ZTMM model (pillars/functions/stage descriptors), the applicable operational **mandate definitions + derivation rules**, and the crosswalk. The ZT analogue of `/projects/self/compliance-profile`. |
+| **`POST /ingest/conformance`** | ztt → findings | ingest-token | ztt posts results as conformance events carrying `ztPillar/ztFunction/ztStage` (maturity) or `mandateId` (operational mandate). **No new ingest endpoint** — A3 covers the fields; commit-sha build-attach unchanged. |
+| **`POST /zt/systems` (+ registry CRUD)** | human → findings | cookie-authed admin (ADR 0002) | systems, offerings, offering scores, inheritance edges, N/A picks. **Human config, never token ingest** — an edge attestation must be created by a signed-in accountable party (ADR 0010 §5), never an anonymous token. |
+
+So: rules and results both live in findings; ztt scans and reports; the derive-on-read
+resolver (B7) combines ztt's posted results with the human-entered picks/edges. The
+**supply-chain** mandates are produced by findings itself from build ingest it already
+receives; the **operational** mandates + maturity are produced by ztt — but every
+definition and every result is stored here. The crosswalk `Target` (Findings | Ztt)
+names *which analyzer* produces a result, not which store holds it (all results are
+`ConformanceFinding` rows here).
 
 ---
 
@@ -434,25 +456,26 @@ admin (cookie-authed) ──▶ ZtSystem · EnterpriseOffering · OfferingFuncti
 
 ## Part F — Open questions (with proposed defaults, for your call)
 
-1. **`ZtSystem` vs Project.** Proposed: dedicated `ZtSystem` with optional `ProjectId`
-   (ADR 0010 §1). Confirm vs overloading Project.
-2. **ZTMM assignment axis.** Proposed: `Client.MaturityModelId` separate from the
-   singular `FrameworkId`. Confirm (vs making framework assignment multi-valued).
-3. **Scoring-contract weights + fold rule.** Not yet pinned — needs the actual
-   per-function weights and the per-pillar cross-cutting fold. Proposed default:
-   equal weights, arithmetic mean within pillar, min across inherited, cross-cutting
-   averaged into each pillar. Needs your sign-off before roll-up ships.
-4. **Offering scope.** Proposed: `EnterpriseOffering.ClientId` nullable (instance-wide
-   or client-scoped). Confirm whether offerings are ever cross-client.
-5. **Attestation evidence types + expiry cadence.** Proposed enumerated set
-   (provider-team email, onboarding/enrollment confirmation, digital proof) + a default
-   365-day expiry. Confirm the acceptable set and cadence.
-6. **Mandate results storage.** Proposed: reuse `ConformanceFinding` + `MandateId`
-   (B6) rather than a sibling table. Confirm (keeps one frozen-evidence path).
-7. **EO ingestion surface.** Proposed: startup corpus seed + cookie-authed admin
-   entry, **no** ingest-token endpoint (it's centralized political data). Confirm.
-8. **Crosswalk partition sign-off.** The exact supply-chain (→findings) vs operational
-   (→ztt) split, so no mandate is double-scored or dropped (ADR 0011 §5).
-9. **Cost apparatus** (Estimated Cost / Type of Funds / Budget Execution / Completion
-   Date, brief §11). Proposed: optional columns on `PoamItem`, off by default. Confirm
-   whether to include now or defer.
+1. ~~`ZtSystem` vs Project.~~ **RESOLVED: dedicated `ZtSystem` with optional `ProjectId`** (ADR 0010 §1).
+2. ~~ZTMM assignment axis.~~ **RESOLVED: `Client.MaturityModelId`, separate from the singular `FrameworkId`.**
+3. ~~Scoring-contract weights + fold rule.~~ **RESOLVED (2026-09-28): equal weights —
+   every function weighs equally inside its pillar; pillar = mean of function stages
+   (cross-cutting folded in at the same weight); min-cap inherited; N/A off the
+   denominator; undetermined = 1.** See B7.
+4. ~~Offering scope.~~ **RESOLVED: `EnterpriseOffering.ClientId` REQUIRED — offerings are always client-scoped.**
+5. ~~Attestation evidence + expiry.~~ **RESOLVED: a statement is always mandatory; the
+   evidence requirement and the expiry cadence are set PER CLIENT** (`Client.ZtAttestationRequirement`,
+   `Client.ZtAttestationExpiryDays`), not a global default. See B2/B4.
+6. ~~Mandate results storage.~~ **RESOLVED: reuse `ConformanceFinding` + `MandateId`** (one frozen-evidence path).
+7. ~~EO ingestion surface.~~ **RESOLVED: startup corpus seed + cookie-authed admin entry, no ingest-token endpoint.**
+8. ~~Crosswalk partition.~~ **RESOLVED (boundary): findings is the system of record for
+   ALL data (all mandate definitions AND all results). ztt is analysis-only — it
+   consumes rules from findings (`GET /projects/self/zt-profile`), scans, and posts
+   results back (`POST /ingest/conformance`).** The analysis split: findings produces
+   supply-chain mandate results from build ingest; ztt produces operational (encryption,
+   MFA, IPv6) + maturity results. Still to do: **sync the exact operational-mandate list
+   with the `tamp` agent** so nothing is double-scored or dropped (the crosswalk
+   `Target` names the analyzer, not the store).
+9. ~~Cost apparatus~~ **RESOLVED (2026-09-28): NO cost columns.** The Estimated Cost /
+   Type of Funds / Budget Execution / Completion Date apparatus is dropped entirely —
+   not added to `PoamItem`.
