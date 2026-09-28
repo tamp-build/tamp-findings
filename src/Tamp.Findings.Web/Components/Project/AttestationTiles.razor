@@ -1,0 +1,64 @@
+@* Attestation evidence · SSDF (v3 §2.5) — three tiles for the practices whose
+   answer is driven by project-level evidence rather than by a scan:
+     Release provenance (PS.2.1), Disclosure policy (RV.3.1),
+     VEX & risk acceptance (RV.3.2).
+   Unlike the collected-evidence tiles, these DO NOT gate a build — they decide
+   how the attestation ANSWERS. So the tile "gate line" is the practice id and
+   its Yes/Partial/No answer, not a block/pass verdict. *@
+
+@using Tamp.Findings.Application.Attestation
+
+<Card>
+    <div class="kicker">Attestation evidence · SSDF</div>
+    <div class="evtiles">
+        @foreach (var t in Tiles)
+        {
+            <div class="evtile @(t.Dashed ? "evtile--dashed" : null)" style="border-top-color: @t.Color">
+                <div class="evtile__head">
+                    <span class="evtile__label">@t.Label</span>
+                    <span class="evtile__mark" style="color: @t.Color">@t.Mark</span>
+                </div>
+                <div class="evtile__status">@t.Status</div>
+                <div class="evtile__gate mono" style="color: @t.Color">@t.Practice · @t.Answer</div>
+            </div>
+        }
+    </div>
+    <p class="field__help">
+        These do not gate a build. They decide how the attestation answers.
+    </p>
+</Card>
+
+@code {
+    [Parameter, EditorRequired] public SsdfAttestationDoc Doc { get; set; } = default!;
+
+    private sealed record Tile(
+        string Label, string Practice, string Answer, string Mark, string Color, bool Dashed, string Status);
+
+    // (Label shown on the tile, SSDF practice id it reads).
+    private static readonly (string Label, string Id)[] Map =
+    [
+        ("Release provenance", "PS.2.1"),
+        ("Disclosure policy", "RV.3.1"),
+        ("VEX & risk acceptance", "RV.3.2"),
+    ];
+
+    private IReadOnlyList<Tile> Tiles =>
+        Map.Select(m =>
+        {
+            var pr = Doc.Practices.FirstOrDefault(p => p.Id == m.Id);
+            var answer = pr?.Status ?? "—";
+            var (mark, color, dashed) = MarkFor(answer);
+            var status = pr?.Evidence ?? "No evidence";
+            return new Tile(m.Label, m.Id, answer, mark, color, dashed, status);
+        }).ToArray();
+
+    // The answer, not a gate: Yes is healthy; No is "the attestation says No",
+    // orange rather than the critical-red reserved for a blocking gate.
+    private static (string Mark, string Color, bool Dashed) MarkFor(string answer) => answer switch
+    {
+        "Yes" => ("✓", "var(--color-pass)", false),
+        "Partial" => ("!", "var(--color-medium)", false),
+        "No" => ("✕", "var(--color-high)", true),
+        _ => ("—", "var(--color-neutral-500)", true),
+    };
+}
