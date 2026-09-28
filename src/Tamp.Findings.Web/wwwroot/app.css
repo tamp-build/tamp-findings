@@ -582,6 +582,21 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 .hubhead { padding-left: var(--space-3); }
 .hubhead__back { display: inline-block; font-size: var(--text-kicker); color: var(--color-accent-700); margin-bottom: 4px; }
 
+/* Evidence tiles (v3 §2.4): auto-fill grid, 2px top border in the status colour. */
+.evtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-3); margin-top: var(--space-2); }
+.evtile {
+    border: 1px solid var(--color-divider);
+    border-top: 2px solid var(--color-neutral-400);
+    background: var(--color-neutral-100);
+    padding: 12px 14px;
+}
+.evtile--dashed { border-top-style: dashed; }
+.evtile__head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.evtile__label { font-family: var(--font-heading); font-weight: 600; font-size: 15px; color: var(--color-accent-700); }
+.evtile__mark { font-size: 15px; }
+.evtile__status { font-size: var(--text-body); margin-top: 6px; }
+.evtile__gate { font-size: var(--text-meta); margin-top: 8px; }
+
 /* Two columns above the dense breakpoint, stacked below it (ADR 0003). The
    minimums are the design's, but they are MINIMUMS for English — verify
    against the pseudo-locale before treating them as settled. */
