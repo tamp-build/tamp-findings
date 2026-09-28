@@ -25,12 +25,15 @@ public sealed class ProjectHubQuery
     private readonly FindingsDbContext _db;
     private readonly RiskInputsBuilder _inputs;
     private readonly Policy.PolicyResolver _resolver;
+    private readonly Compliance.ControlDispositionQuery _dispositions;
 
-    public ProjectHubQuery(FindingsDbContext db, RiskInputsBuilder inputs, Policy.PolicyResolver resolver)
+    public ProjectHubQuery(FindingsDbContext db, RiskInputsBuilder inputs, Policy.PolicyResolver resolver,
+        Compliance.ControlDispositionQuery dispositions)
     {
         _db = db;
         _inputs = inputs;
         _resolver = resolver;
+        _dispositions = dispositions;
     }
 
     /// <summary>
@@ -156,9 +159,17 @@ public sealed class ProjectHubQuery
         // "all gates passing".
         var gateConfig = await _resolver.EffectiveGatesAsync(project.ProjectId, project.GatesConfig, ct);
         var capability = await AggregateCapabilityAsync(cvIds, ct);   // TFND-184
-        var gates = GateEvaluator.Evaluate(gateConfig, inputs, result.Score, priorInputs, priorScore, capability);
+        // Control coverage for the no-unmapped meta-gate (TFND-185). Computed once
+        // per request and only when the gate is enabled (the disposition query
+        // loads the large OSCAL catalog). The meta-gate verdict depends only on the
+        // unmapped count, which is capability-independent, so one build-independent
+        // computation is correct for the current build and every history row.
+        var coverage = gateConfig.Gates.TryGetValue(GateKeys.NoUnmapped, out var nu) && nu.Enabled
+            ? await _dispositions.ForProjectAsync(project.ProjectId, capability, ct)
+            : null;
+        var gates = GateEvaluator.Evaluate(gateConfig, inputs, result.Score, priorInputs, priorScore, capability, coverage);
 
-        var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, ct);
+        var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, coverage, ct);
 
         return new ProjectHubData(project, head.CommitSha, head.VersionString, head.CreatedAt,
             policy.Name, result, gates, inputs, history, images);
@@ -178,6 +189,7 @@ public sealed class ProjectHubQuery
         RiskPolicyConfig config,
         ProjectGatesConfig gateConfig,
         IReadOnlyList<Domain.Entities.ComponentVersion> builds,
+        Domain.Compliance.ControlCoverage? coverage,
         CancellationToken ct)
     {
         var shas = builds
@@ -198,7 +210,7 @@ public sealed class ProjectHubQuery
             var inputs = await _inputs.BuildAsync(ids, config, project.ProjectId, ct);
             var scored = RiskScorer.Compute(config, inputs);
             var capability = await AggregateCapabilityAsync(ids, ct);   // TFND-184
-            var gates = GateEvaluator.Evaluate(gateConfig, inputs, scored.Score, prior: null, priorScore: previousScore, capability);
+            var gates = GateEvaluator.Evaluate(gateConfig, inputs, scored.Score, prior: null, priorScore: previousScore, capability, coverage);
 
             var head = builds.First(b => b.CommitSha == sha);
             rows.Add(new BuildHistoryRow(

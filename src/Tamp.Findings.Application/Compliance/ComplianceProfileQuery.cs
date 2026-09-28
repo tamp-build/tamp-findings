@@ -21,7 +21,9 @@ namespace Tamp.Findings.Application.Compliance;
 public sealed class ComplianceProfileQuery(
     FindingsDbContext db, PolicyResolver resolver, EnforcementResolver enforcement)
 {
-    public const string SchemaVersion = "1.0";
+    // 1.1 (TFND-185): additive — per-control Disposition + a Coverage roll-up.
+    // Consumers on 1.0 ignore the new fields (ADR 0018 additive-only).
+    public const string SchemaVersion = "1.1";
 
     /// <summary>The profile, or null when the project does not exist or has no
     /// profile configured (no framework AND no inherited policy template) — the
@@ -41,15 +43,31 @@ public sealed class ComplianceProfileQuery(
             : null;
 
         var controls = new List<ProfileControl>();
+        ProfileCoverage? coverage = null;
         if (fw is not null && fw.Baseline != BaselineLevel.None)
         {
             var catalog = await db.ControlCatalogs.AsNoTracking().FirstOrDefaultAsync(c => c.IsCurrent, ct);
             if (catalog is not null)
-                controls = catalog.Controls
+            {
+                var inScope = catalog.Controls
                     .Where(c => c.InBaseline(fw.Baseline))
                     .OrderBy(c => c.Family).ThenBy(c => c.Id, StringComparer.Ordinal)
-                    .Select(c => new ProfileControl(c.Id, c.Title, c.Family))
                     .ToList();
+
+                // Disposition each in-scope control (TFND-185 / ADR 0009), reusing
+                // the controls already loaded. Build-independent (null capability):
+                // the profile is what the project is held to, not any one build.
+                var effective = await resolver.ForProjectAsync(projectId, ct);
+                var resolved = Domain.Compliance.ControlDispositionResolver.Resolve(
+                    inScope, effective.Assertions, capability: null);
+
+                controls = resolved.Controls
+                    .Select(c => new ProfileControl(c.ControlId, c.Title, c.Family, c.Disposition.ToString()))
+                    .ToList();
+                coverage = new ProfileCoverage(
+                    resolved.InScope, resolved.Gated, resolved.Inherited,
+                    resolved.NotApplicable, resolved.Unmapped);
+            }
         }
 
         // Enforcement posture (Project → Client → Instance, with the locked floor).
@@ -84,16 +102,22 @@ public sealed class ComplianceProfileQuery(
             controls,
             templates,
             new ProfileEnforcement(mode.ToString(), locked),
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            coverage);
     }
 }
 
 public sealed record ComplianceProfile(
     string SchemaVersion, Guid ProjectId, string ProjectName,
     ProfileFramework? Framework, IReadOnlyList<ProfileControl> Controls,
-    IReadOnlyList<ProfileTemplate> PolicyTemplates, ProfileEnforcement Enforcement, DateTimeOffset AsOf);
+    IReadOnlyList<ProfileTemplate> PolicyTemplates, ProfileEnforcement Enforcement, DateTimeOffset AsOf,
+    // TFND-185: the control-disposition roll-up (null when no framework/catalog).
+    ProfileCoverage? Coverage = null);
 
 public sealed record ProfileFramework(string Id, string Name, string Version);
-public sealed record ProfileControl(string Id, string Title, string Family);
+// Disposition (TFND-185): "Gated" | "Inherited" | "NotApplicable" | "Unmapped",
+// or null on a profile with no framework. Additive to the tamp contract (ADR 0018).
+public sealed record ProfileControl(string Id, string Title, string Family, string? Disposition = null);
+public sealed record ProfileCoverage(int InScope, int Gated, int Inherited, int NotApplicable, int Unmapped);
 public sealed record ProfileTemplate(string Id, string Name, IReadOnlyList<string> Gates, string Enforcement, bool Locked);
 public sealed record ProfileEnforcement(string Mode, bool Locked);

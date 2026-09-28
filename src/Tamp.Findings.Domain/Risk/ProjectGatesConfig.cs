@@ -99,6 +99,14 @@ public static class GateKeys
     // explicitly so the AO can decide whether to extend or escalate.
     // Threshold default 0 (any day past due fails).
     public const string PoamPastDue = "poamPastDue";
+
+    // TFND-185 / ADR 0009 — the "no-unmapped" META-gate. Unlike every other gate
+    // it reads no scanner count; it reads the control-disposition set and blocks
+    // when any in-scope control has no disposition (gated / inherited / N/A).
+    // It gates the coverage of the MAPPING itself. Unanswerable (Unknown) when no
+    // framework is assigned or no catalog is loaded — a gate that claims to cover
+    // controls with no controls to check is a misconfiguration, not a clean build.
+    public const string NoUnmapped = "noUnmapped";
 }
 
 public static class ProjectGatesDefaults

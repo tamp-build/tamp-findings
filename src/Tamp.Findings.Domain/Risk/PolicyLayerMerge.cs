@@ -29,6 +29,7 @@ public static class PolicyLayerMerge
         var gates = new Dictionary<string, EffectiveGate>();
         var denied = new List<Sourced<string>>();
         var poam = new Dictionary<string, Sourced<int>>();
+        var assertions = new Dictionary<string, EffectiveAssertion>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (layer, source) in layers)
         {
@@ -78,9 +79,37 @@ public static class PolicyLayerMerge
                 if (existing is null || days < existing.Value)
                     poam[sev] = new Sourced<int>(days, source);
             }
+
+            // Control assertions (ADR 0009): per control id, the strictest kind
+            // wins (Gated > Inherited > NotApplicable), gate lists union. A lower
+            // layer can strengthen a control's disposition or add a new one; it
+            // cannot weaken what an upper layer asserted — harden-only, same as
+            // every other field here.
+            foreach (var a in layer.Assertions)
+            foreach (var controlId in a.ControlIds)
+            {
+                var existing = assertions.GetValueOrDefault(controlId);
+                if (existing is null)
+                {
+                    assertions[controlId] = new EffectiveAssertion(
+                        a.Kind, a.Gates.ToList(), a.Justification, a.InheritedFrom, source);
+                    continue;
+                }
+
+                // Union the gate lists regardless of which kind wins — a control
+                // gated by two layers is covered by the union of their gates.
+                var mergedGates = existing.Gates.Concat(a.Gates).Distinct().ToList();
+
+                // Strictness ordering: lower enum value is stricter (Gated=0).
+                if ((int)a.Kind < (int)existing.Kind)
+                    assertions[controlId] = new EffectiveAssertion(
+                        a.Kind, mergedGates, a.Justification, a.InheritedFrom, source);
+                else
+                    assertions[controlId] = existing with { Gates = mergedGates };
+            }
         }
 
-        return new EffectivePolicyLayer(mode, scanners, gates, denied, poam);
+        return new EffectivePolicyLayer(mode, scanners, gates, denied, poam, assertions);
     }
 
     // The stricter of two thresholds. A null threshold is "unset" and loses to
