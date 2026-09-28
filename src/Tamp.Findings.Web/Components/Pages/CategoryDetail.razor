@@ -131,6 +131,180 @@ else
                         </Card>
                     }
                 }
+                else if (Key == "tests")
+                {
+                    @if (_tests is null)
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="Not measured" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
+                                <span>No test run was ingested for this build.</span>
+                            </div>
+                            <p class="field__help">A missing test run is not a passing one.</p>
+                        </Card>
+                    }
+                    else
+                    {
+                        <Card>
+                            <div class="covgrid">
+                                <div class="covstat">
+                                    <div class="covstat__value" style="color: var(--color-pass)">@_tests.Passed.ToString("N0")</div>
+                                    <div class="covstat__label">Passed</div>
+                                    <div class="covstat__sub mono">of @_tests.Total.ToString("N0") tests</div>
+                                </div>
+                                <div class="covstat">
+                                    <div class="covstat__value" style="color: @(_tests.Failed > 0 ? "var(--color-critical)" : "var(--color-neutral-500)")">@_tests.Failed.ToString("N0")</div>
+                                    <div class="covstat__label">Failed</div>
+                                    <div class="covstat__sub mono">@_tests.Skipped.ToString("N0") skipped</div>
+                                </div>
+                            </div>
+                        </Card>
+                        @if (_tests.Suites.Count > 0)
+                        {
+                            <Card Padded="false">
+                                <ScrollBox Label="Suites with failures or skips">
+                                    <table class="table table--rows">
+                                        <thead>
+                                            <tr><th>Suite</th><th class="align-end">Failed</th><th class="align-end">Skipped</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var s in _tests.Suites)
+                                            {
+                                                <tr>
+                                                    <td class="mono">@s.Suite</td>
+                                                    <td class="mono align-end" style="color: @(s.Failed > 0 ? "var(--color-critical)" : "inherit")">@s.Failed</td>
+                                                    <td class="mono align-end muted">@s.Skipped</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </ScrollBox>
+                            </Card>
+                            <p class="field__help">Per-test flaky/skip detail is not yet ingested — this is suite-level. (<code class="mono">TFND-176</code>)</p>
+                        }
+                        else
+                        {
+                            <p class="field__help">Every suite passed clean — no failures or skips.</p>
+                        }
+                    }
+                }
+                else if (Key == "license")
+                {
+                    @if (_licenses.Count == 0)
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="No SBOM" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
+                                <span>No SBOM components were ingested for this build.</span>
+                            </div>
+                        </Card>
+                    }
+                    else
+                    {
+                        <Card Padded="false">
+                            <ScrollBox Label="Licence mix">
+                                <table class="table table--rows">
+                                    <thead>
+                                        <tr><th>Licence</th><th class="align-end">Components</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var g in _licenses)
+                                        {
+                                            <tr>
+                                                <td class="mono">@g.License</td>
+                                                <td class="mono align-end">@g.Count.ToString("N0")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </ScrollBox>
+                        </Card>
+                        <p class="field__help">@_licenses.Sum(g => g.Count).ToString("N0") components across @_licenses.Count distinct licence@(_licenses.Count == 1 ? "" : "s").</p>
+                    }
+                }
+                else if (Key == "sbomStaleness")
+                {
+                    @if (_stale.Count == 0)
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="Fresh" Tone="var(--color-pass)" Glyph="✓" />
+                                <span>Every non-vulnerable component is on its newest version.</span>
+                            </div>
+                        </Card>
+                    }
+                    else
+                    {
+                        <Card Padded="false">
+                            <ScrollBox Label="Outdated components">
+                                <table class="table table--rows">
+                                    <thead>
+                                        <tr><th>Component</th><th>In build</th><th>Latest</th><th class="align-end">Update age</th><th></th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var c in _stale)
+                                        {
+                                            <tr>
+                                                <td class="mono">@c.Name</td>
+                                                <td class="mono muted">@c.Version</td>
+                                                <td class="mono">@(c.LatestVersion ?? "—")</td>
+                                                <td class="mono align-end">@(c.DaysBehind is { } d ? $"{d:N0}d" : "—")</td>
+                                                <td>
+                                                    @if (c.Stale)
+                                                    {
+                                                        <span class="contrib__sat mono" style="color: var(--color-band-orange)">STALE</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </ScrollBox>
+                        </Card>
+                        <p class="field__help">
+                            @_stale.Count component@(_stale.Count == 1 ? "" : "s") behind their newest release; @_stale.Count(c => c.Stale) marked
+                            <strong>STALE</strong> (that newer release itself shipped over 180 days ago). Vulnerable components score under Known CVEs, not here.
+                        </p>
+                    }
+                }
+                else if (Key == "missingScanners")
+                {
+                    @if (_receipts.Count == 0)
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="No receipts" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
+                                <span>No scan-run receipts were recorded for this build.</span>
+                            </div>
+                            <p class="field__help">Without receipts, coverage of the scanner set cannot be proven.</p>
+                        </Card>
+                    }
+                    else
+                    {
+                        <Card Padded="false">
+                            <ScrollBox Label="Scan-run receipts">
+                                <table class="table table--rows">
+                                    <thead>
+                                        <tr><th>Scanner</th><th>Tool</th><th>Status</th><th class="align-end">Findings</th><th>Completed</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var r in _receipts)
+                                        {
+                                            <tr>
+                                                <td class="mono">@r.Scanner</td>
+                                                <td class="mono muted">@(r.ToolName ?? "—")</td>
+                                                <td class="mono">@ReceiptStatus(r.Status)</td>
+                                                <td class="mono align-end">@r.FindingsCount.ToString("N0")</td>
+                                                <td class="mono muted">@(r.CompletedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </ScrollBox>
+                        </Card>
+                        <p class="field__help">@_receipts.Count scanner@(_receipts.Count == 1 ? "" : "s") ran for this build. A scanner that never ran leaves no row — a gap here is the signal.</p>
+                    }
+                }
                 else
                 {
                     <Card>
@@ -223,6 +397,10 @@ else
     private IReadOnlyList<Tamp.Findings.Application.Risk.CategoryFinding> _findings = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.CveRow> _cves = [];
     private Tamp.Findings.Application.Risk.CoverageSummary? _coverage;
+    private Tamp.Findings.Application.Risk.TestsSummary? _tests;
+    private IReadOnlyList<Tamp.Findings.Application.Risk.LicenseGroup> _licenses = [];
+    private IReadOnlyList<Tamp.Findings.Application.Risk.StaleComponent> _stale = [];
+    private IReadOnlyList<Tamp.Findings.Application.Risk.ReceiptRow> _receipts = [];
     private Tab _tab = Tab.Current;
     private bool _loading = true;
     private string? _commitSha;
@@ -256,6 +434,14 @@ else
                     _cves = await CategoryFindings.CvesAsync(_project.ProjectId, _commitSha);
                 else if (Key == "coverage")
                     _coverage = await CategoryFindings.CoverageAsync(_project.ProjectId, _commitSha);
+                else if (Key == "tests")
+                    _tests = await CategoryFindings.TestsAsync(_project.ProjectId, _commitSha);
+                else if (Key == "license")
+                    _licenses = await CategoryFindings.LicensesAsync(_project.ProjectId, _commitSha);
+                else if (Key == "sbomStaleness")
+                    _stale = await CategoryFindings.SbomStalenessAsync(_project.ProjectId, _commitSha);
+                else if (Key == "missingScanners")
+                    _receipts = await CategoryFindings.ReceiptsAsync(_project.ProjectId, _commitSha);
             }
         }
         catch
@@ -265,6 +451,10 @@ else
             _findings = [];
             _cves = [];
             _coverage = null;
+            _tests = null;
+            _licenses = [];
+            _stale = [];
+            _receipts = [];
         }
         _loading = false;
     }
@@ -273,6 +463,15 @@ else
     // the finding is critical/high, so mark those.
     private static string GateMark(Domain.Values.Severity sev) =>
         sev is Domain.Values.Severity.Critical or Domain.Values.Severity.High ? "gated" : "—";
+
+    // A receipt's status, glyphed. Succeeded is clean; Failed/Skipped are the gaps.
+    private static string ReceiptStatus(string status) => status switch
+    {
+        "Succeeded" => "✓ ran",
+        "Failed" => "✕ failed",
+        "Skipped" => "— skipped",
+        _ => status,
+    };
 
     private static string Shorten(string path)
     {
