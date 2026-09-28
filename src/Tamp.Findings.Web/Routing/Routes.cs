@@ -88,6 +88,10 @@ public static class Routes
         $"{ProjectHub(client, project, sha)}/attestation";
 
     public static string Policy(string client, string project) => $"/c/{E(client)}/p/{E(project)}/settings/policy";
+    /// <summary>The three-layer effective-policy view (ADR 0007), distinct from
+    /// the weights/gates editor at <see cref="Policy"/>.</summary>
+    public static string ProjectPolicy(string client, string project) => $"/c/{E(client)}/p/{E(project)}/policy";
+    public static string ClientPolicy(string client) => $"/c/{E(client)}/policy";
     public static string Keys(string client, string project) => $"/c/{E(client)}/p/{E(project)}/settings/keys";
 
     public static string System(string panel = SystemPanels.Users) => $"/system/{E(panel)}";
