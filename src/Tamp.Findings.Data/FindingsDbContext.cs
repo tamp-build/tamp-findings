@@ -44,6 +44,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<PolicyTemplate> PolicyTemplates => Set<PolicyTemplate>();
     public DbSet<ControlCatalog> ControlCatalogs => Set<ControlCatalog>();
     public DbSet<Framework> Frameworks => Set<Framework>();
+    public DbSet<ConformanceFinding> ConformanceFindings => Set<ConformanceFinding>();
     public DbSet<KevAdvisory> KevAdvisories => Set<KevAdvisory>();
     public DbSet<VexStatement> VexStatements => Set<VexStatement>();
     public DbSet<PoamItem> PoamItems => Set<PoamItem>();
@@ -573,6 +574,19 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.Source).HasMaxLength(512).IsRequired();
             e.Property(x => x.Version).HasMaxLength(64).IsRequired();
             e.HasIndex(x => x.Slug).IsUnique();
+        });
+
+        b.Entity<ConformanceFinding>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.AdrRef).HasMaxLength(64).IsRequired();
+            e.Property(x => x.RuleId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.AdrQuote).HasColumnType("text");
+            e.Property(x => x.CodeEvidence).HasColumnType("text");
+            e.Property(x => x.DispositionJustification).HasColumnType("text");
+            // Control refs travel as jsonb, like other string lists here.
+            e.Property(x => x.ControlRefs).HasColumnType("jsonb");
+            e.HasIndex(x => x.ComponentVersionId);
         });
 
         b.Entity<CoverageClass>(e =>
