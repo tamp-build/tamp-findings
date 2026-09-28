@@ -4,6 +4,7 @@
 @inject RouteScope Scope
 @inject ProjectHubQuery Hub
 @inject Tamp.Findings.Application.Poam.PoamQuery Poam
+@inject Tamp.Findings.Application.Attestation.SsdfAttestationBuilder Ssdf
 @inject CurrentUser Me
 
 <PageTitle>@Project — tamp.findings</PageTitle>
@@ -88,6 +89,11 @@ else
 
         <EvidenceTiles Data="_data" PoamPastDue="_poamPastDue" Sha="@ShortSha" />
 
+        @if (_ssdf is not null)
+        {
+            <AttestationTiles Doc="_ssdf" />
+        }
+
         <ScanReceipts Inputs="_data.Inputs" Sha="@ShortSha" />
 
         @* TFND-134. Below the receipts on purpose: it answers the same
@@ -110,6 +116,7 @@ else
     private ProjectRef? _project;
     private ProjectHubData? _data;
     private int _poamPastDue;
+    private Tamp.Findings.Application.Attestation.SsdfAttestationDoc? _ssdf;
     private bool _loading = true;
     private string? _error;
 
@@ -144,6 +151,11 @@ else
             _poamPastDue = _data is null || _project is null
                 ? 0
                 : (await Poam.BoardAsync(_project.ProjectId, DateTimeOffset.UtcNow)).Stats.PastDue;
+            // SSDF practice answers feed the attestation-evidence tiles (PS.2.1,
+            // RV.3.1, RV.3.2). Built for the build being shown.
+            _ssdf = _data is null || _project is null
+                ? null
+                : await Ssdf.BuildAsync(_project.ProjectId, _data.CommitSha);
         }
         catch (Exception ex)
         {
