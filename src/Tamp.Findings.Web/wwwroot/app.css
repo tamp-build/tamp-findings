@@ -580,6 +580,7 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 /* ── Project hub ────────────────────────────────────────────────────── */
 
 .hubhead { padding-left: var(--space-3); }
+.hubhead__back { display: inline-block; font-size: var(--text-kicker); color: var(--color-accent-700); margin-bottom: 4px; }
 
 /* Two columns above the dense breakpoint, stacked below it (ADR 0003). The
    minimums are the design's, but they are MINIMUMS for English — verify
@@ -598,6 +599,10 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
    qualifier on the score. */
 .score__delta { color: var(--color-accent-700); white-space: nowrap; font-size: var(--text-secondary); }
 .score__caption { margin-left: auto; text-align: right; font-size: var(--text-kicker); max-width: 34ch; }
+
+/* Trend across recent builds, under the score row. */
+.score__trend { display: flex; align-items: center; gap: var(--space-3); margin-top: var(--space-2); }
+.score__trendlabel { font-size: var(--text-secondary); white-space: nowrap; }
 
 .contrib { margin-top: var(--space-4); }
 .contrib__row {

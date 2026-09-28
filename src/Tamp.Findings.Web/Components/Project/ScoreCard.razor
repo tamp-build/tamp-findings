@@ -11,7 +11,7 @@
     <div class="kicker">How are we trending</div>
 
     <div class="score">
-        <span class="score__value">@Data.Risk.Score.ToString("F1")</span>
+        <span class="score__value" style="color: @BandTone(Data.Risk.Band)">@Data.Risk.Score.ToString("F1")</span>
         <Chip Label="@Data.Risk.Band" Tone="@BandTone(Data.Risk.Band)" />
         @if (Prefs.ShowDeltas && Data.Gates.DeltaPoints is { } delta)
         {
@@ -24,6 +24,17 @@
             <div class="muted">Categories saturate — the score is posture, not volume.</div>
         </div>
     </div>
+
+    @* The trend across the recent canonical builds — the multi-build view the
+       single "vs prior" delta cannot give. Lower is better, so a falling line is
+       an improving posture. *@
+    @if (TrendSeries.Count >= 2)
+    {
+        <div class="score__trend" title="@TrendTitle">
+            <Sparkline Points="TrendSeries" Color="@TrendColor" Width="220" Height="44" AriaLabel="@TrendTitle" />
+            <span class="mono score__trendlabel" style="color: @TrendColor">@TrendLabel</span>
+        </div>
+    }
 
     <div class="contrib">
         @foreach (var row in Data.Risk.Breakdown)
@@ -73,6 +84,34 @@
 
 @code {
     [Parameter, EditorRequired] public ProjectHubData Data { get; set; } = default!;
+
+    // History is newest-first; the sparkline reads left (past) to right (now).
+    private IReadOnlyList<double> TrendSeries => Data.History.Select(h => h.Score).Reverse().ToArray();
+
+    private double TrendChange => TrendSeries is { Count: >= 2 } s ? s[^1] - s[0] : 0;
+    private bool TrendFlat => Math.Abs(TrendChange) < 0.05;
+    private bool TrendImproving => TrendChange < 0;   // lower is better
+
+    private string TrendColor =>
+        TrendFlat ? "var(--color-neutral-600)"
+        : TrendImproving ? "var(--color-band-green)" : "var(--color-band-red)";
+
+    private string TrendLabel
+    {
+        get
+        {
+            var n = TrendSeries.Count;
+            if (TrendFlat) return $"— flat over {n} builds";
+            var arrow = TrendImproving ? "▼" : "▲";
+            var sign = TrendChange > 0 ? "+" : "−";
+            return $"{arrow} {sign}{Math.Abs(TrendChange):F1} over {n} builds";
+        }
+    }
+
+    private string TrendTitle =>
+        TrendSeries.Count < 2 ? ""
+        : $"{TrendSeries.Count} builds: {TrendSeries[0]:F1} → {TrendSeries[^1]:F1} "
+          + $"({(TrendFlat ? "flat" : TrendImproving ? "improving" : "worsening")})";
 
     private static string Signed(double d) => d > 0 ? $"+{d:F1}" : d.ToString("F1");
 
