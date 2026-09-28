@@ -24,11 +24,13 @@ public sealed class ProjectHubQuery
 {
     private readonly FindingsDbContext _db;
     private readonly RiskInputsBuilder _inputs;
+    private readonly Policy.PolicyResolver _resolver;
 
-    public ProjectHubQuery(FindingsDbContext db, RiskInputsBuilder inputs)
+    public ProjectHubQuery(FindingsDbContext db, RiskInputsBuilder inputs, Policy.PolicyResolver resolver)
     {
         _db = db;
         _inputs = inputs;
+        _resolver = resolver;
     }
 
     /// <summary>
@@ -147,10 +149,12 @@ public sealed class ProjectHubQuery
             priorScore = RiskScorer.Compute(policy.Config, priorInputs).Score;
         }
 
-        // An unconfigured project has every gate disabled, which reads as
-        // "clear to ship" with zero enabled gates — honest, and visibly
-        // different from "all gates passing".
-        var gateConfig = project.GatesConfig ?? new ProjectGatesConfig();
+        // The MERGED three-layer gate set (ADR 0007), so the hub and the
+        // evidence tiles show the same gates the build is actually judged
+        // against. An unconfigured project with no template resolves to zero
+        // enabled gates — "clear to ship", honest, and visibly different from
+        // "all gates passing".
+        var gateConfig = await _resolver.EffectiveGatesAsync(project.ProjectId, project.GatesConfig, ct);
         var gates = GateEvaluator.Evaluate(gateConfig, inputs, result.Score, priorInputs, priorScore);
 
         var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, ct);
