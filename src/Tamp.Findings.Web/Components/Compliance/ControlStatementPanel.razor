@@ -1,0 +1,54 @@
+@using Tamp.Findings.Domain.Compliance
+
+@* The control-statement panel (v3 §6): a control's prose with its
+   organization-defined parameters rendered as dashed chips, plus FedRAMP
+   Low/Moderate/High membership. The parameter parsing is the domain's
+   ControlStatementParser, so a nested [Selection[Assignment]] is one chip. *@
+
+<div class="ctlpanel">
+    <div class="ctlpanel__head">
+        <span class="mono ctlpanel__id">@Control.Id</span>
+        <span class="ctlpanel__title">@Control.Title</span>
+        <span class="muted">@Control.Family</span>
+        <span class="ctlpanel__bases">
+            <span class="ctlpanel__baselabel">FedRAMP</span>
+            @foreach (var (label, level) in Levels)
+            {
+                var member = Control.InBaseline(level);
+                <span class="ctlpanel__base @(member ? "ctlpanel__base--in" : "ctlpanel__base--out")">@label</span>
+            }
+        </span>
+    </div>
+
+    <div class="ctlpanel__stmt">
+        @foreach (var line in Control.StatementLines)
+        {
+            <div class="ctlpanel__line @(IsLettered(line) ? "ctlpanel__line--item" : null)">
+                @foreach (var seg in ControlStatementParser.Parse(line))
+                {
+                    @if (seg.IsParameter)
+                    {
+                        <span class="ctlpanel__param mono" title="@(seg.Kind?.ToString())">@seg.Text</span>
+                    }
+                    else
+                    {
+                        <span>@seg.Text</span>
+                    }
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Control Control { get; set; } = default!;
+
+    private static readonly (string Label, BaselineLevel Level)[] Levels =
+    [
+        ("Low", BaselineLevel.Low), ("Moderate", BaselineLevel.Moderate), ("High", BaselineLevel.High),
+    ];
+
+    // Lettered/numbered sub-items ("a. …", "b. …") indent; the lead-in prose does not.
+    private static bool IsLettered(string line) =>
+        line.Length >= 3 && char.IsLetterOrDigit(line[0]) && line[1] == '.' && line[2] == ' ';
+}
