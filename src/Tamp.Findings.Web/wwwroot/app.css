@@ -201,6 +201,9 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 .mark--unknown { color: var(--color-medium); border-style: dashed;
                  background: color-mix(in srgb, var(--color-medium) 14%, transparent); }
 .mark--error   { color: var(--color-high); background: currentColor; }
+/* N/A: the gate does not apply to this component (TFND-184). Muted, dotted,
+   no fill — a soft "nothing to answer here", not a dashed unanswered Unknown. */
+.mark--na      { color: var(--color-neutral-500); border-style: dotted; }
 .mark--fail > *, .mark--error > * { color: var(--color-on-solid); }
 
 /* ── Tables ─────────────────────────────────────────────────────────── */

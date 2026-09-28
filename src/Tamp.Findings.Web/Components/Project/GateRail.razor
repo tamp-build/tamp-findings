@@ -41,7 +41,7 @@
             <div class="gate">
                 <VerdictMark Verdict="gate.Verdict" ShowTag="false" />
                 <div class="gate__label">@GateLabel(gate.Key)</div>
-                <Chip Label="@gate.Verdict.ToString()" Tone="@Tone(gate.Verdict)" Style="@Style(gate.Verdict)" />
+                <Chip Label="@VerdictLabel(gate.Verdict)" Tone="@Tone(gate.Verdict)" Style="@Style(gate.Verdict)" />
                 <div class="gate__observed muted">@gate.Observed</div>
             </div>
         }
@@ -72,16 +72,25 @@
         if (Gates.Unknown > 0) parts.Add($"{Gates.Unknown} unanswered");
         if (Gates.Errored > 0) parts.Add($"{Gates.Errored} could not be evaluated");
 
+        // N/A gates ship but are not "passing"; naming them keeps the line
+        // honest (TFND-184) — "all passing" over a DAST gate that never applied
+        // to a library is the false-pass this feature exists to kill.
         return parts.Count == 0
-            ? $"All {Gates.Enabled} enabled gates passing on this build"
+            ? (Gates.NotApplicable > 0
+                ? $"{Gates.Passed} of {Gates.Enabled} enabled gates passing · {Gates.NotApplicable} not applicable to this component"
+                : $"All {Gates.Enabled} enabled gates passing on this build")
             : string.Join(" · ", parts);
     }
+
+    private static string VerdictLabel(GateVerdict v) =>
+        v == GateVerdict.NotApplicable ? "N/A" : v.ToString();
 
     private static string Tone(GateVerdict v) => v switch
     {
         GateVerdict.Pass => "var(--color-accent)",
         GateVerdict.Fail => "var(--color-critical)",
         GateVerdict.Unknown => "var(--color-medium)",
+        GateVerdict.NotApplicable => "var(--color-neutral-500)",
         _ => "var(--color-high)",
     };
 

@@ -155,7 +155,8 @@ public sealed class ProjectHubQuery
         // enabled gates — "clear to ship", honest, and visibly different from
         // "all gates passing".
         var gateConfig = await _resolver.EffectiveGatesAsync(project.ProjectId, project.GatesConfig, ct);
-        var gates = GateEvaluator.Evaluate(gateConfig, inputs, result.Score, priorInputs, priorScore);
+        var capability = await AggregateCapabilityAsync(cvIds, ct);   // TFND-184
+        var gates = GateEvaluator.Evaluate(gateConfig, inputs, result.Score, priorInputs, priorScore, capability);
 
         var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, ct);
 
@@ -196,7 +197,8 @@ public sealed class ProjectHubQuery
             var ids = builds.Where(b => b.CommitSha == sha).Select(b => b.Id).ToArray();
             var inputs = await _inputs.BuildAsync(ids, config, project.ProjectId, ct);
             var scored = RiskScorer.Compute(config, inputs);
-            var gates = GateEvaluator.Evaluate(gateConfig, inputs, scored.Score, prior: null, priorScore: previousScore);
+            var capability = await AggregateCapabilityAsync(ids, ct);   // TFND-184
+            var gates = GateEvaluator.Evaluate(gateConfig, inputs, scored.Score, prior: null, priorScore: previousScore, capability);
 
             var head = builds.First(b => b.CommitSha == sha);
             rows.Add(new BuildHistoryRow(
@@ -210,6 +212,26 @@ public sealed class ProjectHubQuery
 
         rows.Reverse();
         return rows;
+    }
+
+    // The union of a build's components' capabilities (TFND-184), so the hub
+    // shows the same N/A gates the decision enforces.
+    private async Task<Tamp.Findings.Domain.Compliance.ComponentCapability> AggregateCapabilityAsync(
+        IReadOnlyList<Guid> cvIds, CancellationToken ct)
+    {
+        var profiles = await _db.ComponentVersions.AsNoTracking()
+            .Where(cv => cvIds.Contains(cv.Id))
+            .Select(cv => cv.Component!.Profile)
+            .Distinct()
+            .ToListAsync(ct);
+
+        if (profiles.Count == 0)
+            return Tamp.Findings.Domain.Compliance.ComponentProfiles.Capabilities(
+                Tamp.Findings.Domain.Compliance.ComponentProfile.CodePackage);
+
+        return profiles.Aggregate(
+            Tamp.Findings.Domain.Compliance.ComponentCapability.None,
+            (acc, p) => acc | Tamp.Findings.Domain.Compliance.ComponentProfiles.Capabilities(p));
     }
 
     private async Task<(string Name, RiskPolicyConfig Config)> ResolvePolicyAsync(

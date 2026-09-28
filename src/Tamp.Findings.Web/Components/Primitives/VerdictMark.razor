@@ -25,6 +25,7 @@
         GateVerdict.Pass    => "mark--pass",
         GateVerdict.Fail    => "mark--fail",
         GateVerdict.Unknown => "mark--unknown",
+        GateVerdict.NotApplicable => "mark--na",
         _                   => "mark--error",
     };
 
@@ -35,6 +36,9 @@
         // "?" rather than an em dash: an em dash is what a DISABLED gate
         // shows, and disabled and unanswered are opposite statements.
         GateVerdict.Unknown => "?",
+        // "○" — the gate does not apply to this component (N/A-justified),
+        // distinct from disabled (—) and unanswered (?).
+        GateVerdict.NotApplicable => "○",
         _                   => "!",
     };
 
@@ -43,6 +47,7 @@
         GateVerdict.Pass    => "Pass",
         GateVerdict.Fail    => "Fail",
         GateVerdict.Unknown => "Unknown",
+        GateVerdict.NotApplicable => "N/A",
         _                   => "Error",
     };
 
@@ -51,6 +56,7 @@
         GateVerdict.Pass    => "var(--color-accent)",
         GateVerdict.Fail    => "var(--color-critical)",
         GateVerdict.Unknown => "var(--color-medium)",
+        GateVerdict.NotApplicable => "var(--color-neutral-500)",
         _                   => "var(--color-high)",
     };
 

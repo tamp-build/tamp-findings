@@ -20,6 +20,10 @@ public sealed record CliGateResponse(
     int GatesBlocking,
     int GatesFailed,
     int GatesUnknown,
+    // N/A gates ship but are not "passing" — a conditional gate (DAST, IaC,
+    // base-image age) the build's components cannot produce (TFND-184). Surfaced
+    // so the CLI summary does not silently fold them into the passing count.
+    int GatesNotApplicable,
     IReadOnlyList<CliGateVerdict> Gates);
 
 public sealed record CliGateVerdict(
@@ -77,6 +81,7 @@ public static class GateEndpoints
                 GatesBlocking: r.Evaluation.Blocking,
                 GatesFailed: r.Evaluation.Failed,
                 GatesUnknown: r.Evaluation.Unknown,
+                GatesNotApplicable: r.Evaluation.NotApplicable,
                 Gates: r.Evaluation.Results.Where(g => g.Enabled).Select(g => new CliGateVerdict(
                     g.Key, g.Verdict.ToString(), g.Blocks, g.Observed, g.Reason)).ToList())),
         };

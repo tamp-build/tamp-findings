@@ -407,3 +407,63 @@ public class GateEvaluatorTests
             Assert.Equal(GateVerdict.Unknown, V(Gate(GateKeys.CoverageFloor, 70), Base() with { CoverageMeasured = false }, GateKeys.CoverageFloor));
         }
     }
+
+// TFND-184 — the intersection rule. A conditional gate the build's capability
+// cannot produce is N/A (not run, not passed, NOT blocked), never a false pass.
+public class GateIntersectionTests
+{
+    private static ProjectGatesConfig Gate(string key) =>
+        new() { Gates = { [key] = new GateConfig { Enabled = true, Threshold = 0 } } };
+
+    private static RiskInputs Inputs(bool ranDast) => new(
+        0, 0, 0, 0, KevListedCves: 0, SecretsVerified: 0, SecretsUnverified: 0,
+        SastCritical: 0, SastHigh: 0, SastMedium: 0, SastLow: 0, IacCritical: 0, IacHigh: 0,
+        CoverageMeasured: true, SequenceCoveragePercent: 90,
+        SbomComponents: 1, SbomOutdated: 0, SbomStale: 0,
+        TestsMeasured: true, TestsTotal: 1, TestsFailed: 0,
+        LicenseDenied: 0, LicenseStrongCopyleft: 0, LicenseUnknown: 0,
+        RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true,
+        RanDast: ranDast);
+
+    private static readonly Tamp.Findings.Domain.Compliance.ComponentCapability CodePackage =
+        Tamp.Findings.Domain.Compliance.ComponentProfiles.Capabilities(Tamp.Findings.Domain.Compliance.ComponentProfile.CodePackage);
+    private static readonly Tamp.Findings.Domain.Compliance.ComponentCapability Service =
+        Tamp.Findings.Domain.Compliance.ComponentProfiles.Capabilities(Tamp.Findings.Domain.Compliance.ComponentProfile.Service);
+
+    private static GateResult R(GateEvaluation e, string key) => e.Results.Single(r => r.Key == key);
+
+    [Fact]
+    public void A_dast_gate_on_a_code_package_is_not_applicable_and_does_not_block()
+    {
+        // A library never ran DAST — without the rule this would be Unknown (block).
+        var eval = GateEvaluator.Evaluate(Gate(GateKeys.CriticalDast), Inputs(ranDast: false), 10, null, null, CodePackage);
+        var r = R(eval, GateKeys.CriticalDast);
+        Assert.Equal(GateVerdict.NotApplicable, r.Verdict);
+        Assert.False(r.Blocks);
+        Assert.True(eval.ClearToShip);
+        Assert.Equal(1, eval.NotApplicable);
+    }
+
+    [Fact]
+    public void An_iac_gate_on_a_code_package_is_not_applicable()
+    {
+        var eval = GateEvaluator.Evaluate(Gate(GateKeys.CriticalIac), Inputs(ranDast: false), 10, null, null, CodePackage);
+        Assert.Equal(GateVerdict.NotApplicable, R(eval, GateKeys.CriticalIac).Verdict);
+    }
+
+    [Fact]
+    public void A_dast_gate_on_a_service_is_evaluated_normally()
+    {
+        // A service CAN run DAST; a clean run passes, not N/A.
+        var eval = GateEvaluator.Evaluate(Gate(GateKeys.CriticalDast), Inputs(ranDast: true), 10, null, null, Service);
+        Assert.Equal(GateVerdict.Pass, R(eval, GateKeys.CriticalDast).Verdict);
+    }
+
+    [Fact]
+    public void Without_a_capability_behaviour_is_unchanged()
+    {
+        // Null capability = assume everything applies: the old Unknown-on-no-DAST.
+        var eval = GateEvaluator.Evaluate(Gate(GateKeys.CriticalDast), Inputs(ranDast: false), 10, null, null);
+        Assert.Equal(GateVerdict.Unknown, R(eval, GateKeys.CriticalDast).Verdict);
+    }
+}
