@@ -1189,19 +1189,20 @@ class Build : SecurityPipelineBuild
     // never as a --kubeconfig CLI flag (keeps the path out of the process
     // table). The Build inherits the env from the user's shell.
 
-    // The lab registry is reachable two ways and they are NOT interchangeable:
-    //   * PUSH  → registry.home.local:32000 (the NodePort, trusted as an
-    //     insecure registry by the local docker daemon).
-    //   * PULL  → registry.home.local (no port) is the name the cluster node's
-    //     containerd resolves. Same backing store, different address.
-    // So we build/push with the :32000 form and pin the Deployment to the
-    // no-port form. Overriding ImageRegistry alone still works for a setup where
-    // one address serves both — just point ImageDeployRegistry at it too.
+    // The registry you PUSH to and the one the CLUSTER PULLS by can differ — a
+    // NodePort / insecure registry the local docker daemon trusts for push,
+    // versus the name the cluster's container runtime resolves for pull (same
+    // backing store, different address). When that is your setup, set both;
+    // otherwise ImageDeployRegistry falls back to the push registry.
+    //
+    // Configure per environment via TAMP_FINDINGS_REGISTRY /
+    // TAMP_FINDINGS_DEPLOY_REGISTRY (repo-root .env, gitignored). The defaults
+    // target a local registry so a fresh clone builds without extra config.
     [Parameter("Container image registry to build+push to", EnvironmentVariable = "TAMP_FINDINGS_REGISTRY")]
-    readonly string ImageRegistry = "registry.home.local:32000";
+    readonly string ImageRegistry = "localhost:5000";
 
     [Parameter("Registry name the CLUSTER pulls by (k8s image ref); defaults to the push registry", EnvironmentVariable = "TAMP_FINDINGS_DEPLOY_REGISTRY")]
-    readonly string? ImageDeployRegistry = "registry.home.local";
+    readonly string? ImageDeployRegistry = null;
 
     [Parameter("Container image name (without registry prefix)", EnvironmentVariable = "TAMP_FINDINGS_IMAGE_NAME")]
     readonly string ImageName = "tamp-findings";
