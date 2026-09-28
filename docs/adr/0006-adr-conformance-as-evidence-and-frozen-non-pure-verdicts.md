@@ -1,6 +1,6 @@
 # ADR 0006: ADR-conformance as an evidence source, and freezing non-pure verdicts at the snapshot
 
-* Status: Proposed
+* Status: Accepted
 * Date: 2026-09-28
 * Deciders: scott
 * Tracking: TFND-174 (ADR-conformance as a CI/CD evidence source)
