@@ -101,7 +101,11 @@ public sealed class GateDecisionService
         // own GatesConfig exactly, so this is behaviour-preserving; a client or
         // template gate now applies to every project under it.
         var gates = await _resolver.EffectiveGatesAsync(projectId, project.GatesConfig, ct);
-        var evaluation = GateEvaluator.Evaluate(gates, currentInputs, currentResult.Score, priorInputs, priorScore);
+        // The build's aggregate capability (TFND-184): the union across its
+        // components' profiles. A conditional gate the build cannot produce
+        // (DAST with no web-facing component) resolves to N/A, not a false pass.
+        var capability = await AggregateCapabilityAsync(current.CvIds, ct);
+        var evaluation = GateEvaluator.Evaluate(gates, currentInputs, currentResult.Score, priorInputs, priorScore, capability);
 
         var mode = await _enforcement.ForProjectAsync(projectId, ct);
 
@@ -116,5 +120,26 @@ public sealed class GateDecisionService
             PolicyName: policy.Name,
             Evaluation: evaluation,
             Mode: mode));
+    }
+
+    // The union of the build's components' capabilities (TFND-184). If any
+    // component is web-facing, DAST applies to the build; if it is all libraries,
+    // DAST/IaC/image are N/A. No components resolves to code-package capabilities.
+    private async Task<Tamp.Findings.Domain.Compliance.ComponentCapability> AggregateCapabilityAsync(
+        IReadOnlyList<Guid> cvIds, CancellationToken ct)
+    {
+        var profiles = await _db.ComponentVersions.AsNoTracking()
+            .Where(cv => cvIds.Contains(cv.Id))
+            .Select(cv => cv.Component!.Profile)
+            .Distinct()
+            .ToListAsync(ct);
+
+        if (profiles.Count == 0)
+            return Tamp.Findings.Domain.Compliance.ComponentProfiles.Capabilities(
+                Tamp.Findings.Domain.Compliance.ComponentProfile.CodePackage);
+
+        return profiles.Aggregate(
+            Tamp.Findings.Domain.Compliance.ComponentCapability.None,
+            (acc, p) => acc | Tamp.Findings.Domain.Compliance.ComponentProfiles.Capabilities(p));
     }
 }

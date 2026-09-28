@@ -102,6 +102,11 @@ public static class CheckRunComposer
         sb.Append(gates.Passed).Append(" of ").Append(gates.Enabled).Append(" enabled gates pass");
         if (gates.Unknown > 0) sb.Append(", ").Append(gates.Unknown).Append(" unanswerable");
         if (gates.Failed > 0) sb.Append(", ").Append(gates.Failed).Append(" failing");
+        // N/A gates ship but are not counted as passing — the DAST gate that
+        // does not apply to a library (TFND-184). Naming them keeps "X of Y
+        // pass" from silently crediting a gate that never ran.
+        if (gates.NotApplicable > 0)
+            sb.Append(", ").Append(gates.NotApplicable).Append(" not applicable to this component");
         sb.Append(".\n");
 
         if (blocking.Count == 0) return sb.ToString();

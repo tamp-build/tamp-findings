@@ -23,6 +23,12 @@ public enum GateVerdict
 
     // Evaluation itself broke. Blocks, and an operator should be told.
     Error,
+
+    // The gate does not apply to this component's capability (TFND-184): the
+    // baseline required a scanner the component cannot produce (a library cannot
+    // run DAST). Not run, not passed, NOT blocked — an auditable N/A, never a
+    // false pass off a scan that never applied.
+    NotApplicable,
 }
 
 public sealed record GateResult(
@@ -36,10 +42,11 @@ public sealed record GateResult(
     double? Threshold,
     string? Reason)
 {
-    // Everything except Pass blocks the release. The distinction between the
-    // blocking verdicts is about what the reader should DO, not about whether
-    // the build ships.
-    public bool Blocks => Enabled && Verdict is not GateVerdict.Pass;
+    // Pass and NotApplicable ship; Fail/Unknown/Error block. The distinction
+    // between the blocking verdicts is about what the reader should DO, not about
+    // whether the build ships. NotApplicable does not block — the gate simply
+    // does not apply to this component's capability (TFND-184).
+    public bool Blocks => Enabled && Verdict is not (GateVerdict.Pass or GateVerdict.NotApplicable);
 }
 
 public sealed record GateEvaluation(
@@ -57,6 +64,8 @@ public sealed record GateEvaluation(
     public int Failed   => Results.Count(r => r.Enabled && r.Verdict == GateVerdict.Fail);
     public int Unknown  => Results.Count(r => r.Enabled && r.Verdict == GateVerdict.Unknown);
     public int Errored  => Results.Count(r => r.Enabled && r.Verdict == GateVerdict.Error);
+    // Enabled but not applicable to the component's capability (TFND-184).
+    public int NotApplicable => Results.Count(r => r.Enabled && r.Verdict == GateVerdict.NotApplicable);
 
     // The release decision. Unknown and Error block alongside Fail.
     public int Blocking => Results.Count(r => r.Blocks);
@@ -67,12 +76,20 @@ public sealed record GateEvaluation(
 // scores. Side-effect free; deterministic.
 public static class GateEvaluator
 {
+    /// <param name="capability">
+    /// The build's aggregate component capability (TFND-184). When supplied, a
+    /// conditional gate whose required capability is absent (a DAST gate on a
+    /// build with no web surface) resolves to NotApplicable rather than Unknown —
+    /// the intersection rule. Null means "assume everything applies", which
+    /// preserves the pre-capability behaviour for callers that do not pass it.
+    /// </param>
     public static GateEvaluation Evaluate(
         ProjectGatesConfig config,
         RiskInputs current,
         double currentScore,
         RiskInputs? prior,
-        double? priorScore)
+        double? priorScore,
+        Compliance.ComponentCapability? capability = null)
     {
         var deltaPoints = priorScore.HasValue ? currentScore - priorScore.Value : (double?)null;
         var results = new List<GateResult>();
@@ -80,11 +97,33 @@ public static class GateEvaluator
         foreach (var key in WellKnownGateKeys)
         {
             var gateCfg = config.Gates.TryGetValue(key, out var c) ? c : new GateConfig { Enabled = false };
+
+            // Intersection rule: an enabled conditional gate the component cannot
+            // produce is N/A-justified — not run, not passed, not blocked.
+            if (gateCfg.Enabled && capability is { } cap
+                && RequiredCapability(key) is { } needed
+                && (cap & needed) != needed)
+            {
+                results.Add(new GateResult(key, true, GateVerdict.NotApplicable,
+                    "n/a — component cannot produce this evidence", gateCfg.Threshold,
+                    $"the {Label(key)} gate needs {needed} capability, which this component's profile does not have"));
+                continue;
+            }
+
             results.Add(EvaluateOne(key, gateCfg, current, currentScore, prior, priorScore, deltaPoints));
         }
 
         return new GateEvaluation(currentScore, priorScore, deltaPoints, results);
     }
+
+    // The capability a conditional gate needs; null means it always applies.
+    private static Compliance.ComponentCapability? RequiredCapability(string key) => key switch
+    {
+        GateKeys.CriticalDast or GateKeys.HighDast => Compliance.ComponentCapability.Web,
+        GateKeys.CriticalIac => Compliance.ComponentCapability.Iac,
+        GateKeys.BaseImageAge => Compliance.ComponentCapability.Image,
+        _ => null,
+    };
 
     // Order is presentation order on every screen — keep stable.
     //

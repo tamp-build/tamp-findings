@@ -59,7 +59,10 @@ public static class GateExit
 
         foreach (var v in verdicts)
         {
-            if (v == GateVerdict.Pass) continue;
+            // Pass and N/A both clear the gate. N/A means the gate does not
+            // apply to this component's capability (TFND-184) — not run, not
+            // passed, and explicitly NOT blocking. Same treatment as Pass here.
+            if (v is GateVerdict.Pass or GateVerdict.NotApplicable) continue;
             blocks = true;
             switch (v)
             {
