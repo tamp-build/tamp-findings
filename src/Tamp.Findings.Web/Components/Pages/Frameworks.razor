@@ -78,11 +78,24 @@
 
         <Card>
             <div class="kicker">Controls</div>
-            <p class="field__help">Click a control to read its statement and organization-defined parameters.</p>
+            <p class="field__help">@_controls.Count controls across @Families.Count families. Pick a family or search, then click a control to read its statement.</p>
+            <div class="row" style="gap: 10px; flex-wrap: wrap; margin-bottom: 8px">
+                <select class="mono" @bind="_family" @bind:after="() => _selected = null">
+                    @foreach (var fam in Families)
+                    {
+                        <option value="@fam">@fam</option>
+                    }
+                </select>
+                <input class="mono" style="min-width: 12rem" placeholder="filter id or title…" @bind="_search" @bind:event="oninput" />
+            </div>
             <div class="row" style="flex-wrap: wrap; gap: 6px">
-                @foreach (var c in _controls)
+                @foreach (var c in ShownControls)
                 {
-                    <button class="ctlchip mono @(_selected?.Id == c.Id ? "ctlchip--sel" : null)" @onclick="() => _selected = c">@c.Id</button>
+                    <button class="ctlchip mono @(_selected?.Id == c.Id ? "ctlchip--sel" : null)" @onclick="() => _selected = c" title="@c.Title">@c.Id</button>
+                }
+                @if (ShownControls.Count == 0)
+                {
+                    <span class="muted">No control matches.</span>
                 }
             </div>
         </Card>
@@ -100,6 +113,27 @@
     private IReadOnlyList<Framework> _frameworks = [];
     private IReadOnlyList<Control> _controls = [];
     private Control? _selected;
+    private string _family = "";
+    private string _search = "";
+
+    // The families in catalog order (controls arrive grouped by family).
+    private IReadOnlyList<string> Families => _controls.Select(c => c.Family).Distinct().ToArray();
+
+    // A search spans the whole catalog; otherwise the chosen family. Capped so a
+    // broad match never renders thousands of chips.
+    private IReadOnlyList<Control> ShownControls
+    {
+        get
+        {
+            IEnumerable<Control> q = _controls;
+            if (!string.IsNullOrWhiteSpace(_search))
+                q = q.Where(c => c.Id.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                              || c.Title.Contains(_search, StringComparison.OrdinalIgnoreCase));
+            else if (!string.IsNullOrEmpty(_family))
+                q = q.Where(c => c.Family == _family);
+            return q.Take(400).ToArray();
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -110,6 +144,7 @@
             _frameworks = await Catalog.FrameworksAsync();
             _controls = await Catalog.ControlsAsync();
             _selected = _controls.FirstOrDefault(c => c.Id == "CM-6") ?? _controls.FirstOrDefault();
+            _family = _selected?.Family ?? Families.FirstOrDefault() ?? "";
         }
         catch { }
         _loading = false;

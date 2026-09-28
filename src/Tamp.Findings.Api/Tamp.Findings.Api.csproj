@@ -39,4 +39,11 @@
     <ProjectReference Include="..\Tamp.Findings.Mcp\Tamp.Findings.Mcp.csproj" />
   </ItemGroup>
 
+  <!-- Ship the OSCAL control catalog + baseline profiles WITH the product so a
+       fresh deploy stands up with the full 800-53 catalog by default (ingested
+       at startup; air-gap safe, no network fetch). README.md excluded. -->
+  <ItemGroup>
+    <Content Update="Content\oscal\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

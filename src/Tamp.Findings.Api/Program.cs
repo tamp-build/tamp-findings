@@ -388,14 +388,58 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
         await db.SaveChangesAsync();
     }
 
-    // Seed the control catalog (ADR — v3 §6) and the frameworks, idempotently.
-    // A curated 800-53 Rev 5 subset until a full OSCAL 1.2 import lands (TFND-180).
-    if (!await db.ControlCatalogs.AnyAsync())
+    // Ingest the SHIPPED OSCAL control catalog + baseline profiles on startup
+    // (TFND-180 / v3 §6). The catalog ships with the product (Content/oscal/), so
+    // a fresh deploy stands up with the full NIST 800-53 Rev 5 catalog by default
+    // — air-gap safe, no network fetch. Idempotent by the catalog file's hash:
+    // re-imports only when the shipped file changes, and retains the prior
+    // catalog (an attestation cites the version it signed against). Falls back to
+    // the curated subset only if the shipped files are absent.
+    var oscalDir = Path.Combine(builder.Environment.ContentRootPath, "Content", "oscal");
+    var catalogPath = Path.Combine(oscalDir, "catalog.json");
+    if (File.Exists(catalogPath))
     {
+        var sha = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(catalogPath)));
+        var current = await db.ControlCatalogs.FirstOrDefaultAsync(c => c.IsCurrent);
+        if (current?.ImportedSha != sha)
+        {
+            var import = scope.ServiceProvider
+                .GetRequiredService<Tamp.Findings.Application.Compliance.Oscal.OscalImportService>();
+            var profiles = new Dictionary<Tamp.Findings.Domain.Compliance.BaselineLevel, Stream>();
+            void AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel level, string file)
+            {
+                var path = Path.Combine(oscalDir, file);
+                if (File.Exists(path)) profiles[level] = File.OpenRead(path);
+            }
+            AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel.Low, "baseline-low.json");
+            AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel.Moderate, "baseline-moderate.json");
+            AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel.High, "baseline-high.json");
+
+            Tamp.Findings.Domain.Entities.ControlCatalog built;
+            using (var cat = File.OpenRead(catalogPath))
+                built = import.BuildCatalog(cat, profiles, "usnistgov/oscal-content · OSCAL 1.2 catalog (shipped)", sha);
+            foreach (var s in profiles.Values) s.Dispose();
+
+            // Retire the prior current catalog first (the partial-unique index
+            // allows only one IsCurrent), then add the new one.
+            if (current is not null)
+            {
+                current.IsCurrent = false;
+                await db.SaveChangesAsync();
+            }
+            db.ControlCatalogs.Add(built);
+            await db.SaveChangesAsync();
+        }
+    }
+    else if (!await db.ControlCatalogs.AnyAsync())
+    {
+        // Fallback: no shipped OSCAL files → the curated subset keeps the screen
+        // and the profile endpoint working.
         db.ControlCatalogs.Add(new Tamp.Findings.Domain.Entities.ControlCatalog
         {
             Name = Tamp.Findings.Domain.Compliance.ControlCatalogDefaults.CatalogName,
-            Source = "Curated 800-53 Rev 5 subset (pending OSCAL import)",
+            Source = "Curated 800-53 Rev 5 subset (no OSCAL catalog shipped)",
             Version = Tamp.Findings.Domain.Compliance.ControlCatalogDefaults.CatalogVersion,
             IsSeeded = true,
             IsCurrent = true,

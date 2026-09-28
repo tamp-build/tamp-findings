@@ -1,0 +1,4 @@
+
+# OSCAL catalog content ships verbatim — never line-ending-convert (keeps the
+# bytes and their SHA identical across platforms; the startup seed keys on it).
+src/Tamp.Findings.Api/Content/oscal/*.json -text

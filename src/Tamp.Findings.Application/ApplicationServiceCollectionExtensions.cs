@@ -107,6 +107,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Policy.PolicyTemplateService>();
         services.AddScoped<Policy.ClientPolicyService>();
         services.AddScoped<Compliance.ControlCatalogQuery>();
+        services.AddScoped<Compliance.Oscal.OscalImportService>();
         services.AddScoped<Compliance.ConformanceQuery>();
         services.AddScoped<Compliance.ConformanceIngestService>();
         services.AddScoped<Compliance.ComplianceProfileQuery>();
