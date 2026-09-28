@@ -115,6 +115,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Eo.EoRegistryQuery>();
         services.AddScoped<Zt.ZtProfileQuery>();
         services.AddScoped<Zt.ZtScoreQuery>();
+        services.AddScoped<Zt.MandatePoamReconciler>();
         services.AddScoped<Projects.ProjectSettingsService>();
         services.AddScoped<SystemAdmin.SystemAdminService>();
         services.AddScoped<SystemAdmin.IdentityProviderService>();

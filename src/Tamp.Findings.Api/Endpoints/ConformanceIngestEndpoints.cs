@@ -33,6 +33,7 @@ public static class ConformanceIngestEndpoints
         HttpContext ctx,
         FindingsDbContext db,
         ConformanceIngestService ingest,
+        Tamp.Findings.Application.Zt.MandatePoamReconciler mandatePoams,
         AuditLog audit,
         CancellationToken ct)
     {
@@ -62,12 +63,19 @@ public static class ConformanceIngestEndpoints
 
         var result = await ingest.IngestAsync(candidateProjectIds, events, ct);
 
+        // Wire mandate failures into the shared POA&M model (TFND-189): a failing/unproven
+        // operational or supply-chain mandate becomes a dated POA&M, idempotently.
+        var poamsRaised = 0;
+        if (result.Accepted > 0)
+            foreach (var projectId in candidateProjectIds)
+                poamsRaised += (await mandatePoams.ReconcileAsync(projectId, token.CreatedByUserId, ct)).Count;
+
         var actorLogin = await db.Users.AsNoTracking()
             .Where(u => u.Id == token.CreatedByUserId).Select(u => u.Login).FirstOrDefaultAsync(ct);
         audit.RecordIngest(token.Id, token.Name, actorLogin is null ? null : token.CreatedByUserId, actorLogin,
             AuditActions.ConformanceIngested,
             new ScopeTarget(token.ClientId, token.Scope == IngestTokenScope.Project ? token.ProjectId : null, null),
-            detail: $"conformance: {result.Accepted} accepted, {result.Skipped} skipped across {result.Builds.Count} build(s)");
+            detail: $"conformance: {result.Accepted} accepted, {result.Skipped} skipped across {result.Builds.Count} build(s); {poamsRaised} mandate POA&M(s) raised");
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(new ConformanceIngestResponse(result.Accepted, result.Skipped, result.Builds));
