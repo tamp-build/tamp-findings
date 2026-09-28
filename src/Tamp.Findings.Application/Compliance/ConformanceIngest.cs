@@ -33,6 +33,14 @@ public sealed class ConformancePayloadDto
     public bool Blocks { get; set; }
     public ConformanceProvenanceDto? Provenance { get; set; }
     public List<string>? ControlRefs { get; set; }
+
+    // ZT maturity / mandate signal (TFND-188 / ADR 0010 §6). Present when the emitter is
+    // ztt: the zt-trio for a maturity signal (the STAGE the decision represents), or
+    // MandateId for a binary mandate. Absent for a plain control conformance event.
+    public string? ZtPillar { get; set; }
+    public string? ZtFunction { get; set; }
+    public int? ZtStage { get; set; }
+    public string? MandateId { get; set; }
 }
 
 public sealed class ConformanceLocationDto

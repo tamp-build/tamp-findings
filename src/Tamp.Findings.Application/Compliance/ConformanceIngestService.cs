@@ -102,6 +102,10 @@ public sealed class ConformanceIngestService(FindingsDbContext db)
                     ModelId = p.Provenance?.ModelId,
                     VerifyVerdict = verify,
                     ControlRefs = p.ControlRefs ?? [],
+                    ZtPillar = p.ZtPillar,
+                    ZtFunction = p.ZtFunction,
+                    ZtStage = p.ZtStage,
+                    MandateId = p.MandateId,
                     EvaluatedAt = now,
                 });
             }
@@ -119,6 +123,10 @@ public sealed class ConformanceIngestService(FindingsDbContext db)
                 existing.ModelId = p.Provenance?.ModelId;
                 existing.VerifyVerdict = verify;
                 existing.ControlRefs = p.ControlRefs ?? [];
+                existing.ZtPillar = p.ZtPillar;
+                existing.ZtFunction = p.ZtFunction;
+                existing.ZtStage = p.ZtStage;
+                existing.MandateId = p.MandateId;
                 existing.EvaluatedAt = now;
             }
 

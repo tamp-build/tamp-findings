@@ -1,0 +1,177 @@
+{
+  "name": "CISA ZTMM",
+  "version": "2.0",
+  "source": "CISA Zero Trust Maturity Model v2.0 (April 2023)",
+  "_note": "Structure per CISA ZTMM v2.0: 5 pillars, 4 stages (1 Traditional / 2 Initial / 3 Advanced / 4 Optimal — floor 1, no zero). The 3 cross-cutting capabilities (Visibility & Analytics, Automation & Orchestration, Governance) are scored as functions folded into each pillar (crossCutting=true). Stage NUMBERS + weights are implementer-supplied (ADR 0010); descriptors are owner-language. Descriptors are a seed — refine over time.",
+  "pillars": [
+    { "id": "identity", "name": "Identity", "functions": [
+      { "id": "authentication", "name": "Authentication", "stages": [
+        { "stage": 1, "descriptor": "Passwords or MFA only for some systems." },
+        { "stage": 2, "descriptor": "MFA for most systems; some phishing-resistant methods." },
+        { "stage": 3, "descriptor": "Phishing-resistant MFA for privileged and most user access." },
+        { "stage": 4, "descriptor": "Continuous, phishing-resistant, passwordless authentication everywhere." } ] },
+      { "id": "identity-stores", "name": "Identity Stores", "stages": [
+        { "stage": 1, "descriptor": "Separate, siloed identity stores per system." },
+        { "stage": 2, "descriptor": "Some consolidation; partial integration of stores." },
+        { "stage": 3, "descriptor": "Consolidated identity stores across most of the enterprise." },
+        { "stage": 4, "descriptor": "Unified, federated identity across the enterprise and partners." } ] },
+      { "id": "access-management", "name": "Access Management", "stages": [
+        { "stage": 1, "descriptor": "Static, role-based access reviewed rarely." },
+        { "stage": 2, "descriptor": "Some least-privilege and periodic review." },
+        { "stage": 3, "descriptor": "Need/session-based access with automated review." },
+        { "stage": 4, "descriptor": "Just-in-time, just-enough access, continuously evaluated." } ] },
+      { "id": "identity-visibility", "name": "Visibility & Analytics", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Little logging of identity events." },
+        { "stage": 2, "descriptor": "Identity events logged; manual review." },
+        { "stage": 3, "descriptor": "Automated analytics over identity telemetry." },
+        { "stage": 4, "descriptor": "Real-time, ML-assisted identity risk analytics." } ] },
+      { "id": "identity-automation", "name": "Automation & Orchestration", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Manual identity provisioning and response." },
+        { "stage": 2, "descriptor": "Some scripted provisioning." },
+        { "stage": 3, "descriptor": "Automated lifecycle and response for most identities." },
+        { "stage": 4, "descriptor": "Fully orchestrated, policy-driven identity automation." } ] },
+      { "id": "identity-governance", "name": "Governance", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Ad hoc identity policy." },
+        { "stage": 2, "descriptor": "Documented identity policy, inconsistently enforced." },
+        { "stage": 3, "descriptor": "Enforced, reviewed identity governance." },
+        { "stage": 4, "descriptor": "Continuously enforced, adaptive identity governance." } ] } ] },
+
+    { "id": "devices", "name": "Devices", "functions": [
+      { "id": "policy-enforcement", "name": "Policy Enforcement & Compliance Monitoring", "stages": [
+        { "stage": 1, "descriptor": "Limited device compliance checks." },
+        { "stage": 2, "descriptor": "Compliance checked at enrollment." },
+        { "stage": 3, "descriptor": "Continuous compliance monitoring for most devices." },
+        { "stage": 4, "descriptor": "Real-time compliance enforced as an access condition." } ] },
+      { "id": "asset-risk", "name": "Asset & Supply Chain Risk Management", "stages": [
+        { "stage": 1, "descriptor": "Incomplete asset inventory." },
+        { "stage": 2, "descriptor": "Inventory exists; supply-chain risk ad hoc." },
+        { "stage": 3, "descriptor": "Managed inventory with supply-chain risk process." },
+        { "stage": 4, "descriptor": "Automated, continuously verified asset and supply-chain risk." } ] },
+      { "id": "device-threat", "name": "Device Threat Protection", "stages": [
+        { "stage": 1, "descriptor": "Basic anti-virus on some devices." },
+        { "stage": 2, "descriptor": "EDR deployed to some devices." },
+        { "stage": 3, "descriptor": "EDR on most devices, centrally managed." },
+        { "stage": 4, "descriptor": "Unified, automated device threat response everywhere." } ] },
+      { "id": "devices-visibility", "name": "Visibility & Analytics", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Little device telemetry." },
+        { "stage": 2, "descriptor": "Device telemetry collected; manual review." },
+        { "stage": 3, "descriptor": "Automated device analytics." },
+        { "stage": 4, "descriptor": "Real-time device risk analytics." } ] },
+      { "id": "devices-automation", "name": "Automation & Orchestration", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Manual device management." },
+        { "stage": 2, "descriptor": "Some scripted device management." },
+        { "stage": 3, "descriptor": "Automated device management and response." },
+        { "stage": 4, "descriptor": "Fully orchestrated device automation." } ] },
+      { "id": "devices-governance", "name": "Governance", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Ad hoc device policy." },
+        { "stage": 2, "descriptor": "Documented device policy." },
+        { "stage": 3, "descriptor": "Enforced device governance." },
+        { "stage": 4, "descriptor": "Adaptive device governance." } ] } ] },
+
+    { "id": "networks", "name": "Networks", "functions": [
+      { "id": "network-segmentation", "name": "Network Segmentation", "stages": [
+        { "stage": 1, "descriptor": "Flat, perimeter-based network." },
+        { "stage": 2, "descriptor": "Some macro-segmentation." },
+        { "stage": 3, "descriptor": "Micro-segmentation for most workloads." },
+        { "stage": 4, "descriptor": "Fully micro-segmented, per-workload isolation." } ] },
+      { "id": "traffic-encryption", "name": "Traffic Encryption", "stages": [
+        { "stage": 1, "descriptor": "Encryption for some external traffic only." },
+        { "stage": 2, "descriptor": "TLS for most external traffic." },
+        { "stage": 3, "descriptor": "Encryption for most internal and external traffic." },
+        { "stage": 4, "descriptor": "Encryption everywhere, including east-west, with managed keys." } ] },
+      { "id": "network-resilience", "name": "Network Resilience", "stages": [
+        { "stage": 1, "descriptor": "Limited redundancy." },
+        { "stage": 2, "descriptor": "Some redundancy and failover." },
+        { "stage": 3, "descriptor": "Resilient, mostly automated failover." },
+        { "stage": 4, "descriptor": "Self-healing, continuously validated resilience." } ] },
+      { "id": "networks-visibility", "name": "Visibility & Analytics", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Little network telemetry." },
+        { "stage": 2, "descriptor": "Flow logs collected; manual review." },
+        { "stage": 3, "descriptor": "Automated network analytics." },
+        { "stage": 4, "descriptor": "Real-time network threat analytics." } ] },
+      { "id": "networks-automation", "name": "Automation & Orchestration", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Manual network changes." },
+        { "stage": 2, "descriptor": "Some scripted network changes." },
+        { "stage": 3, "descriptor": "Automated, policy-driven network changes." },
+        { "stage": 4, "descriptor": "Fully orchestrated network automation." } ] },
+      { "id": "networks-governance", "name": "Governance", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Ad hoc network policy." },
+        { "stage": 2, "descriptor": "Documented network policy." },
+        { "stage": 3, "descriptor": "Enforced network governance." },
+        { "stage": 4, "descriptor": "Adaptive network governance." } ] } ] },
+
+    { "id": "applications", "name": "Applications & Workloads", "functions": [
+      { "id": "application-access", "name": "Application Access", "stages": [
+        { "stage": 1, "descriptor": "Access mostly by network location." },
+        { "stage": 2, "descriptor": "Some identity-based application access." },
+        { "stage": 3, "descriptor": "Context-aware access for most applications." },
+        { "stage": 4, "descriptor": "Continuous, risk-adaptive application access." } ] },
+      { "id": "application-threat", "name": "Application Threat Protections", "stages": [
+        { "stage": 1, "descriptor": "Minimal application-layer protection." },
+        { "stage": 2, "descriptor": "Some WAF / runtime protection." },
+        { "stage": 3, "descriptor": "Integrated threat protection for most applications." },
+        { "stage": 4, "descriptor": "Automated, adaptive application threat response." } ] },
+      { "id": "secure-dev", "name": "Secure Application Development & Deployment Workflow", "stages": [
+        { "stage": 1, "descriptor": "Ad hoc, mostly manual builds and deploys." },
+        { "stage": 2, "descriptor": "CI/CD with some security checks." },
+        { "stage": 3, "descriptor": "Security gates integrated across the pipeline." },
+        { "stage": 4, "descriptor": "Fully automated, policy-gated, attested delivery." } ] },
+      { "id": "app-security-testing", "name": "Application Security Testing", "stages": [
+        { "stage": 1, "descriptor": "Little or no security testing." },
+        { "stage": 2, "descriptor": "Some SAST/DAST run occasionally." },
+        { "stage": 3, "descriptor": "SAST/DAST integrated in the pipeline." },
+        { "stage": 4, "descriptor": "Continuous, automated app security testing with enforcement." } ] },
+      { "id": "applications-visibility", "name": "Visibility & Analytics", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Little application telemetry." },
+        { "stage": 2, "descriptor": "Application logs collected; manual review." },
+        { "stage": 3, "descriptor": "Automated application analytics." },
+        { "stage": 4, "descriptor": "Real-time application risk analytics." } ] },
+      { "id": "applications-automation", "name": "Automation & Orchestration", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Manual application operations." },
+        { "stage": 2, "descriptor": "Some scripted application operations." },
+        { "stage": 3, "descriptor": "Automated application operations and response." },
+        { "stage": 4, "descriptor": "Fully orchestrated application automation." } ] },
+      { "id": "applications-governance", "name": "Governance", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Ad hoc application policy." },
+        { "stage": 2, "descriptor": "Documented application policy." },
+        { "stage": 3, "descriptor": "Enforced application governance." },
+        { "stage": 4, "descriptor": "Adaptive application governance." } ] } ] },
+
+    { "id": "data", "name": "Data", "functions": [
+      { "id": "data-inventory", "name": "Data Inventory Management", "stages": [
+        { "stage": 1, "descriptor": "Little data inventory." },
+        { "stage": 2, "descriptor": "Partial data inventory." },
+        { "stage": 3, "descriptor": "Managed inventory for most data." },
+        { "stage": 4, "descriptor": "Automated, continuously updated data inventory." } ] },
+      { "id": "data-categorization", "name": "Data Categorization", "stages": [
+        { "stage": 1, "descriptor": "Little data categorization." },
+        { "stage": 2, "descriptor": "Manual categorization of some data." },
+        { "stage": 3, "descriptor": "Automated categorization for most data." },
+        { "stage": 4, "descriptor": "Continuous, automated data categorization and tagging." } ] },
+      { "id": "data-access", "name": "Data Access", "stages": [
+        { "stage": 1, "descriptor": "Coarse, static data access controls." },
+        { "stage": 2, "descriptor": "Some least-privilege data access." },
+        { "stage": 3, "descriptor": "Attribute-based access for most data." },
+        { "stage": 4, "descriptor": "Continuous, risk-adaptive data access." } ] },
+      { "id": "data-encryption", "name": "Data Encryption", "stages": [
+        { "stage": 1, "descriptor": "Encryption for some data at rest." },
+        { "stage": 2, "descriptor": "Encryption at rest for most data stores." },
+        { "stage": 3, "descriptor": "Encryption at rest and in transit for most data, managed keys." },
+        { "stage": 4, "descriptor": "Encryption everywhere with automated, audited key management." } ] },
+      { "id": "data-visibility", "name": "Visibility & Analytics", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Little data-access telemetry." },
+        { "stage": 2, "descriptor": "Data access logged; manual review." },
+        { "stage": 3, "descriptor": "Automated data-access analytics." },
+        { "stage": 4, "descriptor": "Real-time data risk analytics (e.g. DLP)." } ] },
+      { "id": "data-automation", "name": "Automation & Orchestration", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Manual data management." },
+        { "stage": 2, "descriptor": "Some scripted data management." },
+        { "stage": 3, "descriptor": "Automated data lifecycle and response." },
+        { "stage": 4, "descriptor": "Fully orchestrated data automation." } ] },
+      { "id": "data-governance", "name": "Governance", "crossCutting": true, "stages": [
+        { "stage": 1, "descriptor": "Ad hoc data policy." },
+        { "stage": 2, "descriptor": "Documented data policy." },
+        { "stage": 3, "descriptor": "Enforced data governance." },
+        { "stage": 4, "descriptor": "Adaptive data governance." } ] } ] }
+  ]
+}

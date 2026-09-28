@@ -71,6 +71,27 @@ public sealed class PoamItem
     // Set when Status becomes Completed, RiskAccepted, or Cancelled.
     // null means the item is still live and counts toward gates.
     public DateTimeOffset? ClosedAt { get; set; }
+
+    // Source discriminator (ADR 0010 §9) — what produced this POA&M, so one model
+    // spans the whole compliance trio. Default Finding preserves today's behaviour.
+    public PoamSource SourceKind { get; set; } = PoamSource.Finding;
+    // Interpreted per SourceKind: a mandate id, a ZT function ref, or an EO directive
+    // ref. Free-form; null for a plain finding-derived item.
+    public string? SourceRef { get; set; }
+    // The in-force mandate-pack version at creation time, for point-in-time defence
+    // (which mandate definition this item was raised against).
+    public string? MandatePackVersion { get; set; }
+}
+
+// What raised a POA&M (ADR 0010 §9). One shared POA&M model across tamp-findings
+// (supply-chain), tamp-ztt (operational mandates + ZT contradictions), and the EO
+// registry that dates the mandates.
+public enum PoamSource
+{
+    Finding = 0,
+    OperationalMandate = 1,
+    ZtContradiction = 2,
+    SupplyChainMandate = 3,
 }
 
 public enum PoamStatus
