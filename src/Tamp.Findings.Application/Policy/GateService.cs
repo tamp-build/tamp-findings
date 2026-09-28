@@ -153,6 +153,9 @@ public sealed class GateService
     public static bool TakesThreshold(string key) => key is
         GateKeys.RiskScoreRegression or
         GateKeys.CoverageRegression or
+        GateKeys.CoverageFloor or
+        GateKeys.SbomAge or
+        GateKeys.BaseImageAge or
         GateKeys.AnyCves or
         GateKeys.CriticalCves or
         GateKeys.HighCves or

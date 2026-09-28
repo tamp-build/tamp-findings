@@ -358,3 +358,52 @@ public class GateEvaluatorTests
         Assert.True(eval.ClearToShip);
     }
 }
+
+    // TFND-182 additions ------------------------------------------------
+
+    public class SbomAgeAndCoverageFloor
+    {
+        private static ProjectGatesConfig Gate(string key, double threshold)
+        {
+            var cfg = new ProjectGatesConfig();
+            cfg.Gates[key] = new GateConfig { Enabled = true, Threshold = threshold };
+            return cfg;
+        }
+        private static RiskInputs Base() => new(
+            0, 0, 0, 0, KevListedCves: 0, SecretsVerified: 0, SecretsUnverified: 0,
+            SastCritical: 0, SastHigh: 0, SastMedium: 0, SastLow: 0, IacCritical: 0, IacHigh: 0,
+            CoverageMeasured: true, SequenceCoveragePercent: 85,
+            SbomComponents: 10, SbomOutdated: 0, SbomStale: 0,
+            TestsMeasured: true, TestsTotal: 100, TestsFailed: 0,
+            LicenseDenied: 0, LicenseStrongCopyleft: 0, LicenseUnknown: 0,
+            RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true,
+            RanDast: true, SbomAgeDays: 5);
+        private static GateVerdict V(ProjectGatesConfig g, RiskInputs i, string key) =>
+            GateEvaluator.Evaluate(g, i, 10, null, null).Results.Single(r => r.Key == key).Verdict;
+
+        [Fact]
+        public void Sbom_age_passes_within_and_fails_over()
+        {
+            Assert.Equal(GateVerdict.Pass, V(Gate(GateKeys.SbomAge, 30), Base() with { SbomAgeDays = 5 }, GateKeys.SbomAge));
+            Assert.Equal(GateVerdict.Fail, V(Gate(GateKeys.SbomAge, 30), Base() with { SbomAgeDays = 60 }, GateKeys.SbomAge));
+        }
+
+        [Fact]
+        public void Sbom_age_is_unknown_without_an_sbom_not_a_pass()
+        {
+            Assert.Equal(GateVerdict.Unknown, V(Gate(GateKeys.SbomAge, 30), Base() with { RanSbom = false, SbomAgeDays = null }, GateKeys.SbomAge));
+        }
+
+        [Fact]
+        public void Coverage_floor_passes_at_or_above_and_fails_below()
+        {
+            Assert.Equal(GateVerdict.Pass, V(Gate(GateKeys.CoverageFloor, 70), Base() with { SequenceCoveragePercent = 85 }, GateKeys.CoverageFloor));
+            Assert.Equal(GateVerdict.Fail, V(Gate(GateKeys.CoverageFloor, 70), Base() with { SequenceCoveragePercent = 60 }, GateKeys.CoverageFloor));
+        }
+
+        [Fact]
+        public void Coverage_floor_is_unknown_when_unmeasured_not_a_pass()
+        {
+            Assert.Equal(GateVerdict.Unknown, V(Gate(GateKeys.CoverageFloor, 70), Base() with { CoverageMeasured = false }, GateKeys.CoverageFloor));
+        }
+    }

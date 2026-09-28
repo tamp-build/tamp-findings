@@ -107,8 +107,10 @@ public static class GateEvaluator
         GateKeys.VerifiedSecrets,
         GateKeys.DeniedLicenses,
         GateKeys.BaseImageAge,
+        GateKeys.SbomAge,
         GateKeys.TestFailures,
         GateKeys.CoverageRegression,
+        GateKeys.CoverageFloor,
         GateKeys.PoamPastDue,
     ];
 
@@ -134,8 +136,10 @@ public static class GateEvaluator
         GateKeys.VerifiedSecrets => "Verified secrets",
         GateKeys.DeniedLicenses => "Denied licences",
         GateKeys.BaseImageAge => "Base image age",
+        GateKeys.SbomAge => "SBOM age",
         GateKeys.TestFailures => "Test failures",
         GateKeys.CoverageRegression => "Coverage regression",
+        GateKeys.CoverageFloor => "Coverage floor",
         GateKeys.PoamPastDue => "POA&M past due",
         _ => key,
     };
@@ -172,6 +176,12 @@ public static class GateEvaluator
         GateKeys.CoverageRegression =>
             "Blocks when coverage drops more than the threshold against the previous build. A project "
             + "with no prior measurement has nothing to regress from and passes.",
+        GateKeys.CoverageFloor =>
+            "Blocks when coverage is below an absolute floor (threshold %). Unanswerable without a "
+            + "coverage report — a missing measurement is not a passing one.",
+        GateKeys.SbomAge =>
+            "Blocks when the build's SBOM is older than the threshold in days. Under continuous "
+            + "validation, stale evidence is no evidence. Unanswerable without an SBOM ingest.",
         GateKeys.PoamPastDue =>
             "Blocks on POA&M items past their committed date. UNSCHEDULED items have no date to be "
             + "past, so this gate cannot see them.",
@@ -205,6 +215,8 @@ public static class GateEvaluator
             // ways of not knowing rather than one, and collapsing them would
             // tell a team to fix the wrong thing.
             GateKeys.BaseImageAge        => EvaluateBaseImageAge(key, cfg, current),
+            GateKeys.SbomAge             => EvaluateSbomAge(key, cfg, current),
+            GateKeys.CoverageFloor       => EvaluateCoverageFloor(key, cfg, current),
 
             GateKeys.CriticalSast        => Threshold(key, cfg, current.SastCritical, 0, "critical SAST", current.RanSast, "SAST"),
             GateKeys.HighSast            => Threshold(key, cfg, current.SastHigh, 0, "high SAST", current.RanSast, "SAST"),
@@ -294,6 +306,40 @@ public static class GateEvaluator
             : $"base image was {age} days old at build, over the {threshold} allowed";
 
         return new GateResult(key, true, verdict, $"{age} days old at build", threshold, reason);
+    }
+
+    // TFND-182. The SBOM's own age (now minus when it was ingested). A missing
+    // SBOM is Unknown, not a fresh one — the same "absent evidence is not clean
+    // evidence" discipline as the scan gates.
+    private static GateResult EvaluateSbomAge(string key, GateConfig cfg, RiskInputs current)
+    {
+        var threshold = (int)(cfg.Threshold ?? 30);
+        if (!current.RanSbom || current.SbomAgeDays is not { } age)
+            return new GateResult(key, true, GateVerdict.Unknown, "no SBOM", threshold,
+                "cannot evaluate SBOM age: no SBOM was ingested for this build — a missing SBOM is not a fresh one");
+
+        var passed = age <= threshold;
+        var reason = passed
+            ? $"SBOM is {age} days old, within {threshold} allowed"
+            : $"SBOM is {age} days old, over the {threshold} allowed — refresh it";
+        return new GateResult(key, true, passed ? GateVerdict.Pass : GateVerdict.Fail, $"{age} days old", threshold, reason);
+    }
+
+    // TFND-182. An absolute coverage floor. Unmeasured is Unknown (a missing
+    // report is not a passing one), NOT a fabricated pass.
+    private static GateResult EvaluateCoverageFloor(string key, GateConfig cfg, RiskInputs current)
+    {
+        var threshold = cfg.Threshold ?? 0;
+        if (!current.CoverageMeasured)
+            return new GateResult(key, true, GateVerdict.Unknown, "no coverage report", threshold,
+                "cannot evaluate a coverage floor: no coverage report was ingested for this build");
+
+        var passed = current.SequenceCoveragePercent >= threshold;
+        var observed = $"{current.SequenceCoveragePercent:F1}%";
+        var reason = passed
+            ? $"coverage {current.SequenceCoveragePercent:F1}% ≥ {threshold}% floor"
+            : $"coverage {current.SequenceCoveragePercent:F1}% below the {threshold}% floor";
+        return new GateResult(key, true, passed ? GateVerdict.Pass : GateVerdict.Fail, observed, threshold, reason);
     }
 
     private static GateResult EvaluateRiskRegression(string key, GateConfig cfg, double currentScore, double? priorScore, double? delta)
