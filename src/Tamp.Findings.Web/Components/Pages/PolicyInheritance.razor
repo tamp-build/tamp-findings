@@ -1,0 +1,204 @@
+@page "/c/{Client}/p/{Project}/policy"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject RouteScope Scope
+@inject ProjectHubQuery Hub
+@inject CurrentUser Me
+@inject Tamp.Findings.Application.Policy.PolicyResolver Resolver
+@using Tamp.Findings.Domain.Risk
+
+@* Project → Policy & gates (v3 §7 / ADR 0007): the EFFECTIVE three-layer policy
+   with per-rule provenance. This reads the merge; it does not edit weights —
+   that stays in the settings editor. Every rule shows the layer that imposed it:
+   🔒 inherited from an upper layer, or ↓ set here on the project. *@
+
+<PageTitle>Policy & gates — @Project</PageTitle>
+
+@if (_loading)
+{
+    <p class="muted">Loading…</p>
+}
+else if (_project is null || _eff is null)
+{
+    <div class="stack">
+        <h1>Policy &amp; gates</h1>
+        <Card><p>No project <code class="mono">@Client / @Project</code>. <a href="@Routes.Portfolio">← Portfolio</a></p></Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <nav class="crumbs">
+            <a href="@Routes.Portfolio">Portfolio</a>
+            <span class="crumbs__sep">/</span>
+            <a href="@Routes.ProjectHub(Client, Project)">@_project.ProjectName</a>
+            <span class="crumbs__sep">/</span>
+            <span>Policy &amp; gates</span>
+        </nav>
+
+        <div class="cathero">
+            <div>
+                <h1>Policy &amp; gates</h1>
+                <div class="muted">The effective policy, merged across template → client → project (ADR 0007). Lower layers only harden.</div>
+            </div>
+            <a class="evstatus" style="border-color: var(--color-accent); color: var(--color-accent-700)" href="@Routes.Policy(Client, Project)">Edit weights &amp; gates →</a>
+        </div>
+
+        <div class="covgrid">
+            <div class="covstat"><div class="covstat__value" style="color: var(--color-neutral-500)">@_inherited</div><div class="covstat__label">Inherited</div></div>
+            <div class="covstat"><div class="covstat__value" style="color: var(--color-accent)">@_local</div><div class="covstat__label">Set on this project</div></div>
+            <div class="covstat"><div class="covstat__value" style="color: var(--color-band-green)">0</div><div class="covstat__label">Loosened</div><div class="covstat__sub muted">always zero — a project can only harden</div></div>
+        </div>
+
+        <Card>
+            <div class="kicker">Enforcement</div>
+            <div class="row">
+                @if (_eff.Mode is { } m)
+                {
+                    <Chip Label="@m.Value.ToString()" Tone="@(m.Value == Domain.Values.EnforcementMode.Enforcing ? "var(--color-critical)" : "var(--color-neutral-500)")" />
+                    @Prov(m.Source)
+                }
+                else
+                {
+                    <span class="muted">Inherits the instance default.</span>
+                }
+            </div>
+        </Card>
+
+        <Card Padded="false">
+            <ScrollBox Label="Acceptance gates">
+                <table class="table table--rows">
+                    <thead><tr><th>Gate</th><th>State</th><th class="align-end">Threshold</th><th>Source</th></tr></thead>
+                    <tbody>
+                        @foreach (var key in GateEvaluator.WellKnownGateKeys)
+                        {
+                            var g = _eff.Gates.GetValueOrDefault(key);
+                            <tr class="@(g is { Enabled: true } ? null : "contrib__row--off")">
+                                <td>
+                                    <div>@GateEvaluator.Label(key)</div>
+                                    <div class="mono muted cat__rule">@key</div>
+                                </td>
+                                <td class="mono">@(g is { Enabled: true } ? "on" : "off")</td>
+                                <td class="mono align-end">@(g?.Threshold?.ToString() ?? "—")</td>
+                                <td>@(g is { Enabled: true } ? Prov(g.Source) : Muted())</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </ScrollBox>
+        </Card>
+
+        <div class="covgrid">
+            <Card>
+                <div class="kicker">Required scanners</div>
+                @if (_eff.RequiredScanners.Count == 0) { <p class="muted">None required.</p> }
+                else
+                {
+                    <div class="row" style="flex-wrap: wrap; gap: 8px">
+                        @foreach (var s in _eff.RequiredScanners)
+                        {
+                            <span class="row" style="gap: 4px">@s.Value @Prov(s.Source)</span>
+                        }
+                    </div>
+                }
+            </Card>
+            <Card>
+                <div class="kicker">Denied licences</div>
+                @if (_eff.DeniedLicenses.Count == 0) { <p class="muted">None denied.</p> }
+                else
+                {
+                    <div class="row" style="flex-wrap: wrap; gap: 8px">
+                        @foreach (var d in _eff.DeniedLicenses)
+                        {
+                            <span class="row" style="gap: 4px"><code class="mono">@d.Value</code> @Prov(d.Source)</span>
+                        }
+                    </div>
+                }
+            </Card>
+        </div>
+
+        <Card Padded="false">
+            <ScrollBox Label="POA&M deadlines">
+                <table class="table table--rows">
+                    <thead><tr><th>Severity</th><th class="align-end">Days</th><th>Source</th></tr></thead>
+                    <tbody>
+                        @foreach (var sev in Severities)
+                        {
+                            var p = _eff.PoamDeadlineDays.GetValueOrDefault(sev);
+                            <tr class="@(p is null ? "contrib__row--off" : null)">
+                                <td>@sev</td>
+                                <td class="mono align-end">@(p is null ? "—" : $"{p.Value}d")</td>
+                                <td>@(p is null ? Muted() : Prov(p.Source))</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </ScrollBox>
+        </Card>
+    </div>
+}
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+
+    private ProjectRef? _project;
+    private EffectivePolicyLayer? _eff;
+    private bool _loading = true;
+    private int _inherited, _local;
+
+    private static readonly string[] Severities = ["Critical", "High", "Medium", "Low"];
+    private const string Here = "this project";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project, null);
+        _loading = true;
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
+            if (_project is not null)
+            {
+                _eff = await Resolver.ForProjectAsync(_project.ProjectId);
+                CountLayers();
+            }
+        }
+        catch { _project = null; _eff = null; }
+        _loading = false;
+    }
+
+    private void CountLayers()
+    {
+        if (_eff is null) return;
+        int inh = 0, loc = 0;
+        void Tally(string src) { if (src == Here) loc++; else inh++; }
+
+        if (_eff.Mode is { } m) Tally(m.Source);
+        foreach (var s in _eff.RequiredScanners) Tally(s.Source);
+        foreach (var d in _eff.DeniedLicenses) Tally(d.Source);
+        foreach (var g in _eff.Gates.Values.Where(g => g.Enabled)) Tally(g.Source);
+        foreach (var p in _eff.PoamDeadlineDays.Values) Tally(p.Source);
+        _inherited = inh; _local = loc;
+    }
+
+    // A provenance chip: 🔒 inherited from an upper layer, or ↓ set on this project.
+    private RenderFragment Prov(string source) => builder =>
+    {
+        var here = source == Here;
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", "mono contrib__sat");
+        builder.AddAttribute(2, "style", here
+            ? "color: var(--color-accent-700); border: 1px solid var(--color-accent); padding: 0 6px"
+            : "color: var(--color-neutral-500); border: 1px solid var(--color-neutral-500); padding: 0 6px");
+        builder.AddContent(3, here ? "↓ here" : $"🔒 {source}");
+        builder.CloseElement();
+    };
+
+    private static RenderFragment Muted() => builder =>
+    {
+        builder.OpenElement(0, "span");
+        builder.AddAttribute(1, "class", "muted");
+        builder.AddContent(2, "—");
+        builder.CloseElement();
+    };
+}

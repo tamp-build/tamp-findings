@@ -352,6 +352,41 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
         });
         await db.SaveChangesAsync();
     }
+
+    // Seed the policy templates (ADR 0007) idempotently by name. Each links its
+    // matching scoring RiskPolicy so a template carries both the blocking overlay
+    // and the weights/bands. Nothing inherits a template until a client picks one,
+    // so seeding never changes an existing client's effective policy.
+    if (!await db.PolicyTemplates.AnyAsync(t => t.Name == Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.TampStandardName))
+    {
+        var scoring = await db.RiskPolicies.Where(p => p.IsDefault).Select(p => (Guid?)p.Id).FirstOrDefaultAsync();
+        db.PolicyTemplates.Add(new Tamp.Findings.Domain.Entities.PolicyTemplate
+        {
+            Name = Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.TampStandardName,
+            Version = 1,
+            IsSeeded = true,
+            Layer = Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.BuildTampStandard(),
+            RiskPolicyId = scoring,
+            CreatedByLogin = "system",
+        });
+        await db.SaveChangesAsync();
+    }
+    if (!await db.PolicyTemplates.AnyAsync(t => t.Name == Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.FedRampModerateName))
+    {
+        var scoring = await db.RiskPolicies
+            .Where(p => p.Name == Tamp.Findings.Domain.Risk.RiskPolicyDefaults.TampFederalV1Name)
+            .Select(p => (Guid?)p.Id).FirstOrDefaultAsync();
+        db.PolicyTemplates.Add(new Tamp.Findings.Domain.Entities.PolicyTemplate
+        {
+            Name = Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.FedRampModerateName,
+            Version = 1,
+            IsSeeded = true,
+            Layer = Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.BuildFedRampModerate(),
+            RiskPolicyId = scoring,
+            CreatedByLogin = "system",
+        });
+        await db.SaveChangesAsync();
+    }
 }
 
 // ForwardedHeaders MUST run before anything that reads Request.Scheme
