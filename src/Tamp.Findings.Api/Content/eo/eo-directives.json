@@ -1,0 +1,38 @@
+{
+  "version": "2026-09-28-snapshot",
+  "_note": "SEED SNAPSHOT, not hardcoded truth (ADR 0011 §10). The in-force set on any date is what the registry COMPUTES from the effective-dated status history, not what this list asserts. Re-verify anything past mid-2026. The EO 14306-over-14144 rescission is the worked example the amendment-diff must handle.",
+  "instruments": [
+    { "identifier": "EO 14028", "title": "Improving the Nation's Cybersecurity", "type": "ExecutiveOrder", "authority": "President", "issueDate": "2021-05-12", "cite": "86 FR 26633", "reviewStatus": "Reviewed", "relations": [] },
+    { "identifier": "EO 13694", "title": "Blocking the Property of Certain Persons Engaging in Significant Malicious Cyber-Enabled Activities", "type": "ExecutiveOrder", "authority": "President", "issueDate": "2015-04-01", "cite": "80 FR 18077", "reviewStatus": "Reviewed", "relations": [] },
+    { "identifier": "EO 14144", "title": "Strengthening and Promoting Innovation in the Nation's Cybersecurity", "type": "ExecutiveOrder", "authority": "President", "issueDate": "2025-01-16", "cite": "90 FR 6755", "reviewStatus": "Reviewed", "relations": [] },
+    { "identifier": "EO 14306", "title": "Sustaining Select Efforts to Strengthen the Nation's Cybersecurity", "type": "ExecutiveOrder", "authority": "President", "issueDate": "2025-06-06", "cite": "90 FR 24451", "reviewStatus": "Reviewed",
+      "relations": [ { "type": "Amends", "to": "EO 14144" }, { "type": "Amends", "to": "EO 13694" } ] },
+
+    { "identifier": "M-22-09", "title": "Moving the U.S. Government Toward Zero Trust Cybersecurity Principles", "type": "OmbMemo", "authority": "OMB", "issueDate": "2022-01-26", "cite": "M-22-09", "reviewStatus": "Reviewed", "relations": [ { "type": "Implements", "to": "EO 14028" } ] },
+    { "identifier": "M-21-31", "title": "Improving the Federal Government's Investigative and Remediation Capabilities (event logging)", "type": "OmbMemo", "authority": "OMB", "issueDate": "2021-08-27", "cite": "M-21-31", "reviewStatus": "Reviewed", "relations": [ { "type": "Implements", "to": "EO 14028" } ] },
+    { "identifier": "M-22-18", "title": "Enhancing the Security of the Software Supply Chain through Secure Software Development Practices", "type": "OmbMemo", "authority": "OMB", "issueDate": "2022-09-14", "cite": "M-22-18", "reviewStatus": "Reviewed", "relations": [ { "type": "Implements", "to": "EO 14028" } ] },
+    { "identifier": "M-23-16", "title": "Update to Memorandum M-22-18 (secure software self-attestation deadlines)", "type": "OmbMemo", "authority": "OMB", "issueDate": "2023-06-09", "cite": "M-23-16", "reviewStatus": "Reviewed", "relations": [ { "type": "Amends", "to": "M-22-18" } ] },
+    { "identifier": "M-21-07", "title": "Completing the Transition to Internet Protocol Version 6 (IPv6)", "type": "OmbMemo", "authority": "OMB", "issueDate": "2020-11-19", "cite": "M-21-07", "reviewStatus": "Reviewed", "relations": [] },
+    { "identifier": "M-25-04", "title": "FY 2025 Guidance on Federal Information Security and Privacy Management Requirements (FISMA)", "type": "OmbMemo", "authority": "OMB", "issueDate": "2024-12-06", "cite": "M-25-04", "reviewStatus": "Reviewed", "relations": [] }
+  ],
+  "directives": [
+    { "ref": "EO14028§3-zt-strategy", "instrument": "EO 14028", "section": "3", "who": "OMB", "mustDo": "Develop and issue a Federal Zero Trust architecture strategy.", "type": "Delegation", "applicability": "AllSystems", "byWhen": { "kind": "Relative", "offsetDays": 60, "anchor": "SigningDate" }, "reviewStatus": "Reviewed" },
+
+    { "ref": "M-22-09-mfa", "instrument": "M-22-09", "section": "C.1", "who": "agencies", "mustDo": "Enforce phishing-resistant multi-factor authentication for enterprise users.", "type": "SelfExecutingDated", "applicability": "AllSystems", "byWhen": { "kind": "Absolute", "date": "2024-09-30" }, "crosswalk": { "target": "Ztt", "ref": "mfa" }, "reviewStatus": "Reviewed" },
+    { "ref": "M-22-09-encrypt-transit", "instrument": "M-22-09", "section": "D.2", "who": "agencies", "mustDo": "Encrypt traffic in transit (TLS everywhere; encrypted DNS and HTTP).", "type": "SelfExecutingDated", "applicability": "AllSystems", "byWhen": { "kind": "Absolute", "date": "2024-09-30" }, "crosswalk": { "target": "Ztt", "ref": "encrypt-in-transit" }, "reviewStatus": "Reviewed" },
+    { "ref": "M-22-09-encrypt-rest", "instrument": "M-22-09", "section": "E.1", "who": "agencies", "mustDo": "Encrypt data at rest in enterprise data stores.", "type": "SelfExecutingDated", "applicability": "AllSystems", "byWhen": { "kind": "Absolute", "date": "2024-09-30" }, "crosswalk": { "target": "Ztt", "ref": "encrypt-at-rest" }, "reviewStatus": "Reviewed" },
+
+    { "ref": "M-21-07-ipv6", "instrument": "M-21-07", "section": "4", "who": "agencies", "mustDo": "Complete transition so at least 80% of IP-enabled assets operate IPv6-only.", "type": "SelfExecutingDated", "applicability": "WhereApplicable", "byWhen": { "kind": "Absolute", "date": "2025-09-30" }, "crosswalk": { "target": "Ztt", "ref": "ipv6" }, "reviewStatus": "Reviewed" },
+
+    { "ref": "M-22-18-attestation", "instrument": "M-22-18", "section": "3", "who": "agencies", "mustDo": "Obtain a secure-software-development self-attestation from producers of software the agency uses.", "type": "SelfExecutingDated", "applicability": "AllSystems", "byWhen": { "kind": "Absolute", "date": "2024-06-11" }, "crosswalk": { "target": "Findings", "ref": "secure-software-attestation" }, "reviewStatus": "Reviewed" },
+
+    { "ref": "EO14144-attestation-machine-readable", "instrument": "EO 14144", "section": "2(b)", "who": "agencies / CISA", "mustDo": "Require machine-readable secure-software attestations and supporting artifacts.", "type": "SelfExecutingDated", "applicability": "AllSystems", "byWhen": { "kind": "Relative", "offsetDays": 365, "anchor": "SigningDate" }, "crosswalk": { "target": "Findings", "ref": "secure-software-attestation-machine-readable" }, "reviewStatus": "Reviewed" },
+    { "ref": "EO14144-cisa-validation", "instrument": "EO 14144", "section": "2(c)", "who": "CISA", "mustDo": "Centrally validate submitted secure-software attestations.", "type": "SelfExecutingDated", "applicability": "AllSystems", "byWhen": { "kind": "Relative", "offsetDays": 365, "anchor": "SigningDate" }, "crosswalk": { "target": "Findings", "ref": "attestation-central-validation" }, "reviewStatus": "Reviewed" },
+    { "ref": "EO14144-pqc", "instrument": "EO 14144", "section": "4", "who": "agencies", "mustDo": "Adopt post-quantum cryptography in specified systems.", "type": "SelfExecutingDated", "applicability": "WhereApplicable", "byWhen": { "kind": "Relative", "offsetDays": 730, "anchor": "SigningDate" }, "crosswalk": { "target": "Ztt", "ref": "post-quantum-crypto" }, "reviewStatus": "Reviewed" },
+    { "ref": "EO14144-webauthn", "instrument": "EO 14144", "section": "3", "who": "agencies", "mustDo": "Deploy WebAuthn phishing-resistant authenticators.", "type": "SelfExecutingDated", "applicability": "AllSystems", "byWhen": { "kind": "Relative", "offsetDays": 270, "anchor": "SigningDate" }, "crosswalk": { "target": "Ztt", "ref": "phishing-resistant-mfa" }, "reviewStatus": "Reviewed" }
+  ],
+  "rescissions": [
+    { "byInstrument": "EO 14306", "effectiveDate": "2025-06-06",
+      "directives": [ "EO14144-attestation-machine-readable", "EO14144-cisa-validation", "EO14144-pqc", "EO14144-webauthn" ] }
+  ]
+}

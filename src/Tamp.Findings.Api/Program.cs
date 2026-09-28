@@ -478,6 +478,20 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
             fixedAny = true;
         }
     if (fixedAny) await db.SaveChangesAsync();
+
+    // Seed the shipped EO/memo mandate corpus (ADR 0011). Ships with the product
+    // (Content/eo/), so a fresh deploy stands up with the registry populated —
+    // air-gap safe, no network fetch. Idempotent: instruments/directives upsert by
+    // natural key and status changes are only ever appended when missing.
+    var eoPath = Path.Combine(builder.Environment.ContentRootPath, "Content", "eo", "eo-directives.json");
+    if (File.Exists(eoPath))
+    {
+        await using var eoStream = File.OpenRead(eoPath);
+        var corpus = await System.Text.Json.JsonSerializer.DeserializeAsync<Tamp.Findings.Application.Eo.EoCorpus>(
+            eoStream, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        if (corpus is not null)
+            await Tamp.Findings.Application.Eo.EoCorpusSeeder.SeedAsync(db, corpus);
+    }
 }
 
 // ForwardedHeaders MUST run before anything that reads Request.Scheme

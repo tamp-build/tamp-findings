@@ -112,6 +112,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Compliance.ConformanceIngestService>();
         services.AddScoped<Compliance.ComplianceProfileQuery>();
         services.AddScoped<Compliance.ControlDispositionQuery>();
+        services.AddScoped<Eo.EoRegistryQuery>();
         services.AddScoped<Projects.ProjectSettingsService>();
         services.AddScoped<SystemAdmin.SystemAdminService>();
         services.AddScoped<SystemAdmin.IdentityProviderService>();
