@@ -40,6 +40,15 @@ public static class Routes
     public static string Category(string client, string project, string sha, string key) =>
         $"/c/{E(client)}/p/{E(project)}/build/{E(sha)}/score/{E(key)}";
 
+    /// <summary>
+    /// A collected-evidence detail page (v3 §4). One frame, one key: dast, kev,
+    /// quality, a11y, baseImage, poam, provenance, vdp, vex, conformance. Distinct
+    /// from <see cref="Category"/> (which explains a SCORE) — evidence pages show
+    /// what a source produced and whether a gate or SSDF practice rides on it.
+    /// </summary>
+    public static string Evidence(string client, string project, string sha, string key) =>
+        $"/c/{E(client)}/p/{E(project)}/build/{E(sha)}/evidence/{E(key)}";
+
     /// <param name="spine">sast | dast | sbom | coverage | tests</param>
     /// <param name="selection">
     /// A file path, host, advisory or suite id. Not escaped as a whole: it may
@@ -84,6 +93,26 @@ public static class Routes
     public static string System(string panel = SystemPanels.Users) => $"/system/{E(panel)}";
 
     private static string E(string s) => Uri.EscapeDataString(s);
+}
+
+/// <summary>The collected-evidence keys (v3 §4). One evidence-detail frame per key.</summary>
+public static class EvidenceKeys
+{
+    public const string Dast = "dast";
+    public const string Kev = "kev";
+    public const string Quality = "quality";
+    public const string Accessibility = "a11y";
+    public const string BaseImage = "baseImage";
+    public const string Poam = "poam";
+    public const string Provenance = "provenance";
+    public const string Vdp = "vdp";
+    public const string Vex = "vex";
+    public const string Conformance = "conformance";
+
+    public static readonly IReadOnlyList<string> All =
+        [Dast, Kev, Quality, Accessibility, BaseImage, Poam, Provenance, Vdp, Vex, Conformance];
+
+    public static bool IsValid(string? key) => key is not null && All.Contains(key);
 }
 
 /// <summary>The explorer's spines. One shell, one body each.</summary>
