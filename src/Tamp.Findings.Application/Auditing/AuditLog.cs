@@ -192,6 +192,7 @@ public static class AuditActions
     public const string PolicyTemplateLoosened = "policy_template.loosened";
     public const string ClientPolicySaved = "client_policy.saved";
     public const string ClientTemplateSwitched = "client.template_switched";
+    public const string ComplianceProfileRead = "compliance_profile.read";
 
     // Access — who can do what changed.
     // The two bootstrap paths to administrator — the single most privileged,

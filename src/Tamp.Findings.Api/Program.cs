@@ -599,6 +599,7 @@ app.MapContainerImageIngest();
 app.MapSbomEnrich();
 app.MapSbomVulnerabilities();
 app.MapGate();
+app.MapComplianceProfile();
 
 // SPA-facing query endpoints — protected by the fallback policy
 // (RequireAuthenticatedUser; see AuthExtensions) AND, since TFND-133, by the
