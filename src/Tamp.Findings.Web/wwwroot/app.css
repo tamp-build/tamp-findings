@@ -595,6 +595,10 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 .cattab { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; color: var(--color-neutral-600); cursor: pointer; font-family: var(--font-body); font-size: var(--text-body); }
 .cattab--active { color: var(--color-text); border-bottom-color: var(--color-accent); }
 .cat__rule { font-size: var(--text-meta); }
+.covgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); }
+.covstat__value { font-family: var(--font-heading); font-weight: 600; font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
+.covstat__label { font-size: var(--text-secondary); color: var(--color-neutral-700); margin-top: 4px; }
+.covstat__sub { font-size: var(--text-meta); color: var(--color-neutral-600); margin-top: 2px; }
 
 /* Evidence tiles (v3 §2.4): auto-fill grid, 2px top border in the status colour. */
 .evtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-3); margin-top: var(--space-2); }
