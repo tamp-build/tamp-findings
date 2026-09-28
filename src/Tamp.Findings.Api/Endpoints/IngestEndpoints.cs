@@ -46,12 +46,21 @@ public static class IngestEndpoints
             .FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name.ToLower() == componentLower, ct);
         if (component is null)
         {
-            component = new Component { ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind };
+            component = new Component
+            {
+                ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind,
+                // TFND-183: declared capability profile; default code-package.
+                Profile = Tamp.Findings.Domain.Compliance.ComponentProfiles.Parse(req.ComponentProfile),
+            };
             db.Components.Add(component);
         }
-        else if (req.ComponentKind is not null && component.Kind != req.ComponentKind)
+        else
         {
-            component.Kind = req.ComponentKind;
+            if (req.ComponentKind is not null && component.Kind != req.ComponentKind)
+                component.Kind = req.ComponentKind;
+            // A component may be re-classified by a later ingest that declares it.
+            if (req.ComponentProfile is { Length: > 0 })
+                component.Profile = Tamp.Findings.Domain.Compliance.ComponentProfiles.Parse(req.ComponentProfile);
         }
 
         ComponentFlavor? flavor = null;
