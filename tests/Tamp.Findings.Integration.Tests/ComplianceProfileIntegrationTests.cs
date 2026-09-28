@@ -55,12 +55,19 @@ public class ComplianceProfileIntegrationTests
         var p = await q.ForProjectAsync(projectId);
 
         Assert.NotNull(p);
-        Assert.Equal("1.0", p!.SchemaVersion);
+        Assert.Equal("1.1", p!.SchemaVersion);   // TFND-185: added disposition + coverage
         Assert.Equal("nist-mod", p.Framework!.Id);
         // Applicable controls are COMPUTED from the Moderate baseline of the
         // seeded catalog — so there are some, each with title + family.
         Assert.NotEmpty(p.Controls);
         Assert.All(p.Controls, c => Assert.False(string.IsNullOrWhiteSpace(c.Title) || string.IsNullOrWhiteSpace(c.Family)));
+        // Every in-scope control now carries a disposition, and the coverage
+        // roll-up is present and totals the in-scope count (TFND-185 / ADR 0009).
+        Assert.All(p.Controls, c => Assert.False(string.IsNullOrWhiteSpace(c.Disposition)));
+        Assert.NotNull(p.Coverage);
+        Assert.Equal(p.Controls.Count, p.Coverage!.InScope);
+        Assert.Equal(p.Coverage.InScope,
+            p.Coverage.Gated + p.Coverage.Inherited + p.Coverage.NotApplicable + p.Coverage.Unmapped);
         Assert.Single(p.PolicyTemplates);
         Assert.False(string.IsNullOrWhiteSpace(p.Enforcement.Mode));
     }
