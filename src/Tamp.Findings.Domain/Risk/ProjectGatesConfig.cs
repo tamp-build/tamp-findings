@@ -83,6 +83,15 @@ public static class GateKeys
     // Coverage dropped from prior canonical build by more than Threshold
     // percentage points.
     public const string CoverageRegression = "coverageRegression";
+    // Coverage is below an ABSOLUTE floor (Threshold %). Distinct from
+    // coverageRegression (relative, vs prior): "produce a number, any number
+    // passes" is not a gate (TFND-182). Threshold is the minimum percent.
+    public const string CoverageFloor = "coverageFloor";
+    // How old the build's SBOM is, in days (the snapshot's own age, distinct
+    // from base-image age and from component-version staleness). Under continuous
+    // validation, stale evidence is no evidence (TFND-182). Threshold is the max
+    // days allowed.
+    public const string SbomAge = "sbomAge";
     // Any open POA&M whose scheduled completion date is more than
     // `Threshold` days past due. Counts items in Open / InProgress
     // statuses; Completed / RiskAccepted / Cancelled do not. FedRAMP

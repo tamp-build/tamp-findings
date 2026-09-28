@@ -71,7 +71,11 @@ public sealed record RiskInputs(
     // That is a blocker for federal acceptance, so it maps to the severe bucket
     // and is weighted accordingly.
     int A11ySevere = 0, int A11yModerate = 0, int A11yMinor = 0,
-    bool RanAccessibility = false);
+    bool RanAccessibility = false,
+    // TFND-182 — the build's SBOM age in days (the snapshot's own age: now minus
+    // when it was ingested), or null when no SBOM was ingested. Drives the
+    // sbomAge gate; distinct from base-image age and component staleness.
+    int? SbomAgeDays = null);
 
 public sealed record RiskCategoryBreakdown(
     string Key,

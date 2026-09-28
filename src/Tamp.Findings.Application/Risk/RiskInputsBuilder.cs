@@ -121,9 +121,16 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         // SBOM components: count + health buckets + license tiers.
         var snapshots = await db.SbomSnapshots.AsNoTracking()
             .Where(s => cvIds.Contains(s.ComponentVersionId))
-            .Select(s => new { s.Id })
+            .Select(s => new { s.Id, s.IngestedAt })
             .ToListAsync(ct);
         var snapshotIds = snapshots.Select(s => s.Id).ToList();
+
+        // TFND-182: the build's SBOM age — how long since the most recent SBOM
+        // for this build was ingested. Null when no SBOM exists (the sbomAge
+        // gate reads that as Unknown, not fresh).
+        int? sbomAgeDays = snapshots.Count == 0
+            ? null
+            : (int)(DateTimeOffset.UtcNow - snapshots.Max(s => s.IngestedAt)).TotalDays;
         var sbomComponents = await db.SbomComponents.AsNoTracking()
             .Where(c => snapshotIds.Contains(c.SbomSnapshotId))
             .Select(c => new
@@ -264,7 +271,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             A11ySevere: a11ySevere, A11yModerate: a11yModerate, A11yMinor: a11yMinor,
             RanAccessibility: ranAccessibility,
             BaseImageAgeDays: baseImageAgeDays,
-            RanImageInspect: ranImageInspect);
+            RanImageInspect: ranImageInspect,
+            SbomAgeDays: sbomAgeDays);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the
