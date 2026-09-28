@@ -32,12 +32,14 @@ public sealed class GateDecisionService
     private readonly FindingsDbContext _db;
     private readonly RiskInputsBuilder _inputs;
     private readonly EnforcementResolver _enforcement;
+    private readonly Policy.PolicyResolver _resolver;
 
-    public GateDecisionService(FindingsDbContext db, RiskInputsBuilder inputs, EnforcementResolver enforcement)
+    public GateDecisionService(FindingsDbContext db, RiskInputsBuilder inputs, EnforcementResolver enforcement, Policy.PolicyResolver resolver)
     {
         _db = db;
         _inputs = inputs;
         _enforcement = enforcement;
+        _resolver = resolver;
     }
 
     public async Task<(GateDecisionStatus Status, GateDecisionResult? Result)> ForLatestAsync(
@@ -93,7 +95,12 @@ public sealed class GateDecisionService
             priorBand = priorResult.Band;
         }
 
-        var gates = project.GatesConfig ?? ProjectGatesDefaults.Empty();
+        // The gates the build is judged against are the MERGED three-layer set
+        // (ADR 0007): template → client → this project, strictest-wins. For a
+        // project with no template or client layer the resolver reproduces its
+        // own GatesConfig exactly, so this is behaviour-preserving; a client or
+        // template gate now applies to every project under it.
+        var gates = await _resolver.EffectiveGatesAsync(projectId, project.GatesConfig, ct);
         var evaluation = GateEvaluator.Evaluate(gates, currentInputs, currentResult.Score, priorInputs, priorScore);
 
         var mode = await _enforcement.ForProjectAsync(projectId, ct);

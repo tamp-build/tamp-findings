@@ -34,6 +34,35 @@ public sealed class PolicyResolver(FindingsDbContext db)
         return PolicyLayerMerge.Resolve(layers);
     }
 
+    /// <summary>The merged effective gates for a project, projected back into the
+    /// <see cref="ProjectGatesConfig"/> shape the evaluator and the hub consume.
+    /// For a project with no template or client layer this reproduces its own
+    /// GatesConfig exactly, so callers can swap it in behaviour-preservingly.</summary>
+    public async Task<ProjectGatesConfig> EffectiveGatesAsync(
+        Guid projectId, ProjectGatesConfig? original, CancellationToken ct = default)
+    {
+        var layer = await ForProjectAsync(projectId, ct);
+        return ToGatesConfig(layer, original);
+    }
+
+    /// <summary>Project the merged layer's gates into a ProjectGatesConfig. Only
+    /// enabled gates carry — GateEvaluator treats an absent key as off, exactly
+    /// as today — and SchemaVersion / the enforcement-mode override are carried
+    /// from the project's own config (mode resolution stays with
+    /// EnforcementResolver).</summary>
+    public static ProjectGatesConfig ToGatesConfig(EffectivePolicyLayer layer, ProjectGatesConfig? original)
+    {
+        var cfg = new ProjectGatesConfig
+        {
+            SchemaVersion = original?.SchemaVersion ?? 1,
+            EnforcementMode = original?.EnforcementMode,
+        };
+        foreach (var (key, g) in layer.Gates)
+            if (g.Enabled)
+                cfg.Gates[key] = new GateConfig { Enabled = true, Threshold = g.Threshold };
+        return cfg;
+    }
+
     /// <summary>The template → client stack for one client (no project layer).</summary>
     public async Task<EffectivePolicyLayer> ForClientAsync(Guid clientId, CancellationToken ct = default)
     {
