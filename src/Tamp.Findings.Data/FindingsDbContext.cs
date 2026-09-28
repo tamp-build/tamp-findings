@@ -41,6 +41,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<TestCaseResult> TestCaseResults => Set<TestCaseResult>();
     public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
+    public DbSet<PolicyTemplate> PolicyTemplates => Set<PolicyTemplate>();
     public DbSet<KevAdvisory> KevAdvisories => Set<KevAdvisory>();
     public DbSet<VexStatement> VexStatements => Set<VexStatement>();
     public DbSet<PoamItem> PoamItems => Set<PoamItem>();
@@ -71,6 +72,11 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // SetNull on the FK so deleting a RiskPolicy doesn't cascade
             // delete clients — they just fall back to the system default.
             e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
+            // Three-layer policy (ADR 0007): the inherited template + this
+            // client's own hardening overlay (jsonb). SetNull so deleting a
+            // template drops the link rather than the client.
+            e.HasOne<PolicyTemplate>().WithMany().HasForeignKey(x => x.PolicyTemplateId).OnDelete(DeleteBehavior.SetNull);
+            e.Property(x => x.PolicyLayer).HasColumnType("jsonb");
         });
 
         b.Entity<Project>(e =>
@@ -85,6 +91,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // (every build passes). Distinct from RiskPolicy which is
             // also jsonb but lives in its own table.
             e.Property(x => x.GatesConfig).HasColumnType("jsonb");
+            // Three-layer policy (ADR 0007): this project's hardening overlay.
+            e.Property(x => x.PolicyLayer).HasColumnType("jsonb");
             // TFND-32: VDP metadata.
             e.Property(x => x.VdpPolicyUrl).HasMaxLength(1024);
             e.Property(x => x.VdpContactEmail).HasMaxLength(320);
@@ -526,6 +534,21 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // system default at the DB level. Postgres partial-unique
             // index expresses this cleanly.
             e.HasIndex(x => x.IsDefault).IsUnique().HasFilter("\"IsDefault\" = true");
+        });
+
+        b.Entity<PolicyTemplate>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            e.Ignore(x => x.Label); // computed
+            // The hardenable overlay, jsonb like RiskPolicy.Config.
+            e.Property(x => x.Layer).HasColumnType("jsonb").IsRequired();
+            e.Property(x => x.CreatedByLogin).HasMaxLength(256);
+            // A template's identity is (name, version) — a new version is a new
+            // row, so the pair is unique, not the name alone.
+            e.HasIndex(x => new { x.Name, x.Version }).IsUnique();
+            // Link the scoring policy; SetNull so deleting it drops the link.
+            e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
         });
 
         b.Entity<CoverageClass>(e =>

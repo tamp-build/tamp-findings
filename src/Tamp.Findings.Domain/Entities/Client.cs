@@ -16,5 +16,12 @@ public sealed class Client
     // project under this client unless the project overrides (TFND-148).
     public EnforcementMode? EnforcementMode { get; set; }
 
+    // The three-layer policy (ADR 0007 / TFND-179). The template this client
+    // inherits its baseline from (null → none yet), and the client's own
+    // hardening ON TOP of it. The client can only add or tighten; switching the
+    // template needs InfoSec approval.
+    public Guid? PolicyTemplateId { get; set; }
+    public Risk.PolicyLayer? PolicyLayer { get; set; }
+
     public ICollection<Project> Projects { get; set; } = [];
 }

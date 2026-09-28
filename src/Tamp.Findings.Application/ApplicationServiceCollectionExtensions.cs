@@ -101,6 +101,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Attestation.AttestationSnapshotService>();
         services.AddScoped<Policy.PolicyService>();
         services.AddScoped<Policy.GateService>();
+        services.AddScoped<Policy.PolicyResolver>();
         services.AddScoped<Projects.ProjectSettingsService>();
         services.AddScoped<SystemAdmin.SystemAdminService>();
         services.AddScoped<SystemAdmin.IdentityProviderService>();

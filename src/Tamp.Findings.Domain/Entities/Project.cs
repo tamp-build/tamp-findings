@@ -15,6 +15,14 @@ public sealed class Project
     // RiskPolicy which drives the score.
     public Risk.ProjectGatesConfig? GatesConfig { get; set; }
 
+    // The three-layer policy (ADR 0007 / TFND-179): this project's own hardening
+    // ON TOP of its client and template. Carries the layerable overlay fields
+    // that GatesConfig does not (required scanners, denied licences, POA&M
+    // deadlines); the project's gates + enforcement mode continue to live in
+    // GatesConfig, which the resolver reads as this layer's gate settings.
+    // Null → the project adds no hardening of its own.
+    public Risk.PolicyLayer? PolicyLayer { get; set; }
+
     // TFND-32: vulnerability disclosure policy metadata. Federal
     // procurement (per CISA BOD 20-01 / NIST SSDF RV.3.1) expects a
     // published path for coordinated disclosure. When any of these are
