@@ -15,3 +15,4 @@ Numbering starts at 0001 for tamp.findings-local decisions.
 | [0003](0003-reflow-and-the-1180px-density-floor.md) | Reflow and the 1180px density floor | Accepted |
 | [0004](0004-gate-enforcement-modes-and-the-cli-gate.md) | Gate enforcement modes and the fail-closed CLI gate | Accepted |
 | [0005](0005-removing-elsa-scheduled-work-as-hosted-workers.md) | Removing Elsa — scheduled work as hosted workers | Accepted |
+| [0006](0006-adr-conformance-as-evidence-and-frozen-non-pure-verdicts.md) | ADR-conformance as an evidence source, and freezing non-pure verdicts at the snapshot | Proposed |
