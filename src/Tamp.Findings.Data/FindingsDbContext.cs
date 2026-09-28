@@ -53,6 +53,14 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<IdentityProvider> IdentityProviders => Set<IdentityProvider>();
     public DbSet<McpToken> McpTokens => Set<McpToken>();
 
+    // tamp-EOProvenance (ADR 0011): the EO/memo mandate registry. DirectiveStatusChange
+    // is append-only (enforced in GuardAuditTrail) — it is the point-in-time evidence.
+    public DbSet<Instrument> Instruments => Set<Instrument>();
+    public DbSet<InstrumentRelation> InstrumentRelations => Set<InstrumentRelation>();
+    public DbSet<Directive> Directives => Set<Directive>();
+    public DbSet<DirectiveStatusChange> DirectiveStatusChanges => Set<DirectiveStatusChange>();
+    public DbSet<DirectiveCrosswalk> DirectiveCrosswalks => Set<DirectiveCrosswalk>();
+
     /// <summary>
     /// ASP.NET Data Protection key ring (TFND-111).
     ///
@@ -591,6 +599,58 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => x.ComponentVersionId);
         });
 
+        // ── tamp-EOProvenance (ADR 0011) ──
+        b.Entity<Instrument>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Identifier).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(1024).IsRequired();
+            e.Property(x => x.IssuingAuthority).HasMaxLength(256);
+            e.Property(x => x.PublicationCite).HasMaxLength(512);
+            e.Property(x => x.SourceHash).HasMaxLength(128);
+            e.Property(x => x.ExtractionModelId).HasMaxLength(128);
+            e.HasIndex(x => x.Identifier).IsUnique();
+        });
+
+        b.Entity<InstrumentRelation>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.FromSection).HasMaxLength(128);
+            e.Property(x => x.ToSection).HasMaxLength(128);
+            // Walkable in either direction (ADR 0011 §2).
+            e.HasIndex(x => x.FromInstrumentId);
+            e.HasIndex(x => x.ToInstrumentId);
+        });
+
+        b.Entity<Directive>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Ref).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Section).HasMaxLength(128);
+            e.Property(x => x.Who).HasMaxLength(512).IsRequired();
+            e.Property(x => x.MustDo).HasColumnType("text").IsRequired();
+            e.Property(x => x.SourceHash).HasMaxLength(128);
+            e.Property(x => x.ExtractionModelId).HasMaxLength(128);
+            e.HasIndex(x => x.Ref).IsUnique();
+            e.HasIndex(x => x.InstrumentId);
+        });
+
+        b.Entity<DirectiveStatusChange>(e =>
+        {
+            e.HasKey(x => x.Id);
+            // Point-in-time lookup: latest change ≤ asOf, per directive.
+            e.HasIndex(x => new { x.DirectiveId, x.EffectiveDate });
+        });
+
+        b.Entity<DirectiveCrosswalk>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.TargetRef).HasMaxLength(256).IsRequired();
+            e.HasIndex(x => x.DirectiveId);
+            // No mandate double-scored: one directive per (Target, TargetRef).
+            e.HasIndex(x => new { x.Target, x.TargetRef }).IsUnique();
+        });
+
         b.Entity<CoverageClass>(e =>
         {
             e.HasKey(x => x.Id);
@@ -635,6 +695,19 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
                 throw new InvalidOperationException(
                     $"AuditEntry is append-only; attempted to {entry.State.ToString().ToLowerInvariant()} "
                     + $"entry {entry.Entity.Id} ({entry.Entity.Action}). Write a new entry instead.");
+            }
+        }
+
+        // Directive status changes are the point-in-time evidence (ADR 0011 §4):
+        // never delete, always date. A status history with an eraser cannot prove
+        // what was in force on a past date. Append a new change to correct one.
+        foreach (var entry in ChangeTracker.Entries<DirectiveStatusChange>())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                throw new InvalidOperationException(
+                    $"DirectiveStatusChange is append-only; attempted to {entry.State.ToString().ToLowerInvariant()} "
+                    + $"change {entry.Entity.Id} on directive {entry.Entity.DirectiveId}. Append a new dated change instead.");
             }
         }
 
