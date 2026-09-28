@@ -1,0 +1,126 @@
+@page "/system/frameworks"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject Tamp.Findings.Application.Compliance.ControlCatalogQuery Catalog
+@using Tamp.Findings.Domain.Compliance
+@using Tamp.Findings.Domain.Entities
+@using Tamp.Findings.Application.Compliance
+@using Tamp.Findings.Web.Components.Compliance
+
+@* System → Control frameworks (v3 §6): the imported control catalog, the
+   frameworks built from it, and a browser into any control's statement. *@
+
+<PageTitle>Control frameworks — tamp.findings</PageTitle>
+
+<div class="stack">
+    <nav class="crumbs">
+        <a href="@Routes.Portfolio">Portfolio</a>
+        <span class="crumbs__sep">/</span>
+        <span>Control frameworks</span>
+    </nav>
+    <div class="cathero">
+        <div>
+            <h1>Control frameworks</h1>
+            <div class="muted">The control catalog and the frameworks projects are held to (ADR — v3 §6).</div>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="muted">Loading…</p>
+    }
+    else
+    {
+        @if (_summary is { } s)
+        {
+            <Card>
+                <div class="kicker">Control catalog</div>
+                <div class="row" style="justify-content: space-between; flex-wrap: wrap; gap: 12px">
+                    <div>
+                        <div><strong>@s.Name</strong></div>
+                        <div class="field__help mono">@s.Source · @s.ControlCount controls@(s.OscalVersion is { } v ? $" · OSCAL {v}" : "")</div>
+                        <div class="field__help">Imported @s.ImportedAt.ToString("yyyy-MM-dd")@(s.PriorVersions > 0 ? $" · {s.PriorVersions} prior version{(s.PriorVersions == 1 ? "" : "s")} retained" : "")</div>
+                    </div>
+                    <div class="row">
+                        <button class="btn" disabled title="OSCAL import lands with TFND-180">Check for update</button>
+                        <button class="btn" disabled title="OSCAL import lands with TFND-180">Import file</button>
+                    </div>
+                </div>
+            </Card>
+        }
+        else
+        {
+            <NotScanned Message="No control catalog has been imported." />
+        }
+
+        <Card Padded="false">
+            <ScrollBox Label="Frameworks">
+                <table class="table table--rows">
+                    <thead><tr><th>Framework</th><th>Provenance</th><th class="align-end">Controls</th><th>Parameters</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var f in _frameworks)
+                        {
+                            <tr>
+                                <td><div>@f.Name</div><div class="mono muted cat__rule">@f.Version</div></td>
+                                <td>
+                                    <span class="ctlpanel__base @KindClass(f.Kind)">@KindLabel(f.Kind)</span>
+                                    <span class="field__help">@f.Source</span>
+                                </td>
+                                <td class="mono align-end">@f.ControlCountLabel</td>
+                                <td class="mono muted">@f.ParamsLabel</td>
+                                <td class="mono">@(f.Status == FrameworkStatus.Current ? "current" : "draft")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </ScrollBox>
+        </Card>
+
+        <Card>
+            <div class="kicker">Controls</div>
+            <p class="field__help">Click a control to read its statement and organization-defined parameters.</p>
+            <div class="row" style="flex-wrap: wrap; gap: 6px">
+                @foreach (var c in _controls)
+                {
+                    <button class="ctlchip mono @(_selected?.Id == c.Id ? "ctlchip--sel" : null)" @onclick="() => _selected = c">@c.Id</button>
+                }
+            </div>
+        </Card>
+
+        @if (_selected is { } sel)
+        {
+            <ControlStatementPanel Control="sel" />
+        }
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private CatalogSummary? _summary;
+    private IReadOnlyList<Framework> _frameworks = [];
+    private IReadOnlyList<Control> _controls = [];
+    private Control? _selected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        try
+        {
+            _summary = await Catalog.CurrentCatalogAsync();
+            _frameworks = await Catalog.FrameworksAsync();
+            _controls = await Catalog.ControlsAsync();
+            _selected = _controls.FirstOrDefault(c => c.Id == "CM-6") ?? _controls.FirstOrDefault();
+        }
+        catch { }
+        _loading = false;
+    }
+
+    private static string KindLabel(FrameworkKind k) => k switch
+    {
+        FrameworkKind.Oscal => "OSCAL import", FrameworkKind.Curated => "Curated", FrameworkKind.Overlay => "Overlay", _ => k.ToString(),
+    };
+    private static string KindClass(FrameworkKind k) => k switch
+    {
+        FrameworkKind.Oscal => "ctlpanel__base--in", FrameworkKind.Curated => "ctlpanel__base--dash", _ => "ctlpanel__base--ovl",
+    };
+}
