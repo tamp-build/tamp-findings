@@ -1,3 +1,5 @@
+using Tamp.Findings.Domain.Compliance;
+
 namespace Tamp.Findings.Domain.Entities;
 
 /// <summary>How a framework was built (v3 §6). Drives the provenance badge.</summary>
@@ -41,4 +43,11 @@ public sealed class Framework
     public string? ParamsLabel { get; set; }          // "FedRAMP-assigned values"
     public FrameworkStatus Status { get; set; }
     public bool IsSeeded { get; set; }
+
+    /// <summary>Which catalog baseline this framework's applicable controls are
+    /// drawn from — so the applicable-control set is COMPUTED from the catalog's
+    /// membership flags (never hard-coded) until a full OSCAL profile is imported.
+    /// A Moderate framework's controls are the catalog controls in the Moderate
+    /// baseline.</summary>
+    public BaselineLevel Baseline { get; set; }
 }
