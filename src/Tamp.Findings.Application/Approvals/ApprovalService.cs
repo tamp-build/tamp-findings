@@ -56,6 +56,10 @@ public sealed class ApprovalService
         ApprovalKind.PoamExtension => Capability.CreatePoamItem,
         ApprovalKind.VexPublication => Capability.PublishVex,
         ApprovalKind.AttestationSignOff => Capability.ExportAttestation,
+        // Loosening/switching a policy layer is an InfoSec risk decision
+        // (ADR 0007 §4) — the same AcceptRisk boundary Admin deliberately lacks.
+        ApprovalKind.LoosenPolicyTemplate => Capability.AcceptRisk,
+        ApprovalKind.SwitchClientTemplate => Capability.AcceptRisk,
         _ => Capability.ManageIngestKey,
     };
 
@@ -319,6 +323,8 @@ public sealed class ApprovalService
         ApprovalKind.PoamExtension => "pending AO extension",
         ApprovalKind.VexPublication => "pending publication",
         ApprovalKind.AttestationSignOff => "pending sign-off",
+        ApprovalKind.LoosenPolicyTemplate => "pending InfoSec approval to loosen",
+        ApprovalKind.SwitchClientTemplate => "pending InfoSec approval to switch template",
         _ => "pending approval",
     };
 }
