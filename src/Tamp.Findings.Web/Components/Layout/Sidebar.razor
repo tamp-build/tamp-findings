@@ -19,18 +19,23 @@
         <div class="kicker">@L["Brand.Kicker"]</div>
     </div>
 
-    @* The four tiers of the domain model. This hierarchy is load-bearing and
-       appears on nearly every screen, so it is chrome rather than content. *@
-    <Card Class="sidebar__scope">
-        @foreach (var tier in Tiers)
-        {
-            <div class="scope-row">
-                <div class="scope-row__label">@tier.Label</div>
-                <div class="scope-row__value mono" title="@tier.Value">@(tier.Value ?? "—")</div>
-                <Icon Name="chevron-right" Size="12" Class="scope-row__chevron" />
-            </div>
-        }
-    </Card>
+    @* The four tiers of the domain model — chrome once a project is open. v3
+       hides it on Portfolio (and other project-less screens): a Client / Project
+       / Component / Build tree that reads "— — — —" is noise, not orientation.
+       It reappears the moment a project is in scope. *@
+    @if (ScopeOpen)
+    {
+        <Card Class="sidebar__scope">
+            @foreach (var tier in Tiers)
+            {
+                <div class="scope-row">
+                    <div class="scope-row__label">@tier.Label</div>
+                    <div class="scope-row__value mono" title="@tier.Value">@(tier.Value ?? "—")</div>
+                    <Icon Name="chevron-right" Size="12" Class="scope-row__chevron" />
+                </div>
+            }
+        </Card>
+    }
 
     @foreach (var group in Groups)
     {
@@ -67,6 +72,11 @@
 @code {
     private sealed record NavItem(LocalizedString Label, string Href, string? Count = null);
     private sealed record NavGroup(LocalizedString Label, IReadOnlyList<NavItem> Items, bool Instance = false);
+
+    // A project is in scope — the scope tree and the project-only groups mean
+    // something. Component/Build can be absent (a project with no build yet)
+    // and the tree still belongs; Client+Project is the threshold.
+    private bool ScopeOpen => Scope.Client is not null && Scope.Project is not null;
 
     private (LocalizedString Label, string? Value)[] Tiers =>
     [
