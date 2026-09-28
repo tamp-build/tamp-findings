@@ -1,3 +1,4 @@
+using Tpl = Tamp.Findings.Domain.Risk.PolicyTemplateDefaults;
 using Tamp.Findings.Application.SystemAdmin;
 using Tamp.Findings.Application.Authentication;
 using Tamp.Findings.Application.Ingest;
@@ -353,39 +354,50 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
         await db.SaveChangesAsync();
     }
 
-    // Seed the policy templates (ADR 0007) idempotently by name. Each links its
-    // matching scoring RiskPolicy so a template carries both the blocking overlay
-    // and the weights/bands. Nothing inherits a template until a client picks one,
-    // so seeding never changes an existing client's effective policy.
-    if (!await db.PolicyTemplates.AnyAsync(t => t.Name == Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.TampStandardName))
+    // Seed the shipped policy templates (ADR 0007 / TFND-182): the strictness
+    // ladder Tamp Standard < FedRAMP Low < Moderate < High + GovRAMP Core. Each
+    // links its scoring RiskPolicy (Standard → default, the enforcing ones → Tamp
+    // Federal). A fresh install gets all five; an existing install gets any new
+    // ones plus corrections to the still-unedited seeds (Version == 1). A seed an
+    // admin has edited (Version > 1) is left alone. Nothing inherits a template
+    // until a client picks one, so seeding never changes an existing effective policy.
     {
-        var scoring = await db.RiskPolicies.Where(p => p.IsDefault).Select(p => (Guid?)p.Id).FirstOrDefaultAsync();
-        db.PolicyTemplates.Add(new Tamp.Findings.Domain.Entities.PolicyTemplate
-        {
-            Name = Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.TampStandardName,
-            Version = 1,
-            IsSeeded = true,
-            Layer = Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.BuildTampStandard(),
-            RiskPolicyId = scoring,
-            CreatedByLogin = "system",
-        });
-        await db.SaveChangesAsync();
-    }
-    if (!await db.PolicyTemplates.AnyAsync(t => t.Name == Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.FedRampModerateName))
-    {
-        var scoring = await db.RiskPolicies
+        var defaultPolicyId = await db.RiskPolicies.Where(p => p.IsDefault).Select(p => (Guid?)p.Id).FirstOrDefaultAsync();
+        var federalPolicyId = await db.RiskPolicies
             .Where(p => p.Name == Tamp.Findings.Domain.Risk.RiskPolicyDefaults.TampFederalV1Name)
             .Select(p => (Guid?)p.Id).FirstOrDefaultAsync();
-        db.PolicyTemplates.Add(new Tamp.Findings.Domain.Entities.PolicyTemplate
+
+        var seeds = new (string Name, Func<Tamp.Findings.Domain.Risk.PolicyLayer> Build, Guid? Scoring)[]
         {
-            Name = Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.FedRampModerateName,
-            Version = 1,
-            IsSeeded = true,
-            Layer = Tamp.Findings.Domain.Risk.PolicyTemplateDefaults.BuildFedRampModerate(),
-            RiskPolicyId = scoring,
-            CreatedByLogin = "system",
-        });
-        await db.SaveChangesAsync();
+            (Tpl.TampStandardName,    Tpl.BuildTampStandard,   defaultPolicyId),
+            (Tpl.FedRampLowName,      Tpl.BuildFedRampLow,     federalPolicyId),
+            (Tpl.FedRampModerateName, Tpl.BuildFedRampModerate, federalPolicyId),
+            (Tpl.FedRampHighName,     Tpl.BuildFedRampHigh,    federalPolicyId),
+            (Tpl.GovRampCoreName,     Tpl.BuildGovRampCore,    federalPolicyId),
+        };
+
+        var changed = false;
+        foreach (var (name, build, scoring) in seeds)
+        {
+            var existing = await db.PolicyTemplates.FirstOrDefaultAsync(t => t.Name == name);
+            if (existing is null)
+            {
+                db.PolicyTemplates.Add(new Tamp.Findings.Domain.Entities.PolicyTemplate
+                {
+                    Name = name, Version = 1, IsSeeded = true,
+                    Layer = build(), RiskPolicyId = scoring, CreatedByLogin = "system",
+                });
+                changed = true;
+            }
+            else if (existing.IsSeeded && existing.Version == 1)
+            {
+                existing.Layer = build();
+                existing.RiskPolicyId ??= scoring;
+                existing.UpdatedAt = DateTimeOffset.UtcNow;
+                changed = true;
+            }
+        }
+        if (changed) await db.SaveChangesAsync();
     }
 
     // Ingest the SHIPPED OSCAL control catalog + baseline profiles on startup
