@@ -21,7 +21,12 @@ public sealed record IngestRequest(
     ScannerKind Scanner,
     IReadOnlyList<IngestFinding> Findings,
     // TFND-165: who produced this ingest (optional, additive).
-    IngestActor? Actor = null);
+    IngestActor? Actor = null,
+    // TFND-183: the component's capability profile — "code-package" (default) |
+    // "container" | "service". Declares which conditional scanners it can even
+    // produce; the build knows what it is. Absent → code-package (unchanged for
+    // an existing component that was already classified).
+    string? ComponentProfile = null);
 
 public sealed record IngestFinding(
     string RuleId,
