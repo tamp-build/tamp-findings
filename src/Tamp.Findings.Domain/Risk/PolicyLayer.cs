@@ -18,7 +18,9 @@ namespace Tamp.Findings.Domain.Risk;
 /// </summary>
 public sealed class PolicyLayer
 {
-    public int SchemaVersion { get; set; } = 1;
+    // v2 (TFND-185 / ADR 0009): added Assertions. Additive jsonb — a stored v1
+    // layer deserializes with an empty assertion set, so nothing migrates.
+    public int SchemaVersion { get; set; } = 2;
 
     /// <summary>Enforcement mode this layer asks for, or null to inherit. Merged
     /// as strictest-wins (Enforcing &gt; Advisory).</summary>
@@ -41,8 +43,57 @@ public sealed class PolicyLayer
     /// (a shorter deadline is stricter).</summary>
     public Dictionary<string, int> PoamDeadlineDays { get; set; } = new();
 
+    /// <summary>Control-disposition assertions (TFND-185 / ADR 0009): how this
+    /// layer claims each OSCAL control is met — gated by a scanner, inherited, or
+    /// N/A. Merged per control id as strictest-kind-wins. Controls with no
+    /// assertion are Unmapped, which the no-unmapped meta-gate blocks on.</summary>
+    public List<ControlAssertion> Assertions { get; set; } = [];
+
     public static PolicyLayer Empty() => new();
 }
+
+/// <summary>The disposition a template/layer claims for a set of controls
+/// (ADR 0009). Unmapped is deliberately NOT a kind — it is the absence of any
+/// assertion, which is exactly what the meta-gate exists to surface.</summary>
+public enum ControlDispositionKind
+{
+    /// <summary>Covered by one or more automated gates (see <see cref="ControlAssertion.Gates"/>).</summary>
+    Gated,
+    /// <summary>Satisfied by inheritance (a hosting provider / authorizing boundary). Not our evidence to produce.</summary>
+    Inherited,
+    /// <summary>Does not apply, with a justification.</summary>
+    NotApplicable,
+}
+
+/// <summary>One layer's claim about how a set of controls is met (ADR 0009 §2).
+/// Stored inside <see cref="PolicyLayer.Assertions"/> as jsonb.</summary>
+public sealed class ControlAssertion
+{
+    public ControlDispositionKind Kind { get; set; }
+
+    /// <summary>OSCAL control ids this assertion covers, e.g. ["RA-5","SI-2"].</summary>
+    public List<string> ControlIds { get; set; } = [];
+
+    /// <summary>For <see cref="ControlDispositionKind.Gated"/>: the <see cref="GateKeys"/>
+    /// that produce evidence for these controls. Used to derive N/A via the
+    /// capability intersection (TFND-184) when the build cannot run them.</summary>
+    public List<string> Gates { get; set; } = [];
+
+    /// <summary>Why the control is inherited or N/A. Required for those kinds.</summary>
+    public string? Justification { get; set; }
+
+    /// <summary>For <see cref="ControlDispositionKind.Inherited"/>: who provides it.</summary>
+    public string? InheritedFrom { get; set; }
+}
+
+/// <summary>A resolved per-control assertion after the layer merge, with the
+/// layer that supplied the winning disposition.</summary>
+public sealed record EffectiveAssertion(
+    ControlDispositionKind Kind,
+    IReadOnlyList<string> Gates,
+    string? Justification,
+    string? InheritedFrom,
+    string Source);
 
 /// <summary>A resolved value paired with the layer that supplied it. The source
 /// is the human label of the winning layer (e.g. "FedRAMP Moderate v4",
@@ -63,4 +114,6 @@ public sealed record EffectivePolicyLayer(
     IReadOnlyList<Sourced<string>> RequiredScanners,
     IReadOnlyDictionary<string, EffectiveGate> Gates,
     IReadOnlyList<Sourced<string>> DeniedLicenses,
-    IReadOnlyDictionary<string, Sourced<int>> PoamDeadlineDays);
+    IReadOnlyDictionary<string, Sourced<int>> PoamDeadlineDays,
+    // Per control id, the strictest-across-layers disposition claim (ADR 0009).
+    IReadOnlyDictionary<string, EffectiveAssertion> Assertions);

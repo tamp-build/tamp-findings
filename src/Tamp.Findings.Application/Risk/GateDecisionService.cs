@@ -33,13 +33,16 @@ public sealed class GateDecisionService
     private readonly RiskInputsBuilder _inputs;
     private readonly EnforcementResolver _enforcement;
     private readonly Policy.PolicyResolver _resolver;
+    private readonly Compliance.ControlDispositionQuery _dispositions;
 
-    public GateDecisionService(FindingsDbContext db, RiskInputsBuilder inputs, EnforcementResolver enforcement, Policy.PolicyResolver resolver)
+    public GateDecisionService(FindingsDbContext db, RiskInputsBuilder inputs, EnforcementResolver enforcement,
+        Policy.PolicyResolver resolver, Compliance.ControlDispositionQuery dispositions)
     {
         _db = db;
         _inputs = inputs;
         _enforcement = enforcement;
         _resolver = resolver;
+        _dispositions = dispositions;
     }
 
     public async Task<(GateDecisionStatus Status, GateDecisionResult? Result)> ForLatestAsync(
@@ -105,7 +108,13 @@ public sealed class GateDecisionService
         // components' profiles. A conditional gate the build cannot produce
         // (DAST with no web-facing component) resolves to N/A, not a false pass.
         var capability = await AggregateCapabilityAsync(current.CvIds, ct);
-        var evaluation = GateEvaluator.Evaluate(gates, currentInputs, currentResult.Score, priorInputs, priorScore, capability);
+        // Control coverage for the no-unmapped meta-gate (TFND-185). Only computed
+        // when the gate is enabled — the disposition query loads the (large) OSCAL
+        // catalog, so a project that does not gate on coverage never pays for it.
+        var coverage = gates.Gates.TryGetValue(GateKeys.NoUnmapped, out var nu) && nu.Enabled
+            ? await _dispositions.ForProjectAsync(projectId, capability, ct)
+            : null;
+        var evaluation = GateEvaluator.Evaluate(gates, currentInputs, currentResult.Score, priorInputs, priorScore, capability, coverage);
 
         var mode = await _enforcement.ForProjectAsync(projectId, ct);
 

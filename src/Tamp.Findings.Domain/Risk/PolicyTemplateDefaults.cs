@@ -40,6 +40,63 @@ public static class PolicyTemplateDefaults
 
     private static GateConfig On(double? threshold = null) => new() { Enabled = true, Threshold = threshold };
 
+    // The shipped STARTER control mapping (ADR 0009 §4). A control maps to the
+    // gates that would cover it — but an assertion is only emitted for the gates a
+    // template actually enables, so no template claims coverage it does not have.
+    // The remainder ship Unmapped on purpose: the no-unmapped meta-gate then reports
+    // the real, honest gap rather than a fabricated 100%. Filling the matrix is
+    // ongoing compliance work, not a code change.
+    private static readonly (string Control, string[] Gates)[] StarterGatedMap =
+    [
+        ("RA-5", [GateKeys.KevExposure, GateKeys.CriticalCves, GateKeys.HighCves, GateKeys.SbomAge]), // vuln scanning
+        ("SI-2", [GateKeys.KevExposure, GateKeys.CriticalCves, GateKeys.PoamPastDue]),                // flaw remediation
+        ("CM-8", [GateKeys.SbomAge]),                                                                 // component inventory
+        ("SR-3", [GateKeys.SbomAge, GateKeys.DeniedLicenses]),                                        // supply chain
+        ("IA-5", [GateKeys.VerifiedSecrets]),                                                         // authenticator mgmt
+        ("SA-11", [GateKeys.CriticalSast, GateKeys.HighSast, GateKeys.CoverageFloor]),                // developer testing
+        ("SA-15", [GateKeys.CriticalSast, GateKeys.CoverageFloor]),                                   // dev process/tools
+        ("SI-10", [GateKeys.CriticalDast]),                                                           // input validation (web)
+        ("SC-7",  [GateKeys.CriticalDast]),                                                           // boundary protection (web)
+        ("CA-8",  [GateKeys.CriticalDast]),                                                           // penetration testing (web)
+        ("CM-6",  [GateKeys.CriticalIac]),                                                            // config settings (iac)
+        ("CM-7",  [GateKeys.CriticalIac]),                                                            // least functionality (iac)
+    ];
+
+    // Enable the no-unmapped meta-gate and attach the starter assertions the
+    // template's OWN enabled gates support. Applied to the federal baselines; Tamp
+    // Standard ships neither (it is the permissive OSS default, not a compliance
+    // posture).
+    private static PolicyLayer WithCoverageMapping(PolicyLayer layer)
+    {
+        var enabled = layer.Gates.Where(g => g.Value.Enabled).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
+        foreach (var (control, gates) in StarterGatedMap)
+        {
+            var applicable = gates.Where(enabled.Contains).ToList();
+            if (applicable.Count > 0)
+                layer.Assertions.Add(new ControlAssertion
+                {
+                    Kind = ControlDispositionKind.Gated,
+                    ControlIds = [control],
+                    Gates = applicable,
+                });
+        }
+
+        // Physical/environmental protection is the platform's, not the app's — a
+        // representative inherited claim so the model ships all four dispositions.
+        layer.Assertions.Add(new ControlAssertion
+        {
+            Kind = ControlDispositionKind.Inherited,
+            ControlIds = ["PE-2", "PE-3", "PE-6"],
+            InheritedFrom = "the hosting provider's authorized boundary (IaaS)",
+            Justification = "physical and environmental protection is provided by the underlying platform",
+        });
+
+        // The meta-gate itself: enabled so coverage is measured; blocking is the
+        // enforcement lever (ADR 0004) — advisory until the matrix is clean.
+        layer.Gates[GateKeys.NoUnmapped] = On();
+        return layer;
+    }
+
     private static readonly string[] AllSix =
     [
         ScannerClasses.StaticAnalysis, ScannerClasses.DynamicScan, ScannerClasses.Secrets,
@@ -69,7 +126,7 @@ public static class PolicyTemplateDefaults
 
     /// <summary>FedRAMP Low: enforcing, all six scanners, the KEV / critical-CVE /
     /// verified-secrets floor, SBOM-age and a coverage floor.</summary>
-    public static PolicyLayer BuildFedRampLow() => new()
+    public static PolicyLayer BuildFedRampLow() => WithCoverageMapping(new()
     {
         Mode = EnforcementMode.Enforcing,
         RequiredScanners = { AllSix[0], AllSix[1], AllSix[2], AllSix[3], AllSix[4], AllSix[5] },
@@ -83,10 +140,10 @@ public static class PolicyTemplateDefaults
             [GateKeys.SbomAge] = On(14),
             [GateKeys.CoverageFloor] = On(70),
         },
-    };
+    });
 
     /// <summary>FedRAMP Moderate: Low + critical SAST.</summary>
-    public static PolicyLayer BuildFedRampModerate() => new()
+    public static PolicyLayer BuildFedRampModerate() => WithCoverageMapping(new()
     {
         Mode = EnforcementMode.Enforcing,
         RequiredScanners = { AllSix[0], AllSix[1], AllSix[2], AllSix[3], AllSix[4], AllSix[5] },
@@ -101,12 +158,12 @@ public static class PolicyTemplateDefaults
             [GateKeys.SbomAge] = On(14),
             [GateKeys.CoverageFloor] = On(70),
         },
-    };
+    });
 
     /// <summary>FedRAMP High: the strictest floor — high CVE/SAST, critical DAST
     /// and IaC, base-image age and POA&amp;M past-due all bite (the conditional
     /// ones apply only where the component's capability produces them, 181b/c).</summary>
-    public static PolicyLayer BuildFedRampHigh() => new()
+    public static PolicyLayer BuildFedRampHigh() => WithCoverageMapping(new()
     {
         Mode = EnforcementMode.Enforcing,
         RequiredScanners = { AllSix[0], AllSix[1], AllSix[2], AllSix[3], AllSix[4], AllSix[5] },
@@ -127,11 +184,11 @@ public static class PolicyTemplateDefaults
             [GateKeys.SbomAge] = On(14),
             [GateKeys.CoverageFloor] = On(70),
         },
-    };
+    });
 
     /// <summary>GovRAMP Core: enforcing, no DAST in the required set (state/local
     /// verification), KEV / critical CVE / critical SAST / verified secrets.</summary>
-    public static PolicyLayer BuildGovRampCore() => new()
+    public static PolicyLayer BuildGovRampCore() => WithCoverageMapping(new()
     {
         Mode = EnforcementMode.Enforcing,
         RequiredScanners =
@@ -150,5 +207,5 @@ public static class PolicyTemplateDefaults
             [GateKeys.SbomAge] = On(14),
             [GateKeys.CoverageFloor] = On(70),
         },
-    };
+    });
 }

@@ -83,13 +83,19 @@ public static class GateEvaluator
     /// the intersection rule. Null means "assume everything applies", which
     /// preserves the pre-capability behaviour for callers that do not pass it.
     /// </param>
+    /// <param name="coverage">
+    /// The control-disposition roll-up (TFND-185 / ADR 0009), when the
+    /// no-unmapped meta-gate is in play. Null means "not computed" — an enabled
+    /// noUnmapped gate then reads Unknown (no framework/catalog to check against).
+    /// </param>
     public static GateEvaluation Evaluate(
         ProjectGatesConfig config,
         RiskInputs current,
         double currentScore,
         RiskInputs? prior,
         double? priorScore,
-        Compliance.ComponentCapability? capability = null)
+        Compliance.ComponentCapability? capability = null,
+        Compliance.ControlCoverage? coverage = null)
     {
         var deltaPoints = priorScore.HasValue ? currentScore - priorScore.Value : (double?)null;
         var results = new List<GateResult>();
@@ -97,6 +103,14 @@ public static class GateEvaluator
         foreach (var key in WellKnownGateKeys)
         {
             var gateCfg = config.Gates.TryGetValue(key, out var c) ? c : new GateConfig { Enabled = false };
+
+            // The no-unmapped meta-gate reads the disposition set, not a scanner
+            // count — handled separately from the count-based gates.
+            if (key == GateKeys.NoUnmapped)
+            {
+                results.Add(EvaluateNoUnmapped(gateCfg, coverage));
+                continue;
+            }
 
             // Intersection rule: an enabled conditional gate the component cannot
             // produce is N/A-justified — not run, not passed, not blocked.
@@ -116,8 +130,36 @@ public static class GateEvaluator
         return new GateEvaluation(currentScore, priorScore, deltaPoints, results);
     }
 
-    // The capability a conditional gate needs; null means it always applies.
-    private static Compliance.ComponentCapability? RequiredCapability(string key) => key switch
+    // The no-unmapped meta-gate (ADR 0009 §3). Pass when every in-scope control
+    // has a disposition; Fail on any Unmapped; Unknown when coverage could not be
+    // computed (no framework/catalog) — a gate with no controls to check is a
+    // misconfiguration, not a clean build.
+    private static GateResult EvaluateNoUnmapped(GateConfig cfg, Compliance.ControlCoverage? coverage)
+    {
+        if (!cfg.Enabled)
+            return new GateResult(GateKeys.NoUnmapped, false, GateVerdict.Pass, "—", cfg.Threshold, null);
+
+        if (coverage is null || coverage.InScope == 0)
+            return new GateResult(GateKeys.NoUnmapped, true, GateVerdict.Unknown,
+                "no in-scope controls", cfg.Threshold,
+                "cannot evaluate control coverage: this project has no compliance framework assigned "
+                + "(or no control catalog is loaded), so there are no controls to map");
+
+        if (coverage.Complete)
+            return new GateResult(GateKeys.NoUnmapped, true, GateVerdict.Pass,
+                $"all {coverage.InScope} in-scope controls dispositioned", cfg.Threshold,
+                $"{coverage.Gated} gated, {coverage.Inherited} inherited, {coverage.NotApplicable} n/a — 0 unmapped");
+
+        return new GateResult(GateKeys.NoUnmapped, true, GateVerdict.Fail,
+            $"{coverage.Unmapped} of {coverage.InScope} controls unmapped", cfg.Threshold,
+            $"{coverage.Unmapped} in-scope controls have no disposition (gated / inherited / n/a) — "
+            + "the mapping is incomplete");
+    }
+
+    /// <summary>The capability a conditional gate needs; null means it always
+    /// applies. The single shared gate→capability map (ADR 0009): consumed by the
+    /// intersection rule here and by the control-disposition resolver.</summary>
+    public static Compliance.ComponentCapability? RequiredCapability(string key) => key switch
     {
         GateKeys.CriticalDast or GateKeys.HighDast => Compliance.ComponentCapability.Web,
         GateKeys.CriticalIac => Compliance.ComponentCapability.Iac,
@@ -151,6 +193,7 @@ public static class GateEvaluator
         GateKeys.CoverageRegression,
         GateKeys.CoverageFloor,
         GateKeys.PoamPastDue,
+        GateKeys.NoUnmapped,
     ];
 
     /// <summary>
@@ -180,6 +223,7 @@ public static class GateEvaluator
         GateKeys.CoverageRegression => "Coverage regression",
         GateKeys.CoverageFloor => "Coverage floor",
         GateKeys.PoamPastDue => "POA&M past due",
+        GateKeys.NoUnmapped => "Control coverage",
         _ => key,
     };
 
@@ -224,6 +268,10 @@ public static class GateEvaluator
         GateKeys.PoamPastDue =>
             "Blocks on POA&M items past their committed date. UNSCHEDULED items have no date to be "
             + "past, so this gate cannot see them.",
+        GateKeys.NoUnmapped =>
+            "A meta-gate: blocks when any in-scope control has no disposition (not gated, inherited "
+            + "or justified N/A). It measures the coverage of the mapping itself, not any one "
+            + "control. Unanswerable without a compliance framework assigned to the project.",
         _ => "No description registered for this gate.",
     };
 
