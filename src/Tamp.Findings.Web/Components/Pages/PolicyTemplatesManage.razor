@@ -1,0 +1,236 @@
+@page "/manage/policy-templates"
+@page "/manage/policy-templates/{Id:guid}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject CurrentUser Me
+@inject NavigationManager Nav
+@inject Tamp.Findings.Application.Policy.PolicyTemplateService Templates
+@using Tamp.Findings.Domain.Risk
+@using Tamp.Findings.Domain.Values
+@using Tamp.Findings.Application.Policy
+@using Tamp.Findings.Application.Authorization
+
+<PageTitle>Policy templates — tamp.findings</PageTitle>
+
+<div class="stack">
+    <nav class="crumbs">
+        <a href="@Routes.Portfolio">Portfolio</a>
+        <span class="crumbs__sep">/</span>
+        <span>Policy templates</span>
+    </nav>
+    <div class="cathero">
+        <div>
+            <h1>Policy templates</h1>
+            <div class="muted">The versioned baselines clients inherit and harden below (ADR 0007). Loosening a template needs InfoSec approval.</div>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="muted">Loading…</p>
+    }
+    else if (_editing is null)
+    {
+        <div class="covgrid">
+            @foreach (var t in _cards)
+            {
+                <a class="evtile" href="@Routes.PolicyTemplates(t.Id)">
+                    <div class="evtile__head">
+                        <span class="evtile__label">@t.Name</span>
+                        <span class="mono muted">v@t.Version</span>
+                    </div>
+                    <div class="evtile__status">@t.UsedByClients client@(t.UsedByClients == 1 ? "" : "s")</div>
+                    <div class="evtile__gate mono muted">@(t.IsSeeded ? "seeded" : "custom")</div>
+                </a>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="cathero">
+            <div>
+                <h2>@_editing.Name <span class="cathero__key mono">v@_editing.Version</span></h2>
+                <div class="muted">Edit the overlay. A change that only hardens applies and bumps the version; a change that loosens goes to InfoSec.</div>
+            </div>
+            <a class="evstatus" href="@Routes.PolicyTemplates()" style="border-color: var(--color-neutral-500); color: var(--color-neutral-500)">← All templates</a>
+        </div>
+
+        @if (_message is { } msg)
+        {
+            <Card>
+                <div class="row"><Chip Label="@_messageChip" Tone="@_messageTone" /> <span>@msg</span></div>
+                @if (_loosened.Count > 0)
+                {
+                    <ul class="field__help">@foreach (var l in _loosened) { <li>@l</li> }</ul>
+                }
+            </Card>
+        }
+
+        <Card>
+            <div class="kicker">Enforcement mode</div>
+            <div class="row">
+                <button class="cattab @(_layer!.Mode == EnforcementMode.Advisory ? "cattab--active" : null)" @onclick="() => _layer.Mode = EnforcementMode.Advisory">Advisory</button>
+                <button class="cattab @(_layer.Mode == EnforcementMode.Enforcing ? "cattab--active" : null)" @onclick="() => _layer.Mode = EnforcementMode.Enforcing">Enforcing</button>
+            </div>
+        </Card>
+
+        <Card Padded="false">
+            <ScrollBox Label="Acceptance gates">
+                <table class="table table--rows">
+                    <thead><tr><th>Gate</th><th>On</th><th class="align-end">Threshold</th></tr></thead>
+                    <tbody>
+                        @foreach (var key in GateEvaluator.WellKnownGateKeys)
+                        {
+                            var on = _layer!.Gates.TryGetValue(key, out var g) && g.Enabled;
+                            <tr class="@(on ? null : "contrib__row--off")">
+                                <td><div>@GateEvaluator.Label(key)</div><div class="mono muted cat__rule">@key</div></td>
+                                <td><input type="checkbox" checked="@on" @onchange="e => ToggleGate(key, (bool)e.Value!)" /></td>
+                                <td class="align-end">
+                                    @if (on && GateService.TakesThreshold(key))
+                                    {
+                                        <input class="mono" style="width: 5rem; text-align: right" type="number" step="any"
+                                               value="@(g!.Threshold?.ToString() ?? "")"
+                                               @onchange="e => SetThreshold(key, e.Value?.ToString())" />
+                                    }
+                                    else { <span class="muted">—</span> }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </ScrollBox>
+        </Card>
+
+        <div class="covgrid">
+            <Card>
+                <div class="kicker">Required scanners</div>
+                @foreach (var s in ScannerClasses)
+                {
+                    <label class="row" style="gap: 6px">
+                        <input type="checkbox" checked="@_layer!.RequiredScanners.Contains(s)" @onchange="e => ToggleScanner(s, (bool)e.Value!)" /> @s
+                    </label>
+                }
+            </Card>
+            <Card>
+                <div class="kicker">Denied licences</div>
+                <p class="field__help">Comma-separated SPDX ids or globs (e.g. <code class="mono">AGPL-*, SSPL-1.0</code>).</p>
+                <input class="mono" style="width: 100%" value="@string.Join(", ", _layer!.DeniedLicenses)" @onchange="e => SetDenied(e.Value?.ToString())" />
+            </Card>
+        </div>
+
+        <Card>
+            <div class="kicker">POA&M deadlines (days)</div>
+            <div class="row" style="flex-wrap: wrap; gap: 16px">
+                @foreach (var sev in Severities)
+                {
+                    <label class="row" style="gap: 6px">@sev
+                        <input class="mono" style="width: 5rem" type="number"
+                               value="@(_layer!.PoamDeadlineDays.TryGetValue(sev, out var d) ? d.ToString() : "")"
+                               @onchange="e => SetPoam(sev, e.Value?.ToString())" />
+                    </label>
+                }
+            </div>
+        </Card>
+
+        <div class="row">
+            <button class="btn" disabled="@(_saving || !_canEdit)" @onclick="SaveAsync">@(_saving ? "Saving…" : "Save")</button>
+            @if (!_canEdit) { <span class="field__help">You need the policy-authoring capability to save.</span> }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private bool _loading = true, _saving, _canEdit;
+    private IReadOnlyList<PolicyTemplateCard> _cards = [];
+    private Tamp.Findings.Domain.Entities.PolicyTemplate? _editing;
+    private PolicyLayer? _layer;
+    private string? _message, _messageChip, _messageTone;
+    private IReadOnlyList<string> _loosened = [];
+
+    private static readonly string[] Severities = ["Critical", "High", "Medium", "Low"];
+    private static readonly string[] ScannerClasses =
+    [
+        PolicyTemplateDefaults.ScannerClasses.StaticAnalysis, PolicyTemplateDefaults.ScannerClasses.DynamicScan,
+        PolicyTemplateDefaults.ScannerClasses.Secrets, PolicyTemplateDefaults.ScannerClasses.Iac,
+        PolicyTemplateDefaults.ScannerClasses.Sbom, PolicyTemplateDefaults.ScannerClasses.Coverage,
+    ];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _message = null; _loosened = [];
+        _canEdit = await Me.CanAsync(Capability.EditPolicyWeights, ScopeTarget.Instance);
+        _cards = await Templates.LibraryAsync();
+        _editing = Id is { } id ? await Templates.LoadAsync(id) : null;
+        _layer = _editing is null ? null : Clone(_editing.Layer);
+        _loading = false;
+    }
+
+    private void ToggleGate(string key, bool on)
+    {
+        if (on) _layer!.Gates[key] = new GateConfig { Enabled = true, Threshold = _layer.Gates.GetValueOrDefault(key)?.Threshold };
+        else _layer!.Gates.Remove(key);
+    }
+
+    private void SetThreshold(string key, string? raw)
+    {
+        if (_layer!.Gates.TryGetValue(key, out var g))
+            g.Threshold = double.TryParse(raw, out var v) ? v : null;
+    }
+
+    private void ToggleScanner(string s, bool on)
+    {
+        if (on) { if (!_layer!.RequiredScanners.Contains(s)) _layer.RequiredScanners.Add(s); }
+        else _layer!.RequiredScanners.Remove(s);
+    }
+
+    private void SetDenied(string? raw) =>
+        _layer!.DeniedLicenses = (raw ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct().ToList();
+
+    private void SetPoam(string sev, string? raw)
+    {
+        if (int.TryParse(raw, out var v) && v > 0) _layer!.PoamDeadlineDays[sev] = v;
+        else _layer!.PoamDeadlineDays.Remove(sev);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_layer is null || _editing is null) return;
+        _saving = true;
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        var res = await Templates.SaveAsync(actor!, _editing.Id, _layer);
+        _saving = false;
+
+        if (!res.Success)
+        {
+            _message = res.Error; _messageChip = "Refused"; _messageTone = "var(--color-critical)"; _loosened = [];
+            return;
+        }
+        var outcome = res.Value!;
+        _loosened = outcome.Loosened;
+        if (outcome.Status == TemplateSaveStatus.PendingApproval)
+        {
+            _message = "This save loosens the template, so it was submitted to InfoSec for approval. It does not take effect until approved.";
+            _messageChip = "Submitted for approval"; _messageTone = "var(--color-band-orange)";
+        }
+        else
+        {
+            _message = "Saved and applied. The template version was bumped.";
+            _messageChip = "Applied"; _messageTone = "var(--color-pass)";
+            _editing = await Templates.LoadAsync(_editing.Id);
+            _layer = _editing is null ? null : Clone(_editing.Layer);
+        }
+    }
+
+    private static PolicyLayer Clone(PolicyLayer l) => new()
+    {
+        SchemaVersion = l.SchemaVersion,
+        Mode = l.Mode,
+        RequiredScanners = [.. l.RequiredScanners],
+        DeniedLicenses = [.. l.DeniedLicenses],
+        Gates = l.Gates.ToDictionary(k => k.Key, v => new GateConfig { Enabled = v.Value.Enabled, Threshold = v.Value.Threshold }),
+        PoamDeadlineDays = new(l.PoamDeadlineDays),
+    };
+}

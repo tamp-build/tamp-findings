@@ -96,6 +96,10 @@ public static class Routes
 
     public static string System(string panel = SystemPanels.Users) => $"/system/{E(panel)}";
 
+    /// <summary>Manage → Policy templates (ADR 0007). The list, or one template's editor.</summary>
+    public static string PolicyTemplates(Guid? id = null) =>
+        id is { } g ? $"/manage/policy-templates/{g}" : "/manage/policy-templates";
+
     private static string E(string s) => Uri.EscapeDataString(s);
 }
 
