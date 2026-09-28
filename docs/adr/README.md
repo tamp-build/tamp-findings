@@ -17,3 +17,4 @@ Numbering starts at 0001 for tamp.findings-local decisions.
 | [0005](0005-removing-elsa-scheduled-work-as-hosted-workers.md) | Removing Elsa — scheduled work as hosted workers | Accepted |
 | [0006](0006-adr-conformance-as-evidence-and-frozen-non-pure-verdicts.md) | ADR-conformance as an evidence source, and freezing non-pure verdicts at the snapshot | Accepted |
 | [0007](0007-three-layer-harden-only-policy.md) | Three-layer harden-only policy (template → client → project) | Accepted |
+| [0008](0008-ingest-token-compliance-profile-read.md) | An ingest-token compliance-profile read | Proposed |

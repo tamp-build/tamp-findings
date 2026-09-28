@@ -108,6 +108,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Policy.ClientPolicyService>();
         services.AddScoped<Compliance.ControlCatalogQuery>();
         services.AddScoped<Compliance.ConformanceQuery>();
+        services.AddScoped<Compliance.ComplianceProfileQuery>();
         services.AddScoped<Projects.ProjectSettingsService>();
         services.AddScoped<SystemAdmin.SystemAdminService>();
         services.AddScoped<SystemAdmin.IdentityProviderService>();
