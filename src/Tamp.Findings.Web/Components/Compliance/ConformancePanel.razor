@@ -1,0 +1,123 @@
+@using Tamp.Findings.Domain.Compliance
+@using Tamp.Findings.Application.Compliance
+
+@* ADR-conformance evidence (v3 §5 / ADR 0006). Four-valued verdicts, never
+   collapsed to pass/fail: Unknown and Error block and are never green. A
+   dispositioned fail stays listed (red OUTLINE, not fill) with its justification. *@
+
+<div class="stack">
+    <div class="confgrid">
+        <div class="conftile conftile--pass"><span class="conftile__n">@Report.Pass</span><span class="conftile__l">✓ Pass</span></div>
+        <div class="conftile conftile--fail"><span class="conftile__n">@Report.Fail</span><span class="conftile__l">✕ Fail</span></div>
+        <div class="conftile conftile--unknown"><span class="conftile__n">@Report.Unknown</span><span class="conftile__l">? Unknown</span></div>
+        <div class="conftile conftile--error"><span class="conftile__n">@Report.Error</span><span class="conftile__l">! Error</span></div>
+        @if (Report.Dispositioned > 0)
+        {
+            <div class="conftile conftile--disp"><span class="conftile__n">@Report.Dispositioned</span><span class="conftile__l">⊘ Dispositioned</span></div>
+        }
+    </div>
+
+    <div class="mono conf__run">
+        conformance.evaluated · @(Report.CommitSha?[..Math.Min(7, Report.CommitSha.Length)] ?? "—") ·
+        rules @(Report.RulesSha ?? "—") · @Report.Findings.Count rules ·
+        @Report.Deterministic deterministic, @Report.Semantic semantic · frozen @Report.EvaluatedAt.ToString("u")
+    </div>
+
+    @if (Report.ControlCounts.Count > 0)
+    {
+        <div class="conf__controls">
+            <span class="ctlpanel__baselabel">Controls</span>
+            @foreach (var (id, n) in Report.ControlCounts.OrderBy(c => c.Key))
+            {
+                <button class="ctlchip mono @(_control == id ? "ctlchip--sel" : null)" @onclick="() => Toggle(id)">@id · @n</button>
+            }
+            @if (_control is not null)
+            {
+                <button class="conf__clear" @onclick="() => _control = null">clear filter</button>
+            }
+        </div>
+    }
+
+    @foreach (var f in Shown)
+    {
+        <div class="confcard confcard--@Tone(f)">
+            <div class="confcard__head">
+                <span class="confverdict confverdict--@Tone(f)">@Glyph(f.Verdict) @f.Verdict.ToString().ToUpperInvariant()</span>
+                <div class="confcard__claim">
+                    <div>@f.Claim</div>
+                    <div class="mono muted cat__rule">@f.RuleId · @f.AdrRef@(f.Location is { } loc ? $" · {loc}" : "")</div>
+                </div>
+                <div class="confcard__badges">
+                    <span class="confbadge @(f.Method == ConformanceMethod.Deterministic ? "confbadge--det" : "confbadge--sem")">
+                        @(f.Method == ConformanceMethod.Deterministic ? "≡ DETERMINISTIC" : $"~ SEMANTIC · {f.ModelId}")
+                    </span>
+                    @if (f.VerifyVerdict != VerifyOutcome.NotRun)
+                    {
+                        <span class="confbadge mono">@(f.VerifyVerdict == VerifyOutcome.Confirmed ? "✓ verify pass confirmed" : "✕ disputed")</span>
+                    }
+                    @foreach (var c in f.ControlRefs)
+                    {
+                        <span class="ctlpanel__base ctlpanel__base--in">@c</span>
+                    }
+                </div>
+            </div>
+
+            @if (f.Verdict is ConformanceVerdict.Fail && (f.AdrQuote is not null || f.CodeEvidence is not null))
+            {
+                <div class="confsplit">
+                    @if (f.AdrQuote is { } q)
+                    {
+                        <div class="confsplit__quote"><div class="ctlpanel__baselabel">ADR says</div><p>@q</p></div>
+                    }
+                    @if (f.CodeEvidence is { } codeText)
+                    {
+                        <pre class="confsplit__code mono">@codeText</pre>
+                    }
+                </div>
+            }
+            else if (f.Verdict is ConformanceVerdict.Unknown)
+            {
+                <p class="field__help">No answer — the rule could not be evaluated. Remedy: re-anchor the rule or fix the pipeline. It blocks; a missing answer is never a pass.</p>
+            }
+            else if (f.Verdict is ConformanceVerdict.Error)
+            {
+                <p class="field__help">Evaluation broke — operator alerted. The last good verdict is not carried forward.</p>
+            }
+
+            @if (f.Dispositioned)
+            {
+                <div class="confdisp">
+                    <div class="row"><Chip Label="⊘ Dispositioned with justification" Tone="var(--color-medium)" /></div>
+                    <p>@f.DispositionJustification</p>
+                    <p class="field__help mono">accepted by @f.DispositionedByLogin · InfoSec · AcceptRisk@(f.DispositionExpiry is { } exp ? $" · expires {exp:yyyy-MM-dd}" : "")</p>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ConformanceReport Report { get; set; } = default!;
+
+    private string? _control;
+
+    private IEnumerable<ConformanceFindingRow> Shown =>
+        _control is null ? Report.Findings : Report.Findings.Where(f => f.ControlRefs.Contains(_control));
+
+    private void Toggle(string id) => _control = _control == id ? null : id;
+
+    private static string Tone(ConformanceFindingRow f) =>
+        f.Dispositioned ? "disp"
+        : f.Verdict switch
+        {
+            ConformanceVerdict.Pass => "pass",
+            ConformanceVerdict.Fail => "fail",
+            ConformanceVerdict.Unknown => "unknown",
+            _ => "error",
+        };
+
+    private static string Glyph(ConformanceVerdict v) => v switch
+    {
+        ConformanceVerdict.Pass => "✓", ConformanceVerdict.Fail => "✕", ConformanceVerdict.Unknown => "?", _ => "!",
+    };
+}

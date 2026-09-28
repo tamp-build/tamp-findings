@@ -611,6 +611,43 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 .ctlpanel__param { font-size: 11px; padding: 0 4px; border: 1px dashed var(--color-accent); color: var(--color-accent-700); }
 .ctlchip { background: none; border: 1px solid var(--color-divider); padding: 2px 8px; cursor: pointer; color: var(--color-accent-700); font-size: var(--text-secondary); }
 .ctlchip--sel { border-color: var(--color-accent); background: var(--color-neutral-200); }
+
+/* ADR-conformance (v3 §5) */
+.confgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.conftile { display: flex; flex-direction: column; padding: 10px 12px; }
+.conftile__n { font-family: var(--font-heading); font-weight: 600; font-size: 28px; line-height: 1; }
+.conftile__l { font-size: var(--text-secondary); margin-top: 4px; }
+.conftile--pass { border: 1px solid var(--color-pass); color: var(--color-pass); }
+.conftile--fail { border: 1px solid var(--color-critical); background: color-mix(in srgb, var(--color-critical) 14%, transparent); color: var(--color-critical); }
+.conftile--unknown { border: 1px dashed var(--color-medium); color: var(--color-medium); }
+.conftile--error { border: 3px double var(--color-neutral-500); color: var(--color-neutral-500); }
+.conftile--disp { border: 1px solid var(--color-medium); color: var(--color-medium); }
+.conf__run { font-size: var(--text-meta); color: var(--color-neutral-600); word-break: break-word; }
+.conf__controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 0; }
+.conf__clear { margin-left: auto; background: none; border: none; color: var(--color-accent-700); cursor: pointer; font-size: var(--text-secondary); }
+.confcard { border: 1px solid var(--color-divider); border-left: 3px solid var(--color-neutral-500); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.confcard--pass { border-left-color: var(--color-pass); }
+.confcard--fail { border-left-color: var(--color-critical); }
+.confcard--unknown { border-left-color: var(--color-medium); border-left-style: dashed; }
+.confcard--error { border-left-color: var(--color-neutral-500); }
+.confcard--disp { border-left-color: var(--color-critical); border-left-style: dotted; }
+.confcard__head { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.confcard__claim { flex: 1 1 240px; }
+.confcard__badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.confverdict { font-family: ui-monospace, monospace; font-size: 11px; padding: 2px 8px; white-space: nowrap; }
+.confverdict--pass { border: 1px solid var(--color-pass); color: var(--color-pass); }
+.confverdict--fail { background: var(--color-critical); color: #12181e; }
+.confverdict--unknown { border: 1px dashed var(--color-medium); color: var(--color-medium); }
+.confverdict--error { border: 3px double var(--color-neutral-500); color: var(--color-neutral-500); }
+.confverdict--disp { border: 1px solid var(--color-critical); color: var(--color-critical); }
+.confbadge { font-family: ui-monospace, monospace; font-size: 10px; padding: 1px 6px; border: 1px solid var(--color-neutral-500); color: var(--color-neutral-600); }
+.confbadge--det { border-style: solid; }
+.confbadge--sem { border-style: dashed; border-color: var(--color-accent); color: var(--color-accent-700); }
+.confsplit { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.confsplit__quote p { margin: 4px 0 0; font-size: var(--text-body); line-height: 1.5; }
+.confsplit__code { background: color-mix(in srgb, var(--color-critical) 20%, transparent); padding: 10px 12px; overflow-x: auto; font-size: var(--text-secondary); white-space: pre-wrap; }
+.confdisp { border: 1px solid var(--color-divider); padding: 10px 12px; }
+.confdisp p { margin: 6px 0 0; }
 .cattabs { display: flex; border-bottom: 1px solid var(--color-divider); }
 .cattab { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; color: var(--color-neutral-600); cursor: pointer; font-family: var(--font-body); font-size: var(--text-body); }
 .cattab--active { color: var(--color-text); border-bottom-color: var(--color-accent); }

@@ -8,8 +8,10 @@
 @inject Tamp.Findings.Application.Poam.PoamQuery Poam
 @inject Tamp.Findings.Application.Vex.VexQuery Vex
 @inject Tamp.Findings.Application.Attestation.SsdfAttestationBuilder Ssdf
+@inject Tamp.Findings.Application.Compliance.ConformanceQuery Conformance
 @using Tamp.Findings.Domain.Risk
 @using Tamp.Findings.Application.Evidence
+@using Tamp.Findings.Web.Components.Compliance
 
 @* Collected-evidence detail (v3 §4). One frame, one key. Distinct from the
    category-detail page: a category page explains a SCORE; an evidence page shows
@@ -287,16 +289,24 @@ else
                     break;
 
                 case EvidenceKeys.Conformance:
-                    <Card>
-                        <div class="row">
-                            <Chip Label="Not scanned" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
-                            <span>ADR conformance has no producer yet.</span>
-                        </div>
-                        <p class="field__help">
-                            The conformance ingest (core ADR 0023 · ADR 0006) lands with phase 7. Until then this
-                            evidence is honestly <strong>not scanned</strong> — never a false green.
-                        </p>
-                    </Card>
+                    @if (_conformance is { } report)
+                    {
+                        <ConformancePanel Report="report" />
+                    }
+                    else
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="Not scanned" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
+                                <span>No ADR-conformance verdicts have been ingested for this build.</span>
+                            </div>
+                            <p class="field__help">
+                                tamp.findings is the sink (ADR 0006): verdicts are produced by CI in the governed repo
+                                and ingested here. Until a producer has run, this evidence is honestly
+                                <strong>not scanned</strong> — never a false green.
+                            </p>
+                        </Card>
+                    }
                     break;
 
                 default:
@@ -331,6 +341,7 @@ else
     private Tamp.Findings.Application.Poam.PoamBoard? _poam;
     private IReadOnlyList<Tamp.Findings.Application.Vex.VexRow> _vex = [];
     private Tamp.Findings.Application.Attestation.SsdfPractice? _practice;
+    private Tamp.Findings.Application.Compliance.ConformanceReport? _conformance;
 
     private string HubHref => Routes.ProjectHub(Client, Project, Sha);
 
@@ -371,6 +382,7 @@ else
         _poam = null;
         _vex = [];
         _practice = null;
+        _conformance = null;
     }
 
     private async Task LoadBodyAsync(Guid projectId)
@@ -430,7 +442,13 @@ else
                     : (PracticeGlyph(_practice.Status), PracticeTone(_practice.Status), _practice.Status == "No" || _practice.Status is null, _practice.Status ?? "manual");
                 break;
             case EvidenceKeys.Conformance:
-                _status = ("—", "var(--color-high)", true, "not scanned");
+                _conformance = await Conformance.ForProjectAsync(projectId, _commitSha);
+                _status = _conformance is { } r
+                    ? (r.Fail + r.Unknown + r.Error - r.Dispositioned > 0 ? "✕" : "✓",
+                       r.Fail + r.Unknown + r.Error - r.Dispositioned > 0 ? "var(--color-critical)" : "var(--color-pass)",
+                       false,
+                       $"{r.Pass} pass · {r.Fail} fail · {r.Unknown} unknown · {r.Error} error")
+                    : ("—", "var(--color-high)", true, "not scanned");
                 break;
         }
     }
