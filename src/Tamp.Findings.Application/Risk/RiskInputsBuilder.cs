@@ -147,6 +147,9 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             if (hasNewer)
             {
                 outdated++;
+                // TODO(TFND-178): LatestReleasedAt is never populated by the SBOM
+                // ingest today, so this branch never fires and the scorer's `stale`
+                // input is 0 on every build — the whole penalty rides on `outdated`.
                 if (c.LatestReleasedAt is { } when_ && when_ < staleCutoff) stale++;
             }
         }
