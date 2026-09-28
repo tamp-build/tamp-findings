@@ -96,7 +96,7 @@ public sealed class PortfolioQuery
                 rows.Add(new PortfolioRow(
                     project.Id, project.Name, project.ClientName,
                     Score: null, Band: null, Gates: null, LastBuild: null,
-                    Blocking: ["never ingested a build"]));
+                    Blocking: ["never ingested a build"], Trend: []));
                 continue;
             }
 
@@ -115,10 +115,12 @@ public sealed class PortfolioQuery
             var gates = GateEvaluator.Evaluate(
                 project.GatesConfig ?? new ProjectGatesConfig(), inputs, result.Score, prior: null, priorScore: null);
 
+            var trend = await ComputeTrendAsync(project.Id, config, now, ct);
+
             rows.Add(new PortfolioRow(
                 project.Id, project.Name, project.ClientName,
                 result.Score, result.Band, gates, latest.CreatedAt,
-                BlockingReasons(gates, latest.CreatedAt, now)));
+                BlockingReasons(gates, latest.CreatedAt, now), trend));
         }
 
         // Worst first. Never-scanned outranks everything with a score, because
@@ -129,6 +131,59 @@ public sealed class PortfolioQuery
             .ThenByDescending(r => r.Ship == ShipState.Blocked)
             .ThenByDescending(r => r.Score ?? 0)
             .ToArray();
+    }
+
+    /// <summary>
+    /// Cap on trend points scored per project. Computing the sparkline live
+    /// costs one full RiskInputs build + scorer pass per point, so a project
+    /// with a busy month is bounded here rather than re-scoring its whole
+    /// history on every portfolio load. A persisted score-per-build snapshot
+    /// removes the cost entirely (TFND-176); until then, this cap is the honest
+    /// ceiling.
+    /// </summary>
+    private const int TrendMaxPoints = 12;
+
+    /// <summary>
+    /// Scores of the recent CANONICAL builds inside the staleness window,
+    /// OLDEST first, for the portfolio sparkline. Fewer than two canonical
+    /// builds returns empty — a single point is not a trend.
+    /// </summary>
+    private async Task<IReadOnlyList<double>> ComputeTrendAsync(
+        Guid projectId, RiskPolicyConfig config, DateTimeOffset now, CancellationToken ct)
+    {
+        var windowStart = now - StaleAfter;
+
+        // One representative timestamp per canonical commit in the window,
+        // newest first, capped.
+        var commits = await _db.ComponentVersions.AsNoTracking()
+            .Where(cv => cv.CommitSha != null
+                && cv.PullRequestRef == null
+                && (cv.BranchName == null || cv.BranchName == "main" || cv.BranchName == "master")
+                && cv.CreatedAt >= windowStart
+                && _db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == projectId))
+            .GroupBy(cv => cv.CommitSha!)
+            .Select(g => new { Commit = g.Key, At = g.Max(x => x.CreatedAt) })
+            .OrderByDescending(x => x.At)
+            .Take(TrendMaxPoints)
+            .ToArrayAsync(ct);
+
+        if (commits.Length < 2) return [];
+
+        // Score oldest-first so the sparkline reads left (past) to right (now).
+        var scores = new List<double>(commits.Length);
+        foreach (var commit in commits.OrderBy(x => x.At))
+        {
+            var ids = await _db.ComponentVersions.AsNoTracking()
+                .Where(cv => cv.CommitSha == commit.Commit
+                    && _db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == projectId))
+                .Select(cv => cv.Id)
+                .ToArrayAsync(ct);
+            if (ids.Length == 0) continue;
+            var inputs = await _inputs.BuildAsync(ids, config, projectId, ct);
+            scores.Add(RiskScorer.Compute(config, inputs).Score);
+        }
+
+        return scores.Count >= 2 ? scores : [];
     }
 
     /// <summary>
@@ -165,8 +220,20 @@ public sealed record PortfolioRow(
     string? Band,
     GateEvaluation? Gates,
     DateTimeOffset? LastBuild,
-    IReadOnlyList<string> Blocking)
+    IReadOnlyList<string> Blocking,
+    // Scores of the recent canonical builds inside the 30-day window, OLDEST
+    // first. Drives the portfolio sparkline. Fewer than two points renders as
+    // "no scans" — a single dot is not a trend. Computed live today; see the
+    // score-snapshot ticket for the scale fix.
+    IReadOnlyList<double> Trend)
 {
+    /// <summary>
+    /// Signed change across the trend window (last − first). Lower is better,
+    /// so a negative delta is an improvement. Null when there are not two
+    /// points to compare.
+    /// </summary>
+    public double? TrendDelta => Trend.Count >= 2 ? Trend[^1] - Trend[0] : null;
+
     /// <summary>
     /// Three states, matching the project hub's verdict chip. Derived rather
     /// than stored so the two screens cannot disagree about the same project.

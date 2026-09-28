@@ -1,0 +1,58 @@
+@* A 96×24 score sparkline for the portfolio trend (v3). Dumb by design: it
+   plots the series it is given in the colour it is given. "Lower is better" and
+   the improving/worsening colour choice live in the caller — this only draws
+   the trajectory. min → bottom, max → top, with 1px padding; a flat series sits
+   on the mid-line. *@
+
+@if (Points.Count >= 2)
+{
+    <svg width="@Width" height="@Height" viewBox="0 0 @Width @Height"
+         role="img" aria-label="@AriaLabel" style="display:block; overflow:visible">
+        <polyline points="@_polyline" fill="none" stroke="@Color"
+                  stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
+        <circle cx="@_endX.ToString(Inv)" cy="@_endY.ToString(Inv)" r="2" fill="@Color" />
+    </svg>
+}
+else
+{
+    @* One point (or none) is not a trend. The caller shows "no scans". *@
+    <span class="muted mono" style="font-size: var(--text-meta)">no scans</span>
+}
+
+@code {
+    private static readonly System.Globalization.CultureInfo Inv =
+        System.Globalization.CultureInfo.InvariantCulture;
+
+    [Parameter] public IReadOnlyList<double> Points { get; set; } = [];
+    [Parameter] public string Color { get; set; } = "var(--color-neutral-600)";
+    [Parameter] public int Width { get; set; } = 96;
+    [Parameter] public int Height { get; set; } = 24;
+    [Parameter] public string? AriaLabel { get; set; }
+
+    private string _polyline = "";
+    private double _endX, _endY;
+
+    protected override void OnParametersSet()
+    {
+        if (Points.Count < 2) return;
+
+        const double pad = 1.0;
+        var min = Points.Min();
+        var max = Points.Max();
+        var span = max - min;
+        double w = Width, h = Height;
+
+        double X(int i) => pad + (w - 2 * pad) * i / (Points.Count - 1);
+        // SVG y grows downward: max score sits near the top, min near the bottom.
+        double Y(double v) => span < 1e-9
+            ? h / 2
+            : (h - pad) - (h - 2 * pad) * (v - min) / span;
+
+        var pts = new string[Points.Count];
+        for (var i = 0; i < Points.Count; i++)
+            pts[i] = $"{X(i).ToString(Inv)},{Y(Points[i]).ToString(Inv)}";
+        _polyline = string.Join(" ", pts);
+        _endX = X(Points.Count - 1);
+        _endY = Y(Points[^1]);
+    }
+}
