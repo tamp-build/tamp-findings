@@ -26,6 +26,21 @@ public sealed class ClientPolicyService(
     AuditLog audit,
     ApprovalService approvals)
 {
+    /// <summary>What the client-policy screen needs: the client's name, its
+    /// inherited template, and its own hardening overlay.</summary>
+    public async Task<ClientPolicyView?> LoadAsync(Guid clientId, CancellationToken ct = default)
+    {
+        var client = await db.Clients.AsNoTracking().FirstOrDefaultAsync(c => c.Id == clientId, ct);
+        if (client is null) return null;
+
+        PolicyTemplate? tpl = client.PolicyTemplateId is { } tid
+            ? await db.PolicyTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tid, ct)
+            : null;
+
+        return new ClientPolicyView(
+            client.Name, client.PolicyTemplateId, tpl?.Label, client.PolicyLayer ?? new PolicyLayer());
+    }
+
     /// <summary>Save the client's own hardening overlay. Refuses a change that
     /// would loosen the inherited template (a client can only add or tighten).</summary>
     public async Task<Result<Guid>> SaveHardeningAsync(
@@ -89,3 +104,5 @@ public sealed class ClientPolicyService(
         return template?.Layer;
     }
 }
+
+public sealed record ClientPolicyView(string Name, Guid? TemplateId, string? TemplateLabel, PolicyLayer Overlay);
