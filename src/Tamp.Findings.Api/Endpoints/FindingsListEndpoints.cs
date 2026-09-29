@@ -23,11 +23,7 @@ public static class FindingsListEndpoints
 
         app.MapGet("/projects", ListProjectsAsync)
            .WithName("ListProjects")
-           .WithSummary("Projects (optionally filtered by client) with component counts");
-
-        app.MapGet("/components", ListComponentsAsync)
-           .WithName("ListComponents")
-           .WithSummary("Components (optionally filtered by project) with version counts");
+           .WithSummary("Projects (optionally filtered by client) with build counts");
 
         return app;
     }
@@ -56,7 +52,7 @@ public static class FindingsListEndpoints
         var statuses = ParseEnumCsv<FindingStatus>(status);
 
         var q = db.Findings
-            .Include(f => f.ComponentVersion)!.ThenInclude(v => v!.Component)!.ThenInclude(c => c!.Project)!.ThenInclude(p => p!.Client)
+            .Include(f => f.ComponentVersion)!.ThenInclude(v => v!.Project)!.ThenInclude(p => p!.Client)
             .AsNoTracking();
 
         // TFND-133. The group filter refuses an id the caller may not see; this
@@ -65,7 +61,6 @@ public static class FindingsListEndpoints
         q = Visible(q, VisibilityFilter.Current(http));
 
         if (componentVersionId is { } cv) q = q.Where(f => f.ComponentVersionId == cv);
-        if (componentId is { } cmp) q = q.Where(f => f.ComponentVersion!.ComponentId == cmp);
         if (projectId is { } prj) q = q.Where(f => f.ComponentVersion!.ProjectId == prj);
         if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Project!.ClientId == cli);
         if (severities.Count > 0) q = q.Where(f => severities.Contains(f.Severity));
@@ -93,8 +88,8 @@ public static class FindingsListEndpoints
             var latestCvIds = await db.ComponentVersions
                 .GroupBy(v => new
                 {
-                    v.ComponentId,
-                    FlavorKey = v.FlavorId ?? Guid.Empty,
+                    v.ProjectId,
+                    FlavorKey = v.Flavor,
                 })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
@@ -128,12 +123,11 @@ public static class FindingsListEndpoints
                 f.LastSeen,
                 f.ComponentVersionId,
                 f.ComponentVersion!.VersionString,
-                f.ComponentVersion.ComponentId,
-                f.ComponentVersion.Component!.Name,
+                f.ComponentVersion.Flavor,
                 f.ComponentVersion.ProjectId,
-                f.ComponentVersion.Component.Project!.Name,
-                f.ComponentVersion.Component.Project.ClientId,
-                f.ComponentVersion.Component.Project.Client!.Name))
+                f.ComponentVersion.Project!.Name,
+                f.ComponentVersion.Project.ClientId,
+                f.ComponentVersion.Project.Client!.Name))
             .ToListAsync(ct);
 
         var sc = new SeverityCounts(
@@ -183,33 +177,9 @@ public static class FindingsListEndpoints
         }
         var rows = await q
             .OrderBy(p => p.Name)
-            .Select(p => new ProjectListItem(p.Id, p.Name, p.ClientId, p.Client!.Name, p.Components.Count))
+            .Select(p => new ProjectListItem(p.Id, p.Name, p.ClientId, p.Client!.Name, p.Versions.Count))
             .ToListAsync(ct);
         return TypedResults.Ok((IReadOnlyList<ProjectListItem>)rows);
-    }
-
-    private static async Task<Ok<IReadOnlyList<ComponentListItem>>> ListComponentsAsync(
-        FindingsDbContext db, HttpContext http, CancellationToken ct, Guid? projectId = null)
-    {
-        var visible = VisibilityFilter.Current(http);
-
-        var q = db.Components.AsNoTracking();
-        if (projectId is { } prj) q = q.Where(c => c.ProjectId == prj);
-
-        if (!visible.Unrestricted)
-        {
-            var reachable = await ReachableProjectsAsync(db, visible, ct);
-            q = q.Where(c => reachable.Contains(c.ProjectId) || visible.Components.Contains(c.Id));
-        }
-        var rows = await q
-            .OrderBy(c => c.Name)
-            .Select(c => new ComponentListItem(
-                c.Id, c.Name, c.Kind,
-                c.ProjectId, c.Project!.Name,
-                c.Project.ClientId, c.Project.Client!.Name,
-                c.Versions.Count))
-            .ToListAsync(ct);
-        return TypedResults.Ok((IReadOnlyList<ComponentListItem>)rows);
     }
 
     private static HashSet<TEnum> ParseEnumCsv<TEnum>(string? csv) where TEnum : struct, Enum
@@ -241,11 +211,10 @@ public static class FindingsListEndpoints
 
         return q.Where(f =>
             visible.Clients.Contains(f.ComponentVersion!.Project!.ClientId)
-            || visible.Projects.Contains(f.ComponentVersion!.ProjectId)
-            || visible.Components.Contains(f.ComponentVersion!.ComponentId));
+            || visible.Projects.Contains(f.ComponentVersion!.ProjectId));
     }
 
-    /// <summary>Projects the caller can see, directly or through a component.</summary>
+    /// <summary>Projects the caller can see, directly or through their client.</summary>
     private static async Task<HashSet<Guid>> ReachableProjectsAsync(
         FindingsDbContext db, VisibleSet visible, CancellationToken ct)
     {
@@ -256,14 +225,7 @@ public static class FindingsListEndpoints
                 .Select(p => p.Id)
                 .ToArrayAsync(ct);
 
-        var byComponent = visible.Components.Count == 0
-            ? []
-            : await db.Components.AsNoTracking()
-                .Where(c => visible.Components.Contains(c.Id))
-                .Select(c => c.ProjectId)
-                .ToArrayAsync(ct);
-
-        return byClient.Concat(byComponent).Concat(visible.Projects).ToHashSet();
+        return byClient.Concat(visible.Projects).ToHashSet();
     }
 
     /// <summary>Clients the caller can see, directly or through anything under them.</summary>

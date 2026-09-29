@@ -83,12 +83,9 @@ public class PortfolioIntegrationTests
 
         if (withBuild)
         {
-            var component = new Component { ProjectId = project.Id, Name = $"pf-component-{suffix}" };
-            db.Components.Add(component);
             db.ComponentVersions.Add(new ComponentVersion
             {
-                ProjectId = component.ProjectId, ComponentId = component.Id,
-                VersionString = "0.1.0",
+                ProjectId = project.Id, VersionString = "0.1.0",
                 CommitSha = suffix + "aaaaaa",
             });
         }

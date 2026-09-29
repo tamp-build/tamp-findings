@@ -343,15 +343,13 @@ public class AttestationIntegrationTests
 
         var client = new Client { Name = $"att-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"att-project-{suffix}", RiskPolicyId = policy.Id };
-        var component = new Component { ProjectId = project.Id, Name = $"att-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = sha, BranchName = "main",
+            ProjectId = project.Id, VersionString = "1.0.0", CommitSha = sha, BranchName = "main",
         };
 
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
 
         var user = new User

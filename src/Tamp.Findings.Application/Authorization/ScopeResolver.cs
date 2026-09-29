@@ -85,13 +85,11 @@ public sealed class ScopeResolver
     /// Does this assignment reach the target?
     ///
     /// An assignment covers a target when every tier the assignment names
-    /// matches the target's. A client-tier assignment covers every project and
-    /// component beneath it; a component-tier assignment covers only that
-    /// component and does NOT cover its project.
+    /// matches the target's. A client-tier assignment covers every project
+    /// beneath it; a project-tier assignment covers only that project.
     /// </summary>
     private static bool Covers(ProjectRoleAssignment a, ScopeTarget target)
     {
-        if (a.ComponentId is not null) return a.ComponentId == target.ComponentId;
         if (a.ProjectId is not null) return a.ProjectId == target.ProjectId;
         if (a.ClientId is not null) return a.ClientId == target.ClientId;
 
@@ -103,5 +101,5 @@ public sealed class ScopeResolver
     }
 
     private static int TierOf(ProjectRoleAssignment a) =>
-        a.ComponentId is not null ? 3 : a.ProjectId is not null ? 2 : 1;
+        a.ProjectId is not null ? 2 : 1;
 }

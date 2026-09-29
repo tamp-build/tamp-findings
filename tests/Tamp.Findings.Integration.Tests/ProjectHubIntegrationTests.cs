@@ -133,14 +133,11 @@ public class ProjectHubIntegrationTests
         ComponentVersion? build = null;
         if (withBuild)
         {
-            var component = new Component { ProjectId = project.Id, Name = $"component-{suffix}" };
             build = new ComponentVersion
             {
-                ProjectId = component.ProjectId, ComponentId = component.Id,
-                VersionString = "0.1.0",
+                ProjectId = project.Id, VersionString = "0.1.0",
                 CommitSha = suffix + "abcdef",
             };
-            db.Components.Add(component);
             db.ComponentVersions.Add(build);
         }
 

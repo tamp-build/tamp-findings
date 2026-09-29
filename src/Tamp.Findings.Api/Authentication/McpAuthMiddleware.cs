@@ -88,10 +88,9 @@ public sealed class McpAuthMiddleware
         // an operator should be able to see happening, and the audit trail is
         // for writes.
         _log.LogInformation(
-            "MCP request from {Agent} (token {TokenId}) scoped to client {Client}, project {Project}, "
-            + "component {Component}.",
+            "MCP request from {Agent} (token {TokenId}) scoped to client {Client}, project {Project}.",
             identity.Name, identity.TokenId,
-            identity.Scope.ClientId, identity.Scope.ProjectId, identity.Scope.ComponentId);
+            identity.Scope.ClientId, identity.Scope.ProjectId);
 
         await _next(context);
     }

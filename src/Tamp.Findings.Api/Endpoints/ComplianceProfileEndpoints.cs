@@ -50,7 +50,7 @@ public static class ComplianceProfileEndpoints
         // token's minting user where known.
         audit.RecordIngest(token.Id, token.Name, token.CreatedByUserId, null,
             AuditActions.ComplianceProfileRead,
-            new ScopeTarget(token.ClientId, projectId, null),
+            new ScopeTarget(token.ClientId, projectId),
             detail: $"framework={profile.Framework?.Id ?? "none"}, controls={profile.Controls.Count}");
         await db.SaveChangesAsync(ct);
 

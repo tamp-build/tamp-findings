@@ -80,7 +80,7 @@ public sealed class VexPublicationEffect : IApprovalEffect
         _db.VexStatements.Add(statement);
 
         _audit.Record(decider, AuditActions.VexPublished, AuditClass.Risk,
-            new ScopeTarget(approval.ClientId, approval.ProjectId, null),
+            new ScopeTarget(approval.ClientId, approval.ProjectId),
             subjectId: statement.Id, subjectKind: nameof(VexStatement),
             detail: $"{statement.AdvisoryId} on {statement.Purl}: {statement.Status}"
                   + (statement.Justification is { } j and not VexJustification.None ? $" ({j})" : "")

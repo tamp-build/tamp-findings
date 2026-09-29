@@ -157,15 +157,9 @@ public static class SuppressionAuthorization
         // bounded by, and nothing else on the request can move it.
         return req.Scope switch
         {
-            // Anchored to the finding, which is anchored to a component. A
-            // ComponentId sent alongside is ignored — otherwise the same trick
-            // works one tier down.
+            // Anchored to the finding, which is anchored to a project.
             SuppressionScope.SingleFinding =>
                 await TargetForFindingAsync(db, req.FindingId, ct),
-
-            // Anchored to the named component, and only that one.
-            SuppressionScope.RuleOnComponent =>
-                await TargetForComponentAsync(db, req.ComponentId, ct) ?? ScopeTarget.Instance,
 
             // Bounded by the PROJECT the author named, and by nothing else on
             // the request (TFND-132). ProjectId is what the row is stored with
@@ -206,26 +200,13 @@ public static class SuppressionAuthorization
     {
         if (findingId is not { } id) return ScopeTarget.Instance;
 
-        var componentId = await (
+        var row = await (
             from f in db.Findings.AsNoTracking()
             join cv in db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
+            join p in db.Projects.AsNoTracking() on cv.ProjectId equals p.Id
             where f.Id == id
-            select (Guid?)cv.ComponentId).FirstOrDefaultAsync(ct);
+            select new { p.ClientId, ProjectId = p.Id }).FirstOrDefaultAsync(ct);
 
-        return await TargetForComponentAsync(db, componentId, ct) ?? ScopeTarget.Instance;
-    }
-
-    private static async Task<ScopeTarget?> TargetForComponentAsync(
-        FindingsDbContext db, Guid? componentId, CancellationToken ct)
-    {
-        if (componentId is null) return null;
-
-        var row = await (
-            from c in db.Components.AsNoTracking()
-            join p in db.Projects.AsNoTracking() on c.ProjectId equals p.Id
-            where c.Id == componentId
-            select new { c.Id, p.ClientId, ProjectId = p.Id }).FirstOrDefaultAsync(ct);
-
-        return row is null ? null : ScopeTarget.Component(row.ClientId, row.ProjectId, row.Id);
+        return row is null ? ScopeTarget.Instance : ScopeTarget.Project(row.ClientId, row.ProjectId);
     }
 }

@@ -45,7 +45,7 @@ public static class ZtProfileEndpoints
 
         audit.RecordIngest(token.Id, token.Name, token.CreatedByUserId, null,
             AuditActions.ZtProfileRead,
-            new ScopeTarget(token.ClientId, projectId, null),
+            new ScopeTarget(token.ClientId, projectId),
             detail: $"model={profile.Model.Name} {profile.Model.Version}, mandates={profile.Mandates.Count}");
         await db.SaveChangesAsync(ct);
 

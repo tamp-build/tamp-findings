@@ -195,7 +195,7 @@ public sealed class ConformanceRulesService(FindingsDbContext db, CapabilityEval
         if (orphaned.Count == 0) return [];
 
         var clientId = await db.Projects.Where(p => p.Id == projectId).Select(p => p.ClientId).FirstOrDefaultAsync(ct);
-        var scope = new ScopeTarget(clientId, projectId, null);
+        var scope = new ScopeTarget(clientId, projectId);
         var gen = string.IsNullOrWhiteSpace(generationSha) ? "a new rule generation" : $"generation '{generationSha}'";
         var result = new List<SupersededPoamRef>(orphaned.Count);
 

@@ -480,22 +480,20 @@ public class CostsAndLicensesIntegrationTests
         var client = new Client { Name = $"cost-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"cost-project-{suffix}" };
         var empty = new Project { ClientId = client.Id, Name = $"cost-empty-{suffix}" };
-        var api = new Component { ProjectId = project.Id, Name = "api" };
-        var web = new Component { ProjectId = project.Id, Name = "web" };
+
 
         db.Clients.Add(client);
         db.Projects.AddRange(project, empty);
-        db.Components.AddRange(api, web);
 
         var agpl = $"pkg:nuget/Shared.Agpl.{suffix}@1.0.0";
         var unlicensed = $"pkg:nuget/Mystery.{suffix}@1.0.0";
 
         // The same AGPL package in BOTH components — one obligation, not two.
-        foreach (var component in new[] { api, web })
+        foreach (var flavor in new[] { "api", "web" })
         {
             var version = new ComponentVersion
             {
-                ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = suffix + "dddddd",
+                ProjectId = project.Id, Flavor = flavor, VersionString = "1.0.0", CommitSha = suffix + flavor,
             };
             var snapshot = new SbomSnapshot
             {
@@ -507,10 +505,10 @@ public class CostsAndLicensesIntegrationTests
 
             db.SbomComponents.AddRange(
                 Package(snapshot.Id, agpl, $"Shared.Agpl.{suffix}", "AGPL-3.0"),
-                Package(snapshot.Id, $"pkg:nuget/Permissive.{component.Name}.{suffix}@1.0.0",
-                    $"Permissive.{component.Name}.{suffix}", "MIT"));
+                Package(snapshot.Id, $"pkg:nuget/Permissive.{flavor}.{suffix}@1.0.0",
+                    $"Permissive.{flavor}.{suffix}", "MIT"));
 
-            if (component == api)
+            if (flavor == "api")
             {
                 db.SbomComponents.AddRange(
                     Package(snapshot.Id, $"pkg:nuget/{prefix}Grid@7.0.0", $"{prefix}Grid", "Commercial"),

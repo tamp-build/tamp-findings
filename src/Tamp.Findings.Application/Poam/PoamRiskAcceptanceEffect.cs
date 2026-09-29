@@ -58,7 +58,7 @@ public sealed class PoamRiskAcceptanceEffect : IApprovalEffect
         item.ClosedAt ??= DateTimeOffset.UtcNow;
 
         _audit.Record(decider, AuditActions.PoamRiskAccepted, AuditClass.Risk,
-            new ScopeTarget(approval.ClientId, approval.ProjectId, null),
+            new ScopeTarget(approval.ClientId, approval.ProjectId),
             subjectId: item.Id, subjectKind: nameof(PoamItem),
             detail: $"{item.Title}: {previous} → RiskAccepted — approved risk-acceptance request "
                   + $"from {approval.RequestedByLogin}"

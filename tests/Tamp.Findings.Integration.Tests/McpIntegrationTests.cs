@@ -10,9 +10,9 @@ namespace Tamp.Findings.Integration.Tests;
 // The agent surface (TFND-12 / F11).
 //
 // The scoping rule is the whole feature, and it is the kind of rule that is
-// obviously right in a review and wrong in a join. These tests seed TWO sibling
-// components under two projects under two clients and then check, at every
-// tier, that a token sees its subtree and nothing beside it.
+// obviously right in a review and wrong in a join. These tests seed two sibling
+// projects under two clients and then check, at every tier, that a token sees
+// its subtree and nothing beside it.
 [Collection(DatabaseCollection.Name)]
 public class McpIntegrationTests
 {
@@ -219,24 +219,24 @@ public class McpIntegrationTests
     // ---- Scoping: down, never up --------------------------------------------
 
     [SkippableFact]
-    public async Task A_component_scoped_token_cannot_see_its_sibling()
+    public async Task A_project_scoped_token_cannot_see_a_sibling_project()
     {
         Skip.IfNot(_fx.Available);
 
-        // THE rule. A component-level token sees that component and nothing
-        // beside it, however close the sibling sits in the tree.
+        // THE rule. A project-level token sees that project and nothing beside
+        // it, however close the sibling project sits in the tree.
         var world = await SeedAsync();
         using var scope = _fx.Scope();
         var reads = scope.ServiceProvider.GetRequiredService<AgentReadService>();
 
-        var page = await reads.FindingsAsync(Agent(world.ComponentScope), new AgentFindingsFilter());
+        var page = await reads.FindingsAsync(Agent(world.ProjectScope), new AgentFindingsFilter());
 
-        Assert.Equal(1, page.Total);
-        Assert.Equal("alpha-rule", page.Findings.Single().RuleId);
+        Assert.Equal(2, page.Total);
+        Assert.DoesNotContain(page.Findings, f => f.RuleId == "other-project-rule");
     }
 
     [SkippableFact]
-    public async Task A_project_scoped_token_sees_all_of_its_components()
+    public async Task A_project_scoped_token_sees_all_of_its_builds()
     {
         Skip.IfNot(_fx.Available);
 
@@ -309,8 +309,8 @@ public class McpIntegrationTests
         using var scope = _fx.Scope();
         var reads = scope.ServiceProvider.GetRequiredService<AgentReadService>();
 
-        var mine = await reads.FindingAsync(Agent(world.ComponentScope), world.AlphaFindingId);
-        var theirs = await reads.FindingAsync(Agent(world.ComponentScope), world.BetaFindingId);
+        var mine = await reads.FindingAsync(Agent(world.ProjectScope), world.AlphaFindingId);
+        var theirs = await reads.FindingAsync(Agent(world.ProjectScope), world.OtherProjectFindingId);
 
         Assert.NotNull(mine);
         Assert.Null(theirs);
@@ -325,7 +325,7 @@ public class McpIntegrationTests
         using var scope = _fx.Scope();
         var reads = scope.ServiceProvider.GetRequiredService<AgentReadService>();
 
-        Assert.Null(await reads.DependenciesAsync(Agent(world.ComponentScope), world.BetaComponentId));
+        Assert.Null(await reads.DependenciesAsync(Agent(world.ProjectScope), world.OtherProjectId));
     }
 
     [SkippableFact]
@@ -338,7 +338,7 @@ public class McpIntegrationTests
         var reads = scope.ServiceProvider.GetRequiredService<AgentReadService>();
 
         Assert.Null(await reads.SuppressionsAsync(
-            Agent(world.ComponentScope), world.OtherProjectId, DateTimeOffset.UtcNow));
+            Agent(world.ProjectScope), world.OtherProjectId, DateTimeOffset.UtcNow));
     }
 
     // ---- What the reads actually say ----------------------------------------
@@ -355,7 +355,7 @@ public class McpIntegrationTests
         var tree = await reads.ScopeAsync(Agent(world.ProjectScope));
 
         var project = Assert.Single(tree);
-        Assert.Equal(2, project.Components.Count);
+        Assert.Equal(world.ProjectId, project.ProjectId);
     }
 
     [SkippableFact]
@@ -413,7 +413,7 @@ public class McpIntegrationTests
     }
 
     [SkippableFact]
-    public async Task A_component_scoped_suppression_carries_its_reason_and_author()
+    public async Task An_anchored_suppression_carries_its_reason_and_author()
     {
         Skip.IfNot(_fx.Available);
 
@@ -426,7 +426,7 @@ public class McpIntegrationTests
         var state = await reads.SuppressionsAsync(
             Agent(world.ProjectScope), world.ProjectId, DateTimeOffset.UtcNow);
 
-        var mine = Assert.Single(state!.Suppressions, s => s.Id == world.ComponentSuppressionId);
+        var mine = Assert.Single(state!.Suppressions, s => s.Id == world.AnchoredSuppressionId);
         Assert.False(mine.InstanceWide);
         Assert.Equal("Agent Minter", mine.Author);
         Assert.Contains("false positive", mine.Reason, StringComparison.Ordinal);
@@ -512,15 +512,14 @@ public class McpIntegrationTests
 
     private sealed record World(
         Guid ClientId, Guid ProjectId, Guid OtherProjectId,
-        Guid AlphaComponentId, Guid BetaComponentId,
-        Guid AlphaFindingId, Guid BetaFindingId,
-        Guid LapsedSuppressionId, Guid ComponentSuppressionId,
-        ScopeTarget ClientScope, ScopeTarget ProjectScope, ScopeTarget ComponentScope,
+        Guid AlphaFindingId, Guid BetaFindingId, Guid OtherProjectFindingId,
+        Guid LapsedSuppressionId, Guid AnchoredSuppressionId,
+        ScopeTarget ClientScope, ScopeTarget ProjectScope,
         Principal Admin, Principal LeadDev);
 
     /// <summary>
-    /// Two clients, two projects under the first, two components under the
-    /// first project — one finding each, plus one under a different client.
+    /// Two clients, two projects under the first — two findings on the first
+    /// project's build, one on the sibling project, one under a different client.
     ///
     /// The shape is the point: every containment boundary the scoping rule
     /// draws has something on the far side of it to leak.
@@ -539,49 +538,52 @@ public class McpIntegrationTests
         var otherProject = new Project { ClientId = client.Id, Name = $"mcp-other-project-{suffix}" };
         var foreignProject = new Project { ClientId = otherClient.Id, Name = $"mcp-foreign-{suffix}" };
 
-        var alpha = new Component { ProjectId = project.Id, Name = "alpha" };
-        var beta = new Component { ProjectId = project.Id, Name = "beta" };
-        var otherComponent = new Component { ProjectId = otherProject.Id, Name = "gamma" };
-        var foreignComponent = new Component { ProjectId = foreignProject.Id, Name = "delta" };
-
         db.Clients.AddRange(client, otherClient);
         db.Projects.AddRange(project, otherProject, foreignProject);
-        db.Components.AddRange(alpha, beta, otherComponent, foreignComponent);
 
-        var alphaFinding = Guid.NewGuid();
-        var betaFinding = Guid.NewGuid();
-
-        foreach (var (component, rule, severity, id) in new[]
+        // One build per project — a project is one build stream now.
+        Guid Build(Guid projectId, string tag)
         {
-            (alpha, "alpha-rule", Severity.Critical, alphaFinding),
-            (beta, "beta-rule", Severity.Low, betaFinding),
-            (otherComponent, "other-project-rule", Severity.High, Guid.NewGuid()),
-            (foreignComponent, "other-client-rule", Severity.Critical, Guid.NewGuid()),
-        })
-        {
-            var version = new ComponentVersion
+            var v = new ComponentVersion
             {
-                ProjectId = component.ProjectId, ComponentId = component.Id,
+                ProjectId = projectId,
                 VersionString = "1.0.0",
-                CommitSha = suffix + "aaaaaa",
+                CommitSha = suffix + tag,
                 BranchName = "main",
             };
-            db.ComponentVersions.Add(version);
+            db.ComponentVersions.Add(v);
+            return v.Id;
+        }
 
+        var projectBuild = Build(project.Id, "proj");
+        var otherBuild = Build(otherProject.Id, "other");
+        var foreignBuild = Build(foreignProject.Id, "frgn");
+
+        void AddFinding(Guid id, Guid buildId, string rule, Severity severity)
+        {
             db.Findings.Add(new Finding
             {
                 Id = id,
-                ComponentVersionId = version.Id,
+                ComponentVersionId = buildId,
                 Hash = $"{rule}-{suffix}",
                 Scanner = ScannerKind.OpenGrep,
                 RuleId = rule,
                 Severity = severity,
                 Title = rule,
-                FilePath = $"src/{component.Name}/Program.cs",
+                FilePath = $"src/{rule}/Program.cs",
                 Line = 10,
                 Status = FindingStatus.Open,
             });
         }
+
+        var alphaFinding = Guid.NewGuid();
+        var betaFinding = Guid.NewGuid();
+        var otherProjectFinding = Guid.NewGuid();
+
+        AddFinding(alphaFinding, projectBuild, "alpha-rule", Severity.Critical);
+        AddFinding(betaFinding, projectBuild, "beta-rule", Severity.Low);
+        AddFinding(otherProjectFinding, otherBuild, "other-project-rule", Severity.High);
+        AddFinding(Guid.NewGuid(), foreignBuild, "other-client-rule", Severity.Critical);
 
         var user = new User
         {
@@ -592,7 +594,7 @@ public class McpIntegrationTests
         };
         db.Users.Add(user);
 
-        // Rule-scoped: no project, no component. Instance-wide by construction.
+        // Rule-scoped: no project. Instance-wide by construction.
         var lapsed = new Suppression
         {
             Scope = SuppressionScope.RuleEverywhere,
@@ -603,15 +605,16 @@ public class McpIntegrationTests
             ExpiresAt = DateTimeOffset.UtcNow.AddDays(-1),
         };
 
-        // Component-scoped: anchored inside the caller's own tree.
+        // Anchored to a finding inside the caller's own project.
         var anchored = new Suppression
         {
-            Scope = SuppressionScope.RuleOnComponent,
-            RuleId = "alpha-rule",
-            ComponentId = alpha.Id,
+            Scope = SuppressionScope.SingleFinding,
+            FindingId = alphaFinding,
+            ClientId = client.Id,
+            ProjectId = project.Id,
             CreatedByUserId = user.Id,
             CreatedByRole = ProjectRole.LeadDev,
-            Reason = "Reviewed and agreed to be a false positive on this component.",
+            Reason = "Reviewed and agreed to be a false positive on this build.",
         };
 
         db.Suppressions.AddRange(lapsed, anchored);
@@ -629,11 +632,11 @@ public class McpIntegrationTests
         await db.SaveChangesAsync();
 
         return new World(
-            client.Id, project.Id, otherProject.Id, alpha.Id, beta.Id, alphaFinding, betaFinding,
+            client.Id, project.Id, otherProject.Id,
+            alphaFinding, betaFinding, otherProjectFinding,
             lapsed.Id, anchored.Id,
             ScopeTarget.Client(client.Id),
             ScopeTarget.Project(client.Id, project.Id),
-            ScopeTarget.Component(client.Id, project.Id, alpha.Id),
             Admin: Principal.For(user.Id, user.Login, isAdmin: true, []),
             LeadDev: Principal.For(user.Id, user.Login, isAdmin: false, [ProjectRole.LeadDev]));
     }

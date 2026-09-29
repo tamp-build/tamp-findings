@@ -139,14 +139,12 @@ public static class CoverageDetailEndpoints
         // coverage across historical builds. Each Component+Flavor's most
         // recent ComponentVersion contributes its single report (if any).
         var latestCvIds = await db.ComponentVersions
-            .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+            .GroupBy(v => new { v.ProjectId, FlavorKey = v.Flavor })
             .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
             .ToListAsync(ct);
 
         var q = db.CoverageReports.AsNoTracking()
             .Where(r => latestCvIds.Contains(r.ComponentVersionId));
-        if (componentId is { } cmp)
-            q = q.Where(r => r.ComponentVersion!.ComponentId == cmp);
         if (projectId is { } prj)
             q = q.Where(r => r.ComponentVersion!.ProjectId == prj);
         if (clientId is { } cli)

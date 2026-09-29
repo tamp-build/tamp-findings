@@ -45,20 +45,6 @@ public sealed class PrincipalResolver
         return _scopes.Resolve(user.Id, user.Login, user.IsAdmin, assignments, target);
     }
 
-    /// <summary>
-    /// Walk a component up to its project and client so scope resolution has
-    /// the full chain. Returns null when the component does not exist.
-    /// </summary>
-    public async Task<ScopeTarget?> TargetForComponentAsync(Guid componentId, CancellationToken ct = default)
-    {
-        var row = await (
-            from c in _db.Components.AsNoTracking()
-            join p in _db.Projects.AsNoTracking() on c.ProjectId equals p.Id
-            where c.Id == componentId
-            select new { c.Id, p.ClientId, ProjectId = p.Id }).FirstOrDefaultAsync(ct);
-
-        return row is null ? null : ScopeTarget.Component(row.ClientId, row.ProjectId, row.Id);
-    }
 
     /// <summary>Walk a project up to its client.</summary>
     public async Task<ScopeTarget?> TargetForProjectAsync(Guid projectId, CancellationToken ct = default)

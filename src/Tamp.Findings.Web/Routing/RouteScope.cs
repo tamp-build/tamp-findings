@@ -1,7 +1,7 @@
 namespace Tamp.Findings.Web.Routing;
 
 /// <summary>
-/// The current client / project / component / build / spine / selection.
+/// The current client / project / build / spine / selection.
 ///
 /// The hand-off calls this out specifically: most redesign state is ordinary
 /// component state, but "the scope route parameters and the policy draft are
@@ -20,7 +20,6 @@ public sealed class RouteScope
 {
     public string? Client { get; private set; }
     public string? Project { get; private set; }
-    public string? Component { get; private set; }
     public string? Build { get; private set; }
     public string? Spine { get; private set; }
     public string? Selection { get; private set; }
@@ -38,9 +37,8 @@ public sealed class RouteScope
         Project = project;
         Build = build;
         // A new project invalidates anything narrower. Leaving a stale
-        // component or selection behind is how a screen ends up showing one
-        // project's data under another project's heading.
-        Component = null;
+        // selection behind is how a screen ends up showing one project's
+        // data under another project's heading.
         Spine = null;
         Selection = null;
         Changed?.Invoke();
@@ -60,7 +58,6 @@ public sealed class RouteScope
         Client = client;
         Project = null;
         Build = null;
-        Component = null;
         Spine = null;
         Selection = null;
         Changed?.Invoke();
@@ -70,13 +67,6 @@ public sealed class RouteScope
     {
         if (Build == build) return;
         Build = build;
-        Changed?.Invoke();
-    }
-
-    public void SetComponent(string? component)
-    {
-        if (Component == component) return;
-        Component = component;
         Changed?.Invoke();
     }
 
@@ -90,9 +80,9 @@ public sealed class RouteScope
 
     public void Clear()
     {
-        if (Client is null && Project is null && Build is null && Component is null
+        if (Client is null && Project is null && Build is null
             && Spine is null && Selection is null) return;
-        Client = Project = Component = Build = Spine = Selection = null;
+        Client = Project = Build = Spine = Selection = null;
         Changed?.Invoke();
     }
 }

@@ -8,8 +8,6 @@ public class SuppressionMatcherTests
 {
     private static readonly DateTimeOffset Now = new(2026, 5, 19, 12, 0, 0, TimeSpan.Zero);
     private static readonly Guid TestUser = Guid.NewGuid();
-    private static readonly Guid Component1 = Guid.NewGuid();
-    private static readonly Guid Component2 = Guid.NewGuid();
     private static readonly Guid Finding1 = Guid.NewGuid();
     private static readonly Guid Finding2 = Guid.NewGuid();
 
@@ -20,17 +18,16 @@ public class SuppressionMatcherTests
     private static readonly Guid Client2 = Guid.NewGuid();
     private static readonly Guid Project2 = Guid.NewGuid();
 
-    private static readonly SuppressionTarget At1 = new(Client1, Project1, Component1);
-    private static readonly SuppressionTarget At2 = new(Client1, Project1, Component2);
+    private static readonly SuppressionTarget At1 = new(Client1, Project1);
+    private static readonly SuppressionTarget At2 = new(Client1, Project1);
 
     /// <summary>A component under a DIFFERENT client entirely.</summary>
-    private static readonly SuppressionTarget Elsewhere = new(Client2, Project2, Guid.NewGuid());
+    private static readonly SuppressionTarget Elsewhere = new(Client2, Project2);
 
     private static Suppression Make(
         SuppressionScope scope,
         Guid? findingId = null,
         string? ruleId = null,
-        Guid? componentId = null,
         string? filePath = null,
         DateTimeOffset? expiresAt = null,
         // Defaults to the one tenant, so the pre-TFND-132 tests read unchanged.
@@ -42,7 +39,6 @@ public class SuppressionMatcherTests
         Scope = scope,
         FindingId = findingId,
         RuleId = ruleId,
-        ComponentId = componentId,
         FilePath = filePath,
         ClientId = legacy ? null : clientId ?? Client1,
         ProjectId = legacy ? null : projectId,
@@ -109,22 +105,6 @@ public class SuppressionMatcherTests
     {
         var s = Make(SuppressionScope.RuleOnFile, ruleId: "S2094", filePath: "src\\Foo.cs");
         Assert.True(SuppressionMatcher.Covers(s, At1, "S2094", "src/Foo.cs", null, Now));
-    }
-
-    // ----- RuleOnComponent scope ------------------------------------------
-
-    [Fact]
-    public void RuleOnComponent_covers_same_rule_same_component()
-    {
-        var s = Make(SuppressionScope.RuleOnComponent, ruleId: "S2094", componentId: Component1);
-        Assert.True(SuppressionMatcher.Covers(s, At1, "S2094", "src/Foo.cs", null, Now));
-    }
-
-    [Fact]
-    public void RuleOnComponent_rejects_different_component()
-    {
-        var s = Make(SuppressionScope.RuleOnComponent, ruleId: "S2094", componentId: Component1);
-        Assert.False(SuppressionMatcher.Covers(s, At2, "S2094", "src/Foo.cs", null, Now));
     }
 
     // ----- RuleEverywhere scope -------------------------------------------
@@ -237,7 +217,7 @@ public class SuppressionMatcherTests
     public void A_project_scoped_suppression_does_not_reach_a_sibling_project()
     {
         var s = Make(SuppressionScope.RuleEverywhere, ruleId: "S2094", projectId: Project1);
-        var sibling = new SuppressionTarget(Client1, Guid.NewGuid(), Guid.NewGuid());
+        var sibling = new SuppressionTarget(Client1, Guid.NewGuid());
 
         Assert.True(SuppressionMatcher.Covers(s, At1, "S2094", "src/Foo.cs", null, Now));
         Assert.False(SuppressionMatcher.Covers(s, sibling, "S2094", "src/Foo.cs", null, Now));
@@ -249,7 +229,7 @@ public class SuppressionMatcherTests
         // No project named means the author meant the whole client, which is a
         // grant they had to hold at the client tier to make.
         var s = Make(SuppressionScope.RuleEverywhere, ruleId: "S2094", projectId: null);
-        var otherProject = new SuppressionTarget(Client1, Guid.NewGuid(), Guid.NewGuid());
+        var otherProject = new SuppressionTarget(Client1, Guid.NewGuid());
 
         Assert.True(SuppressionMatcher.Covers(s, At1, "S2094", "src/Foo.cs", null, Now));
         Assert.True(SuppressionMatcher.Covers(s, otherProject, "S2094", "src/Foo.cs", null, Now));
@@ -272,11 +252,9 @@ public class SuppressionMatcherTests
     [Fact]
     public void An_anchored_suppression_is_bounded_by_its_tenant_too()
     {
-        // Belt and braces. A RuleOnComponent row already cannot match another
-        // client's component — component ids are unique — but the tenant check
-        // runs first for every scope, so a future scope cannot be added that
-        // forgets it.
-        var s = Make(SuppressionScope.RuleOnComponent, ruleId: "S2094", componentId: Component1);
+        // Belt and braces. The tenant check runs first for every scope, so a
+        // future scope cannot be added that forgets it.
+        var s = Make(SuppressionScope.RuleEverywhere, ruleId: "S2094");
 
         Assert.False(SuppressionMatcher.Covers(s, Elsewhere, "S2094", "src/Foo.cs", null, Now));
     }

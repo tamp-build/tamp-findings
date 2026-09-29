@@ -152,16 +152,6 @@ public class CapabilityMatrixTests
     }
 
     [Fact]
-    public void Components_are_created_by_admin_lead_dev_and_architect()
-    {
-        Assert.True(Can(As(admin: true), Capability.CreateComponent));
-        Assert.True(Can(As(roles: ProjectRole.LeadDev), Capability.CreateComponent));
-        Assert.True(Can(As(roles: ProjectRole.Architect), Capability.CreateComponent));
-
-        Assert.False(Can(As(roles: ProjectRole.InfoSecOfficer), Capability.CreateComponent));
-    }
-
-    [Fact]
     public void Architect_cannot_recycle_the_ingest_key_because_it_breaks_ci()
     {
         Assert.True(Can(As(admin: true), Capability.ManageIngestKey));

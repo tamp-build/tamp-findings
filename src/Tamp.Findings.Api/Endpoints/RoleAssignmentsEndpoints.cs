@@ -35,12 +35,11 @@ public static class RoleAssignmentsEndpoints
         if (string.IsNullOrWhiteSpace(req.UserLogin)) return TypedResults.BadRequest("userLogin is required");
 
         // Exactly one tier must be set. Lower-tier overrides higher (F2.2);
-        // a user with both a Client-level and Component-level assignment
+        // a user with both a Client-level and Project-level assignment
         // has TWO distinct rows, not one merged.
         var tiersSet = (req.ClientId is not null ? 1 : 0)
-                     + (req.ProjectId is not null ? 1 : 0)
-                     + (req.ComponentId is not null ? 1 : 0);
-        if (tiersSet != 1) return TypedResults.BadRequest("Exactly one of clientId / projectId / componentId must be set");
+                     + (req.ProjectId is not null ? 1 : 0);
+        if (tiersSet != 1) return TypedResults.BadRequest("Exactly one of clientId / projectId must be set");
 
         // Resolve user (auto-create — same POC behavior as suppressions).
         var user = await db.Users.FirstOrDefaultAsync(u => u.Login == req.UserLogin, ct);
@@ -53,7 +52,7 @@ public static class RoleAssignmentsEndpoints
 
         // Validate the referenced entity exists; otherwise the assignment
         // is dangling and the matcher would silently never apply it.
-        string? clientName = null, projectName = null, componentName = null;
+        string? clientName = null, projectName = null;
         if (req.ClientId is { } clientId)
         {
             var c = await db.Clients.AsNoTracking().FirstOrDefaultAsync(x => x.Id == clientId, ct);
@@ -67,28 +66,19 @@ public static class RoleAssignmentsEndpoints
             projectName = p.Name;
             clientName = p.Client?.Name;
         }
-        if (req.ComponentId is { } componentId)
-        {
-            var c = await db.Components.AsNoTracking().Include(c => c.Project).ThenInclude(p => p!.Client).FirstOrDefaultAsync(x => x.Id == componentId, ct);
-            if (c is null) return TypedResults.NotFound("component not found");
-            componentName = c.Name;
-            projectName = c.Project?.Name;
-            clientName = c.Project?.Client?.Name;
-        }
 
         // Idempotency: the unique index already covers
-        // (UserId, Role, ClientId, ProjectId, ComponentId). If an identical
-        // assignment exists, return it instead of 409 — POST is more
-        // ergonomic that way for a script reasserting state.
+        // (UserId, Role, ClientId, ProjectId). If an identical assignment
+        // exists, return it instead of 409 — POST is more ergonomic that
+        // way for a script reasserting state.
         var existing = await db.ProjectRoleAssignments.FirstOrDefaultAsync(a =>
             a.UserId == user.Id
             && a.Role == req.Role
             && a.ClientId == req.ClientId
-            && a.ProjectId == req.ProjectId
-            && a.ComponentId == req.ComponentId, ct);
+            && a.ProjectId == req.ProjectId, ct);
         if (existing is not null)
         {
-            return TypedResults.Ok(ToResponse(existing, user.Login, clientName, projectName, componentName));
+            return TypedResults.Ok(ToResponse(existing, user.Login, clientName, projectName));
         }
 
         // Separation of duties. Only conflicts this grant INTRODUCES matter —
@@ -117,7 +107,6 @@ public static class RoleAssignmentsEndpoints
             Role = req.Role,
             ClientId = req.ClientId,
             ProjectId = req.ProjectId,
-            ComponentId = req.ComponentId,
             // Recorded at grant time, not recomputed on read: the assessor
             // needs to see what the granter was told and accepted, not what
             // today's rules would say.
@@ -126,7 +115,7 @@ public static class RoleAssignmentsEndpoints
         db.ProjectRoleAssignments.Add(a);
         await db.SaveChangesAsync(ct);
 
-        return TypedResults.Ok(ToResponse(a, user.Login, clientName, projectName, componentName));
+        return TypedResults.Ok(ToResponse(a, user.Login, clientName, projectName));
     }
 
     private static async Task<Ok<IReadOnlyList<RoleAssignmentResponse>>> ListAsync(
@@ -135,14 +124,12 @@ public static class RoleAssignmentsEndpoints
         string? userLogin = null,
         ProjectRole? role = null,
         Guid? clientId = null,
-        Guid? projectId = null,
-        Guid? componentId = null)
+        Guid? projectId = null)
     {
         var q = db.ProjectRoleAssignments.AsNoTracking();
         if (role is { } r) q = q.Where(a => a.Role == r);
         if (clientId is { } c) q = q.Where(a => a.ClientId == c);
         if (projectId is { } p) q = q.Where(a => a.ProjectId == p);
-        if (componentId is { } co) q = q.Where(a => a.ComponentId == co);
 
         var joined = await (
             from a in q
@@ -151,15 +138,13 @@ public static class RoleAssignmentsEndpoints
             from cli in clis.DefaultIfEmpty()
             join prj in db.Projects.AsNoTracking() on a.ProjectId equals prj.Id into prjs
             from prj in prjs.DefaultIfEmpty()
-            join cmp in db.Components.AsNoTracking() on a.ComponentId equals cmp.Id into cmps
-            from cmp in cmps.DefaultIfEmpty()
             where userLogin == null || u.Login == userLogin
             orderby a.CreatedAt descending
-            select new { a, u, cli, prj, cmp }
+            select new { a, u, cli, prj }
         ).ToListAsync(ct);
 
         var items = (IReadOnlyList<RoleAssignmentResponse>)joined
-            .Select(x => ToResponse(x.a, x.u.Login, x.cli?.Name, x.prj?.Name, x.cmp?.Name))
+            .Select(x => ToResponse(x.a, x.u.Login, x.cli?.Name, x.prj?.Name))
             .ToList();
         return TypedResults.Ok(items);
     }
@@ -177,17 +162,13 @@ public static class RoleAssignmentsEndpoints
         ProjectRoleAssignment a,
         string userLogin,
         string? clientName,
-        string? projectName,
-        string? componentName)
+        string? projectName)
     {
-        var scope = a.ComponentId is not null ? "Component"
-                  : a.ProjectId is not null ? "Project"
-                  : "Client";
+        var scope = a.ProjectId is not null ? "Project" : "Client";
         return new RoleAssignmentResponse(
             a.Id, a.UserId, userLogin, a.Role,
             a.ClientId, clientName,
             a.ProjectId, projectName,
-            a.ComponentId, componentName,
             scope, a.CreatedAt);
     }
 }

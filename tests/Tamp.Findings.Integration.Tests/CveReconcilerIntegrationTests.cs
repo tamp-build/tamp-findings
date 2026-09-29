@@ -361,16 +361,14 @@ public class CveReconcilerIntegrationTests
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var client = new Client { Name = $"cve-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"cve-project-{suffix}" };
-        var component = new Component { ProjectId = project.Id, Name = $"cve-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0",
+            ProjectId = project.Id, VersionString = "1.0.0",
             CommitSha = suffix + "ffffff", BranchName = "main",
         };
 
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
         await db.SaveChangesAsync();
 

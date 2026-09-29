@@ -64,7 +64,7 @@ public static class DecisionDiagnosticIngestEndpoints
             .Where(u => u.Id == token.CreatedByUserId).Select(u => u.Login).FirstOrDefaultAsync(ct);
         audit.RecordIngest(token.Id, token.Name, actorLogin is null ? null : token.CreatedByUserId, actorLogin,
             AuditActions.DiagnosticsIngested,
-            new ScopeTarget(token.ClientId, token.Scope == IngestTokenScope.Project ? token.ProjectId : null, null),
+            new ScopeTarget(token.ClientId, token.Scope == IngestTokenScope.Project ? token.ProjectId : null),
             detail: $"decision advisories: {result.Accepted} accepted, {result.Skipped} skipped across {result.Builds.Count} build(s)");
         await db.SaveChangesAsync(ct);
 

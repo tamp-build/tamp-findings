@@ -9,13 +9,11 @@ namespace Tamp.Findings.Api.Contracts;
 //
 //   SingleFinding    requires FindingId
 //   RuleOnFile       requires RuleId + FilePath
-//   RuleOnComponent  requires RuleId + ComponentId
 //   RuleEverywhere   requires only RuleId
 public sealed record SuppressionCreateRequest(
     SuppressionScope Scope,
     Guid? FindingId,
     string? RuleId,
-    Guid? ComponentId,
     string? FilePath,
     string Reason,
     DateTimeOffset? ExpiresAt,
@@ -30,7 +28,6 @@ public sealed record SuppressionResponse(
     SuppressionScope Scope,
     Guid? FindingId,
     string? RuleId,
-    Guid? ComponentId,
     string? FilePath,
     Guid CreatedByUserId,
     string CreatedByUserLogin,

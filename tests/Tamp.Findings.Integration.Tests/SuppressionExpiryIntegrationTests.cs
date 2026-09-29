@@ -195,8 +195,8 @@ public class SuppressionExpiryIntegrationTests
         };
         db.Users.Add(user);
 
-        var (client, project, component, version) = Tree(db, $"exp-{suffix}");
-        var (_, foreignProject, foreignComponent, foreignVersion) = Tree(db, $"exp-other-{suffix}");
+        var (client, project, version) = Tree(db, $"exp-{suffix}");
+        var (_, foreignProject, foreignVersion) = Tree(db, $"exp-other-{suffix}");
 
         // Rule ids are suffixed per run, so a suppression seeded by one test
         // run cannot silence a finding seeded by another against the shared
@@ -214,29 +214,29 @@ public class SuppressionExpiryIntegrationTests
 
         db.Suppressions.AddRange(
             // Expired yesterday.
-            Suppression(user.Id, client.Id, project.Id, component.Id, lapsedRule,
+            Suppression(user.Id, client.Id, project.Id, lapsedRule,
                 "Deadline was immovable and we shipped it anyway.", now.AddDays(-1)),
 
             // Still live.
-            Suppression(user.Id, client.Id, project.Id, component.Id, liveRule,
+            Suppression(user.Id, client.Id, project.Id, liveRule,
                 "Under review with the vendor.", now.AddDays(30)),
 
             // Two, one lapsed and one live.
-            Suppression(user.Id, client.Id, project.Id, component.Id, doubleRule,
+            Suppression(user.Id, client.Id, project.Id, doubleRule,
                 "First pass, expired.", now.AddDays(-1)),
-            Suppression(user.Id, client.Id, project.Id, component.Id, doubleRule,
+            Suppression(user.Id, client.Id, project.Id, doubleRule,
                 "Re-suppressed after review.", now.AddDays(30)),
 
             // Accepted findings are untouchable, but seed a lapsed suppression
             // over it anyway so the test is exercising the guard rather than an
             // absence of coverage.
-            Suppression(user.Id, client.Id, project.Id, component.Id, acceptedRule,
+            Suppression(user.Id, client.Id, project.Id, acceptedRule,
                 "Superseded by the risk acceptance.", now.AddDays(-1)),
 
             // The other tenant's own, still live — so the foreign finding stays
             // suppressed for its own reasons and the assertion is about
             // tenancy, not about coverage.
-            Suppression(user.Id, foreignProject.ClientId, foreignProject.Id, foreignComponent.Id,
+            Suppression(user.Id, foreignProject.ClientId, foreignProject.Id,
                 lapsedRule, "Another client's decision.", now.AddDays(30)));
 
         await db.SaveChangesAsync();
@@ -244,23 +244,22 @@ public class SuppressionExpiryIntegrationTests
         return new World(lapsed.Id, live.Id, doubly.Id, accepted.Id, foreign.Id, now);
     }
 
-    private static (Client, Project, Component, ComponentVersion) Tree(
+    private static (Client, Project, ComponentVersion) Tree(
         Tamp.Findings.Data.FindingsDbContext db, string name)
     {
         var client = new Client { Name = $"{name}-client" };
         var project = new Project { ClientId = client.Id, Name = $"{name}-project" };
-        var component = new Component { ProjectId = project.Id, Name = "api" };
+        
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = name + "eeeeee",
+            ProjectId = project.Id, VersionString = "1.0.0", CommitSha = name + "eeeeee",
         };
 
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
 
-        return (client, project, component, version);
+        return (client, project, version);
     }
 
     private static Finding Finding(
@@ -284,12 +283,11 @@ public class SuppressionExpiryIntegrationTests
     }
 
     private static Suppression Suppression(
-        Guid userId, Guid clientId, Guid projectId, Guid componentId, string ruleId,
+        Guid userId, Guid clientId, Guid projectId, string ruleId,
         string reason, DateTimeOffset expiresAt) => new()
     {
-        Scope = SuppressionScope.RuleOnComponent,
+        Scope = SuppressionScope.RuleEverywhere,
         RuleId = ruleId,
-        ComponentId = componentId,
         ClientId = clientId,
         ProjectId = projectId,
         CreatedByUserId = userId,

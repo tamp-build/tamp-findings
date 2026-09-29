@@ -214,14 +214,13 @@ public static class FindingsTreeEndpoints
         CancellationToken ct)
     {
         var q = db.Findings.AsNoTracking().Where(f => f.Status == FindingStatus.Open);
-        if (componentId is { } cmp) q = q.Where(f => f.ComponentVersion!.ComponentId == cmp);
         if (projectId is { } prj) q = q.Where(f => f.ComponentVersion!.ProjectId == prj);
         if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Project!.ClientId == cli);
         if (!string.IsNullOrWhiteSpace(ruleId)) q = q.Where(f => f.RuleId == ruleId);
         if (latest)
         {
             var latestCvIds = await db.ComponentVersions
-                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .GroupBy(v => new { v.ProjectId, FlavorKey = v.Flavor })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
             q = q.Where(f => latestCvIds.Contains(f.ComponentVersionId));

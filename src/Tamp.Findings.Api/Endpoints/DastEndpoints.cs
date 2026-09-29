@@ -43,7 +43,6 @@ public static class DastEndpoints
         var q = db.Findings.AsNoTracking()
             .Where(f => f.Status == FindingStatus.Open && DastScanners.Contains(f.Scanner));
 
-        if (componentId is { } cmp) q = q.Where(f => f.ComponentVersion!.ComponentId == cmp);
         if (projectId is { } prj) q = q.Where(f => f.ComponentVersion!.ProjectId == prj);
         if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Project!.ClientId == cli);
 
@@ -54,7 +53,7 @@ public static class DastEndpoints
             var latestCvIds = await db.ComponentVersions.AsNoTracking()
                 .Where(v => v.PullRequestRef == null
                          && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))
-                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .GroupBy(v => new { v.ProjectId, FlavorKey = v.Flavor })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
             q = q.Where(f => latestCvIds.Contains(f.ComponentVersionId));

@@ -31,7 +31,7 @@ public sealed class SwitchClientTemplateEffect(FindingsDbContext db, AuditLog au
         client.PolicyTemplateId = newTemplateId;
 
         audit.Record(decider, AuditActions.ClientTemplateSwitched, AuditClass.Risk,
-            new ScopeTarget(client.Id, null, null),
+            new ScopeTarget(client.Id, null),
             subjectId: client.Id, subjectKind: nameof(Client),
             detail: $"{client.Name}: template {previous?.ToString() ?? "none"} → {newTemplateId} — "
                   + $"approved switch requested by {approval.RequestedByLogin}");

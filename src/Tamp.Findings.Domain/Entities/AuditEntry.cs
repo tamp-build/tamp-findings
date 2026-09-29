@@ -36,10 +36,9 @@ public sealed class AuditEntry
     public required string Action { get; set; }
     public AuditClass Class { get; set; } = AuditClass.Other;
 
-    // Where, as the hierarchy. All three null means instance scope.
+    // Where, as the hierarchy. Both null means instance scope.
     public Guid? ClientId { get; set; }
     public Guid? ProjectId { get; set; }
-    public Guid? ComponentId { get; set; }
 
     // The subject of the action, when it has an id — the POA&M item, the role
     // assignment, the policy.

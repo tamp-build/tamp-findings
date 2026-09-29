@@ -62,7 +62,7 @@ public class IngestActorTests
     [Fact]
     public void ApplyActor_stamps_the_build_when_one_is_supplied()
     {
-        var v = new ComponentVersion { VersionString = "1.0.0", ComponentId = Guid.NewGuid() };
+        var v = new ComponentVersion { VersionString = "1.0.0" };
 
         v.ApplyActor(new IngestActor("pool/3", IngestActorKind.Agent));
 
@@ -77,7 +77,7 @@ public class IngestActorTests
         // that is what makes "last ingest to NAME an actor wins" hold.
         var v = new ComponentVersion
         {
-            VersionString = "1.0.0", ComponentId = Guid.NewGuid(),
+            VersionString = "1.0.0",
             ActorId = "pool/3", ActorKind = IngestActorKind.Agent,
         };
 

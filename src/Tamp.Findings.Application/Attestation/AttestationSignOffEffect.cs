@@ -68,7 +68,7 @@ public sealed class AttestationSignOffEffect : IApprovalEffect
         }
 
         _audit.Record(decider, AuditActions.AttestationSigned, AuditClass.Risk,
-            new ScopeTarget(approval.ClientId, approval.ProjectId, null),
+            new ScopeTarget(approval.ClientId, approval.ProjectId),
             subjectId: snapshot.Id, subjectKind: nameof(AttestationSnapshot),
             detail: $"build {snapshot.CommitSha} signed by {signatory} — approved sign-off request "
                   + $"from {approval.RequestedByLogin}"

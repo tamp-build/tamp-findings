@@ -28,7 +28,6 @@ public static class SbomIngestEndpoints
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project is required");
-        if (string.IsNullOrWhiteSpace(req.Component)) return Results.BadRequest("component is required");
         if (string.IsNullOrWhiteSpace(req.Version)) return Results.BadRequest("version is required");
 
         var token = IngestAuthFilter.CurrentToken(ctx);
@@ -135,7 +134,7 @@ public static class SbomIngestEndpoints
         var reconciled = await reconciler.ReconcileAsync([version.Id], ct);
 
         await IngestAudit.RecordAsync(audit, db, token, version.Id,
-            $"sbom: {purlToId.Count} components, {depsAdded} deps, {totalVulns + reconciled.Attached} CVEs — {req.Component}@{req.Version}", ct);
+            $"sbom: {purlToId.Count} components, {depsAdded} deps, {totalVulns + reconciled.Attached} CVEs — {req.Project}@{req.Version}", ct);
         await db.SaveChangesAsync(ct);
 
         await snapshots.RecordForBuildAsync(version.Id, ct);   // TFND-176: cve/licence/staleness moved the score
@@ -161,52 +160,9 @@ public static class SbomIngestEndpoints
         var (_, project, scopeErr) = await IngestScopeGuard.ResolveAndGuardAsync(db, token, req.Client, req.Project, ct);
         if (scopeErr is not null) return (null, scopeErr);
 
-        var componentLower = req.Component.ToLower();
-        var component = await db.Components
-            .FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name.ToLower() == componentLower, ct);
-        if (component is null)
-        {
-            component = new Component { ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind };
-            db.Components.Add(component);
-        }
-
-        ComponentFlavor? flavor = null;
-        if (!string.IsNullOrWhiteSpace(req.Flavor))
-        {
-            var flavorLower = req.Flavor.ToLower();
-            flavor = await db.ComponentFlavors
-                .FirstOrDefaultAsync(f => f.ComponentId == component.Id && f.Name.ToLower() == flavorLower, ct);
-            if (flavor is null)
-            {
-                flavor = new ComponentFlavor { ComponentId = component.Id, Name = req.Flavor };
-                db.ComponentFlavors.Add(flavor);
-            }
-        }
-
-        var version = await db.ComponentVersions.FirstOrDefaultAsync(v =>
-            v.ComponentId == component.Id &&
-            v.FlavorId == (flavor != null ? flavor.Id : (Guid?)null) &&
-            v.VersionString == req.Version, ct);
-        if (version is null)
-        {
-            version = new ComponentVersion
-            {
-                // Component-collapse PR1: anchor to project + flavor tag, dual-writing legacy FKs.
-                ProjectId = project!.Id,
-                Flavor = flavor?.Name,
-                ComponentId = component.Id,
-                FlavorId = flavor?.Id,
-                VersionString = req.Version,
-                CommitSha = req.CommitSha,
-                BranchName = req.Branch,
-                BuildId = req.BuildId,
-                PullRequestRef = req.PullRequestRef,
-            };
-            db.ComponentVersions.Add(version);
-        }
-
-        // TFND-165: stamp the build with the actor that produced this ingest,
-        // whether it was just created or already existed.
+        var version = await BuildResolver.GetOrCreateAsync(db, project!.Id, req.Flavor, req.Version,
+            req.CommitSha, req.Branch, req.BuildId, req.PullRequestRef, ct);
+        // TFND-165: stamp the build with the actor that produced this ingest.
         version.ApplyActor(req.Actor);
         await db.SaveChangesAsync(ct);
         return (version, null);

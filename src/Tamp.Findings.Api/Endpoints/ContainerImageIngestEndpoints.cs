@@ -39,7 +39,6 @@ public static class ContainerImageIngestEndpoints
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project required");
-        if (string.IsNullOrWhiteSpace(req.Component)) return Results.BadRequest("component required");
         if (string.IsNullOrWhiteSpace(req.Version)) return Results.BadRequest("version required");
         if (string.IsNullOrWhiteSpace(req.Reference)) return Results.BadRequest("reference required");
 
@@ -97,7 +96,7 @@ public static class ContainerImageIngestEndpoints
                 : null;
 
         await IngestAudit.RecordAsync(audit, db, token, version!.Id,
-            $"container-image: {req.Reference} — {req.Component}@{req.Version}", ct);
+            $"container-image: {req.Reference} — {req.Project}@{req.Version}", ct);
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(new ContainerImageIngestResponse(
@@ -112,48 +111,8 @@ public static class ContainerImageIngestEndpoints
             await IngestScopeGuard.ResolveAndGuardAsync(db, token, req.Client, req.Project, ct);
         if (scopeErr is not null) return (null, scopeErr);
 
-        var componentLower = req.Component.ToLower();
-        var component =
-            await db.Components.FirstOrDefaultAsync(
-                c => c.ProjectId == project!.Id && c.Name.ToLower() == componentLower, ct)
-            ?? db.Components.Add(new Component
-            {
-                ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind,
-            }).Entity;
-
-        ComponentFlavor? flavor = null;
-        if (!string.IsNullOrWhiteSpace(req.Flavor))
-        {
-            var flavorLower = req.Flavor.ToLower();
-            flavor = await db.ComponentFlavors.FirstOrDefaultAsync(
-                         f => f.ComponentId == component.Id && f.Name.ToLower() == flavorLower, ct)
-                     ?? db.ComponentFlavors.Add(new ComponentFlavor
-                     {
-                         ComponentId = component.Id, Name = req.Flavor,
-                     }).Entity;
-        }
-
-        var version = await db.ComponentVersions.FirstOrDefaultAsync(v =>
-            v.ComponentId == component.Id
-            && v.FlavorId == (flavor != null ? flavor.Id : (Guid?)null)
-            && v.VersionString == req.Version, ct);
-
-        if (version is null)
-        {
-            version = db.ComponentVersions.Add(new ComponentVersion
-            {
-                // Component-collapse PR1: anchor to project + flavor tag, dual-writing legacy FKs.
-                ProjectId = project!.Id,
-                Flavor = flavor?.Name,
-                ComponentId = component.Id,
-                FlavorId = flavor?.Id,
-                VersionString = req.Version,
-                CommitSha = req.CommitSha,
-                BranchName = req.Branch,
-                BuildId = req.BuildId,
-                PullRequestRef = req.PullRequestRef,
-            }).Entity;
-        }
+        var version = await BuildResolver.GetOrCreateAsync(db, project!.Id, req.Flavor, req.Version,
+            req.CommitSha, req.Branch, req.BuildId, req.PullRequestRef, ct);
 
         await db.SaveChangesAsync(ct);
         return (version, null);

@@ -47,7 +47,7 @@ public sealed class VisibilityScope
 
         var assignments = await _db.ProjectRoleAssignments.AsNoTracking()
             .Where(a => a.UserId == userId)
-            .Select(a => new { a.ClientId, a.ProjectId, a.ComponentId })
+            .Select(a => new { a.ClientId, a.ProjectId })
             .ToArrayAsync(ct);
 
         if (assignments.Length > 0)
@@ -55,14 +55,11 @@ public sealed class VisibilityScope
             return new VisibleSet(
                 Unrestricted: false,
                 Clients: assignments
-                    .Where(a => a.ProjectId is null && a.ComponentId is null && a.ClientId is not null)
+                    .Where(a => a.ProjectId is null && a.ClientId is not null)
                     .Select(a => a.ClientId!.Value).ToHashSet(),
                 Projects: assignments
-                    .Where(a => a.ComponentId is null && a.ProjectId is not null)
-                    .Select(a => a.ProjectId!.Value).ToHashSet(),
-                Components: assignments
-                    .Where(a => a.ComponentId is not null)
-                    .Select(a => a.ComponentId!.Value).ToHashSet());
+                    .Where(a => a.ProjectId is not null)
+                    .Select(a => a.ProjectId!.Value).ToHashSet());
         }
 
         // No assignments of their own. Whether that means "everything" or
@@ -106,20 +103,19 @@ public sealed class VisibilityScope
 }
 
 /// <summary>
-/// The clients, projects and components a user may read.
+/// The clients and projects a user may read.
 ///
-/// Expressed as three id sets rather than as a predicate so callers can push
+/// Expressed as two id sets rather than as a predicate so callers can push
 /// the filter into SQL. A predicate would be tidier and would drag every
 /// finding in the instance into memory to evaluate it.
 /// </summary>
 public sealed record VisibleSet(
     bool Unrestricted,
     IReadOnlySet<Guid> Clients,
-    IReadOnlySet<Guid> Projects,
-    IReadOnlySet<Guid> Components)
+    IReadOnlySet<Guid> Projects)
 {
     public static VisibleSet Everything { get; } =
-        new(true, new HashSet<Guid>(), new HashSet<Guid>(), new HashSet<Guid>());
+        new(true, new HashSet<Guid>(), new HashSet<Guid>());
 
     /// <summary>
     /// Sees nothing. NOT the same as <see cref="Everything"/> with empty sets,
@@ -128,32 +124,15 @@ public sealed record VisibleSet(
     /// and that is the failure this whole class exists to prevent.
     /// </summary>
     public static VisibleSet Nothing { get; } =
-        new(false, new HashSet<Guid>(), new HashSet<Guid>(), new HashSet<Guid>());
+        new(false, new HashSet<Guid>(), new HashSet<Guid>());
 
     /// <summary>True when this set can reach nothing at all.</summary>
     public bool IsEmpty =>
-        !Unrestricted && Clients.Count == 0 && Projects.Count == 0 && Components.Count == 0;
+        !Unrestricted && Clients.Count == 0 && Projects.Count == 0;
 
     public bool CanSeeClient(Guid clientId) => Unrestricted || Clients.Contains(clientId);
 
-    /// <summary>
-    /// A project is visible through its own grant, or through its client's.
-    ///
-    /// A COMPONENT grant does not make its project visible as a whole — the
-    /// holder sees the project as a container for the one component they were
-    /// given, which is what "narrower wins" means. Callers that need the
-    /// container use <see cref="ReachesProject"/>.
-    /// </summary>
+    /// <summary>A project is visible through its own grant, or through its client's.</summary>
     public bool CanSeeProject(Guid clientId, Guid projectId) =>
         Unrestricted || Clients.Contains(clientId) || Projects.Contains(projectId);
-
-    /// <summary>Can this set see anything AT ALL inside the project?</summary>
-    public bool ReachesProject(Guid clientId, Guid projectId, IEnumerable<Guid> componentIds) =>
-        CanSeeProject(clientId, projectId) || componentIds.Any(Components.Contains);
-
-    public bool CanSeeComponent(Guid clientId, Guid projectId, Guid componentId) =>
-        Unrestricted
-        || Clients.Contains(clientId)
-        || Projects.Contains(projectId)
-        || Components.Contains(componentId);
 }

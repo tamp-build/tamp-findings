@@ -64,15 +64,13 @@ public sealed class HubRenderConcurrencyTests : IAsyncLifetime
 
         var client = new Client { Name = _client };
         var project = new Project { ClientId = client.Id, Name = _project };
-        var component = new Component { ProjectId = project.Id, Name = $"cmp{suffix}" };
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0",
+            ProjectId = project.Id, VersionString = "1.0.0",
             CommitSha = suffix + "aaaaaa", BranchName = "main",
         };
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
         await db.SaveChangesAsync();
     }

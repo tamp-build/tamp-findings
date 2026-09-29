@@ -4,6 +4,6 @@ public enum SuppressionScope
 {
     SingleFinding = 1,
     RuleOnFile = 2,
-    RuleOnComponent = 3,
+    // 3 (RuleOnComponent) retired with the Component tier (component-collapse).
     RuleEverywhere = 4,
 }

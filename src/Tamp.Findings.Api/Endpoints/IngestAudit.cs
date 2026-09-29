@@ -26,12 +26,12 @@ internal static class IngestAudit
 
         var scope = await db.ComponentVersions.AsNoTracking()
             .Where(v => v.Id == componentVersionId)
-            .Select(v => new { v.ComponentId, v.ProjectId, v.Project!.ClientId })
+            .Select(v => new { v.ProjectId, v.Project!.ClientId })
             .FirstOrDefaultAsync(ct);
 
         var target = scope is null
             ? default
-            : new ScopeTarget(scope.ClientId, scope.ProjectId, scope.ComponentId);
+            : new ScopeTarget(scope.ClientId, scope.ProjectId);
 
         // TFND-161: attribute the ingest to the token's minting user.
         var login = await LoginForAsync(db, token, ct);

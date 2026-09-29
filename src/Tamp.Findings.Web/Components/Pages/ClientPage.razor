@@ -110,7 +110,7 @@ else
                     <table class="table table--rows">
                         <thead>
                             <tr>
-                                <th>Project</th><th class="align-end">Components</th>
+                                <th>Project</th><th class="align-end">Builds</th>
                                 <th>Last build</th><th>Risk policy</th>
                             </tr>
                         </thead>
@@ -119,7 +119,7 @@ else
                             {
                                 <tr @onclick="() => Open(project)">
                                     <td>@project.Name</td>
-                                    <td class="num align-end">@project.Components</td>
+                                    <td class="num align-end">@project.Builds</td>
                                     <td class="mono">
                                         @if (project.LastBuild is { } built)
                                         {

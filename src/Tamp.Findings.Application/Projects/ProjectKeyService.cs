@@ -138,7 +138,7 @@ public sealed class ProjectKeyService
         if (approval.ProjectId is not { } projectId)
             return Result<string>.Invalid("That recycle request is not scoped to a project.");
 
-        var scope = new ScopeTarget(approval.ClientId, approval.ProjectId, null);
+        var scope = new ScopeTarget(approval.ClientId, approval.ProjectId);
         var plaintext = await GraceAndMintAsync(actor, scope, projectId, ct);
         return Result<string>.Ok(plaintext);
     }

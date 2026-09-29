@@ -74,7 +74,7 @@ public static class ConformanceIngestEndpoints
             .Where(u => u.Id == token.CreatedByUserId).Select(u => u.Login).FirstOrDefaultAsync(ct);
         audit.RecordIngest(token.Id, token.Name, actorLogin is null ? null : token.CreatedByUserId, actorLogin,
             AuditActions.ConformanceIngested,
-            new ScopeTarget(token.ClientId, token.Scope == IngestTokenScope.Project ? token.ProjectId : null, null),
+            new ScopeTarget(token.ClientId, token.Scope == IngestTokenScope.Project ? token.ProjectId : null),
             detail: $"conformance: {result.Accepted} accepted, {result.Skipped} skipped across {result.Builds.Count} build(s); {poamsRaised} mandate POA&M(s) raised");
         await db.SaveChangesAsync(ct);
 

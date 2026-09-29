@@ -8,8 +8,6 @@ namespace Tamp.Findings.Api.Endpoints;
 
 public sealed record BuildReceiptDto(
     Guid ComponentVersionId,
-    Guid ComponentId,
-    string ComponentName,
     string? FlavorName,
     string VersionString,
     string? CommitSha,
@@ -69,9 +67,8 @@ public static class ProjectScanReceiptsEndpoints
             .Take(take)
             .Select(v => new
             {
-                v.Id, v.ComponentId, v.VersionString, v.CommitSha,
+                v.Id, v.VersionString, v.CommitSha,
                 v.BranchName, v.BuildId, v.CreatedAt, v.ActorId, v.ActorKind,
-                ComponentName = v.Component!.Name,
                 FlavorName = v.Flavor,
             })
             .ToListAsync(ct);
@@ -88,7 +85,7 @@ public static class ProjectScanReceiptsEndpoints
             .ToDictionary(g => g.Key, g => g.OrderBy(r => r.Scanner.ToString()).ToList());
 
         var builds = cvs.Select(c => new BuildReceiptDto(
-            c.Id, c.ComponentId, c.ComponentName, c.FlavorName,
+            c.Id, c.FlavorName,
             c.VersionString, c.CommitSha, c.BranchName, c.BuildId, c.CreatedAt,
             c.ActorId,
             c.ActorKind?.ToString().ToLowerInvariant(),

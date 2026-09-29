@@ -30,7 +30,7 @@ public static class CapabilityMatrix
             Capability.AuthorSuppression, Capability.AuthorVex, Capability.PublishVex,
             Capability.CreatePoamItem, Capability.CompletePoamItem,
             Capability.EditPolicyWeights, Capability.DuplicatePolicy, Capability.EditGates,
-            Capability.CreateProject, Capability.CreateComponent,
+            Capability.CreateProject,
             Capability.ManageIngestKey, Capability.EditDisclosurePolicy, Capability.AssignRoles,
             // NOT AcceptRisk. An Authorizing Official decision, not a systems
             // privilege. This absence is load-bearing.
@@ -51,7 +51,7 @@ public static class CapabilityMatrix
             Capability.ViewEvidence, Capability.ExportAttestation,
             Capability.AuthorSuppression,
             Capability.CreatePoamItem, Capability.CompletePoamItem,
-            Capability.CreateComponent, Capability.ManageIngestKey,
+            Capability.ManageIngestKey,
             // AuthorVex is conditional — drafts only, InfoSec publishes.
         ],
 
@@ -61,7 +61,7 @@ public static class CapabilityMatrix
             Capability.AuthorSuppression, Capability.AuthorVex, Capability.PublishVex,
             Capability.CreatePoamItem, Capability.CompletePoamItem,
             Capability.DuplicatePolicy,
-            Capability.CreateProject, Capability.CreateComponent,
+            Capability.CreateProject,
             // EditPolicyWeights is conditional — may duplicate, not edit in place.
         ],
 

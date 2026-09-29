@@ -32,82 +32,18 @@ public static class IngestEndpoints
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project is required");
-        if (string.IsNullOrWhiteSpace(req.Component)) return Results.BadRequest("component is required");
         if (string.IsNullOrWhiteSpace(req.Version)) return Results.BadRequest("version is required");
 
         var token = IngestAuthFilter.CurrentToken(ctx);
         var (client, project, scopeErr) = await IngestScopeGuard.ResolveAndGuardAsync(db, token, req.Client, req.Project, ct);
         if (scopeErr is not null) return scopeErr;
 
-        // Case-insensitive Component / Flavor lookup so ingest with
-        // a case-variant of an existing name doesn't auto-create a dupe.
-        var componentLower = req.Component.ToLower();
-        var component = await db.Components
-            .FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name.ToLower() == componentLower, ct);
-        if (component is null)
-        {
-            component = new Component
-            {
-                ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind,
-                // TFND-183: declared capability profile; default code-package.
-                Profile = Tamp.Findings.Domain.Compliance.ComponentProfiles.Parse(req.ComponentProfile),
-            };
-            db.Components.Add(component);
-        }
-        else
-        {
-            if (req.ComponentKind is not null && component.Kind != req.ComponentKind)
-                component.Kind = req.ComponentKind;
-            // A component may be re-classified by a later ingest that declares it.
-            if (req.ComponentProfile is { Length: > 0 })
-                component.Profile = Tamp.Findings.Domain.Compliance.ComponentProfiles.Parse(req.ComponentProfile);
-        }
-
-        ComponentFlavor? flavor = null;
-        if (!string.IsNullOrWhiteSpace(req.Flavor))
-        {
-            var flavorLower = req.Flavor.ToLower();
-            flavor = await db.ComponentFlavors
-                .FirstOrDefaultAsync(f => f.ComponentId == component.Id && f.Name.ToLower() == flavorLower, ct);
-            if (flavor is null)
-            {
-                flavor = new ComponentFlavor { ComponentId = component.Id, Name = req.Flavor };
-                db.ComponentFlavors.Add(flavor);
-            }
-        }
-
-        var version = await db.ComponentVersions.FirstOrDefaultAsync(v =>
-            v.ComponentId == component.Id &&
-            v.FlavorId == (flavor != null ? flavor.Id : (Guid?)null) &&
-            v.VersionString == req.Version, ct);
-
-        if (version is null)
-        {
-            version = new ComponentVersion
-            {
-                // Component-collapse PR1: anchor the build to the project directly and keep the
-                // flavor as a string tag, while still dual-writing the legacy Component/Flavor FKs.
-                ProjectId = project!.Id,
-                Flavor = flavor?.Name,
-                ComponentId = component.Id,
-                FlavorId = flavor?.Id,
-                VersionString = req.Version,
-                CommitSha = req.CommitSha,
-                BranchName = req.Branch,
-                BuildId = req.BuildId,
-                PullRequestRef = req.PullRequestRef,
-            };
-            db.ComponentVersions.Add(version);
-        }
-        else
-        {
-            // Update build-context fields if newly supplied. Useful when the
-            // same version string is re-ingested with richer metadata.
-            if (req.CommitSha is not null) version.CommitSha = req.CommitSha;
-            if (req.Branch is not null) version.BranchName = req.Branch;
-            if (req.BuildId is not null) version.BuildId = req.BuildId;
-            if (req.PullRequestRef is not null) version.PullRequestRef = req.PullRequestRef;
-        }
+        // The build (ComponentVersion) is keyed on (project, flavor, version). component/
+        // componentKind/componentProfile are still accepted on the wire for compatibility but no
+        // longer modelled (component-collapse): the build anchors to the project and flavor is a
+        // string tag. Case-insensitive flavor match so a case-variant doesn't fork a build.
+        var version = await BuildResolver.GetOrCreateAsync(db, project!.Id, req.Flavor, req.Version,
+            req.CommitSha, req.Branch, req.BuildId, req.PullRequestRef, ct);
 
         // TFND-165: stamp the build with the actor that produced this ingest,
         // whether it was just created or already existed.
@@ -137,7 +73,7 @@ public static class IngestEndpoints
         // (TFND-132). Rule-scoped suppressions are bounded by client and
         // project, and the matcher cannot apply that bound without being told
         // where the finding is.
-        var suppressionTarget = new SuppressionTarget(client!.Id, project!.Id, version!.ComponentId);
+        var suppressionTarget = new SuppressionTarget(client!.Id, project!.Id);
 
         bool CoveredBySuppression(Guid? findingId, string ruleId, string? filePath)
             => SuppressionMatcher.AnyCovers(activeSuppressions, suppressionTarget, ruleId, filePath, findingId, now);
@@ -287,9 +223,9 @@ public static class IngestEndpoints
             .Where(u => u.Id == token!.CreatedByUserId).Select(u => u.Login).FirstOrDefaultAsync(ct);
         audit.RecordIngest(token!.Id, token.Name, actorLogin is null ? null : token.CreatedByUserId, actorLogin,
             AuditActions.IngestReceived,
-            new ScopeTarget(client!.Id, project!.Id, version!.ComponentId),
+            ScopeTarget.Project(client!.Id, project!.Id),
             $"{req.Scanner}: {inserted} new, {updated} updated, {reopened} reopened, " +
-            $"{closed} auto-closed, {suppressed} suppressed — {req.Component}{flavorPart}@{req.Version}{shaPart}"
+            $"{closed} auto-closed, {suppressed} suppressed — {req.Project}{flavorPart}@{req.Version}{shaPart}"
             + (untrusted ? " [untrusted contributor — auto-close suppressed]" : ""));
 
         await db.SaveChangesAsync(ct);

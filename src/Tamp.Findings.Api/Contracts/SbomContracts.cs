@@ -10,7 +10,7 @@ public sealed record SbomIngestRequest(
     // Build context — same address-by-name pattern as IngestRequest.
     string Client,
     string Project,
-    string Component,
+    string? Component,
     string? ComponentKind,
     string? Flavor,
     string Version,

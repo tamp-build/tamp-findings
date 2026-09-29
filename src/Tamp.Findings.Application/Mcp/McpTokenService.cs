@@ -123,7 +123,6 @@ public sealed class McpTokenService
             Name = name,
             ClientId = scope.ClientId,
             ProjectId = scope.ProjectId,
-            ComponentId = scope.ComponentId,
             Role = role,
             TokenHash = Hash(wire),
             CreatedByUserId = actor.UserId,
@@ -184,7 +183,7 @@ public sealed class McpTokenService
         token.LastUsedAt = asOf;
         await _db.SaveChangesAsync(ct);
 
-        var scope = new ScopeTarget(token.ClientId, token.ProjectId, token.ComponentId);
+        var scope = new ScopeTarget(token.ClientId, token.ProjectId);
 
         // Guid.Empty as the user id, and a login that says what this is. An
         // agent is not a person, and an audit entry claiming a human took an
@@ -218,8 +217,7 @@ public sealed class McpTokenService
     }
 
     private static string Tier(McpToken token) =>
-        token.ComponentId is not null ? "Component"
-        : token.ProjectId is not null ? "Project"
+        token.ProjectId is not null ? "Project"
         : "Client";
 
     internal static string Hash(string wire) =>

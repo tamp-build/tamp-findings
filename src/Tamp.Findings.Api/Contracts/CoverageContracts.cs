@@ -3,7 +3,7 @@ namespace Tamp.Findings.Api.Contracts;
 public sealed record CoverageIngestRequest(
     string Client,
     string Project,
-    string Component,
+    string? Component,
     string? ComponentKind,
     string? Flavor,
     string Version,

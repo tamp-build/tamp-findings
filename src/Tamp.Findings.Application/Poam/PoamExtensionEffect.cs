@@ -58,7 +58,7 @@ public sealed class PoamExtensionEffect : IApprovalEffect
         item.UpdatedAt = DateTimeOffset.UtcNow;
 
         _audit.Record(decider, AuditActions.PoamExtensionRequested, AuditClass.Risk,
-            new ScopeTarget(approval.ClientId, approval.ProjectId, null),
+            new ScopeTarget(approval.ClientId, approval.ProjectId),
             subjectId: item.Id, subjectKind: nameof(PoamItem),
             detail: $"{item.Title}: {Show(previous)} → {Show(newDate)} — approved extension request "
                   + $"from {approval.RequestedByLogin}"

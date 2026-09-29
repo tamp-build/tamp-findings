@@ -25,7 +25,7 @@ public class IngestActorPersistenceTests
         using (var scope = _fx.Scope())
         {
             var db = _fx.Db(scope);
-            var (_, _, version) = await SeedBuildAsync(db);
+            var (_, version) = await SeedBuildAsync(db);
             version.ActorId = "pool/3";
             version.ActorKind = IngestActorKind.Agent;
             await db.SaveChangesAsync();
@@ -51,7 +51,7 @@ public class IngestActorPersistenceTests
         using (var scope = _fx.Scope())
         {
             var db = _fx.Db(scope);
-            var (_, _, version) = await SeedBuildAsync(db);
+            var (_, version) = await SeedBuildAsync(db);
             await db.SaveChangesAsync();
             versionId = version.Id;
         }
@@ -65,21 +65,19 @@ public class IngestActorPersistenceTests
         }
     }
 
-    private static async Task<(Client, Component, ComponentVersion)> SeedBuildAsync(FindingsDbContext db)
+    private static async Task<(Client, ComponentVersion)> SeedBuildAsync(FindingsDbContext db)
     {
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var client = new Client { Name = $"actor-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"actor-project-{suffix}" };
-        var component = new Component { ProjectId = project.Id, Name = $"actor-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = suffix + "aaaaaa",
+            ProjectId = project.Id, VersionString = "1.0.0", CommitSha = suffix + "aaaaaa",
         };
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
         await db.SaveChangesAsync();
-        return (client, component, version);
+        return (client, version);
     }
 }

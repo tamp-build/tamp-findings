@@ -71,17 +71,7 @@ public sealed class ProjectHubQuery
 
         if (found is null) return null;
 
-        if (visible.CanSeeProject(found.ClientId, found.ProjectId)) return found;
-
-        // A component-level grant makes the project reachable as the container
-        // for that component, but no wider. Without this, somebody granted a
-        // role on one component could not open the project it lives in.
-        var componentIds = await _db.Components.AsNoTracking()
-            .Where(c => c.ProjectId == found.ProjectId)
-            .Select(c => c.Id)
-            .ToArrayAsync(ct);
-
-        return componentIds.Any(visible.Components.Contains) ? found : null;
+        return visible.CanSeeProject(found.ClientId, found.ProjectId) ? found : null;
     }
 
     /// <summary>

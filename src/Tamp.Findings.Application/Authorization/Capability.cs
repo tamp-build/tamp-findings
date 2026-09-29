@@ -57,7 +57,6 @@ public enum Capability
     EditGates,
 
     CreateProject,
-    CreateComponent,
 
     /// <summary>
     /// Set or recycle the project ingest key. Recycling breaks CI until the

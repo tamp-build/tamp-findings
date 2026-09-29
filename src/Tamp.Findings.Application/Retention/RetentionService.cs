@@ -162,18 +162,13 @@ public sealed class RetentionService
             .Select(a => $"{a.ProjectId}|{a.CommitSha}")
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var projectOf = await _db.Components.AsNoTracking()
-            .Select(c => new { c.Id, c.ProjectId })
-            .ToDictionaryAsync(c => c.Id, c => c.ProjectId, ct);
-
         var deleted = 0;
         var kept = 0;
 
         foreach (var version in candidates)
         {
             var isAttested = version.CommitSha is { Length: > 0 } sha
-                && projectOf.TryGetValue(version.ComponentId, out var projectId)
-                && attestedKeys.Contains($"{projectId}|{sha}");
+                && attestedKeys.Contains($"{version.ProjectId}|{sha}");
 
             if (isAttested)
             {

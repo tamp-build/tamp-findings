@@ -211,17 +211,15 @@ public class DependencyPathIntegrationTests
     private static Guid Snapshot(
         Tamp.Findings.Data.FindingsDbContext db, Guid projectId, string suffix, string tag)
     {
-        var component = new Component { ProjectId = projectId, Name = tag };
+        
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = $"{suffix}{tag}",
+            ProjectId = projectId, VersionString = "1.0.0", CommitSha = $"{suffix}{tag}",
         };
         var snapshot = new SbomSnapshot
         {
             ComponentVersionId = version.Id, ToolName = "syft", SpecVersion = "1.5",
         };
-
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
         db.SbomSnapshots.Add(snapshot);
 
