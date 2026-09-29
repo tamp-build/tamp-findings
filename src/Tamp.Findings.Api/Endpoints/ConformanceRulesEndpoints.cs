@@ -56,7 +56,8 @@ public static class ConformanceRulesEndpoints
             .Where(u => u.Id == token.CreatedByUserId).Select(u => u.Login).FirstOrDefaultAsync(ct);
         audit.RecordIngest(token.Id, token.Name, actorLogin is null ? null : token.CreatedByUserId, actorLogin,
             AuditActions.AdrRulesPushed, new ScopeTarget(token.ClientId, pid, null),
-            detail: $"adr-rules: {result.Upserted} upserted, {result.Retired} retired, {result.Active} active");
+            detail: $"adr-rules: {result.Upserted} upserted, {result.Retired} retired, {result.Active} active"
+                  + (result.Superseded.Count > 0 ? $", {result.Superseded.Count} mandate POA&M(s) superseded" : ""));
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(result);

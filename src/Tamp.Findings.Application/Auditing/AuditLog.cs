@@ -183,6 +183,9 @@ public static class AuditActions
     public const string PoamCompleted = "poam.completed";
     public const string PoamExtensionRequested = "poam.extension_requested";
     public const string PoamDeleted = "poam.deleted";
+    // A mandate POA&M auto-closed because a rule generation invalidated the reviewed mapping
+    // that raised it (TFND-196). System-attributed — it is an automatic consequence of a push.
+    public const string MandatePoamSuperseded = "poam.superseded";
     public const string SuppressionAuthored = "suppression.authored";
     public const string VexPublished = "vex.published";
     public const string PolicySaved = "policy.saved";
