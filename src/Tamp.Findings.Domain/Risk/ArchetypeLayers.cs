@@ -8,8 +8,10 @@ namespace Tamp.Findings.Domain.Risk;
 /// composed OVER the client's compliance baseline: it only ever adds gates and required scanners,
 /// never removes, so under the strictest-wins merge no caller input can subtract an obligation
 /// (the downgrade-proof property). The archetype carries no enforcement mode — it inherits the
-/// baseline's — and no control assertions or denied licences; it is purely the "what extra does
-/// THIS kind of thing owe" overlay.
+/// baseline's — and no denied licences. It DOES carry control-applicability assertions (TFND-209 /
+/// ADR 0015): the archetype decides that a Library inherits the runtime control families it never
+/// implements while a Service owns them — so the overlay includes which controls it is even on the
+/// hook for, not just which extra gates it owes.
 ///
 /// Bootstrap-in-code for now; TFND-203 phase B moves these definitions into the distributable
 /// content pack so a baseline/archetype change ships as a DB update, not an app republish.
@@ -20,7 +22,7 @@ public static class ArchetypeLayers
     /// An unclassified project fails upward to <see cref="ProjectArchetype.ServiceApp"/>.</summary>
     public static PolicyLayer For(ProjectArchetype? archetype) => (archetype ?? ProjectArchetype.ServiceApp) switch
     {
-        ProjectArchetype.Library => new(),
+        ProjectArchetype.Library => Library(),
         ProjectArchetype.ContainerAction => Container(),
         _ => Service(),
     };
@@ -51,6 +53,55 @@ public static class ArchetypeLayers
         }}{(archetype is null ? " (unclassified → fail-upward)" : "")}";
 
     private static GateConfig On(double? threshold = null) => new() { Enabled = true, Threshold = threshold };
+
+    // A code library implements none of the RUNTIME controls a deployed system does — access control,
+    // communications protection, identification/authentication, audit logging. Those are provided by
+    // the system that consumes and deploys the library, so they are Inherited, not the library's to
+    // evidence. Wireless / mobile-device / collaborative-computing controls do not apply at all.
+    //
+    // The lists are sourced against FedRAMP High; NIST baselines nest (High ⊇ Moderate ⊇ Low), so this
+    // covers every federal library baseline — control ids not in a given baseline are simply ignored by
+    // the resolver. Org/authorization common controls (CA/SA/SR/RA/PL program docs) live on the TEMPLATE
+    // (they are archetype-independent). The crypto cluster (SC-8/13/28/12/17, IA-7) is dispositioned
+    // PER PROJECT, where the code evidence for "we don't ship our own crypto" lives. Controls a library
+    // genuinely OWNS (SA-11, RA-5, CM-8, SI-2/7, …) are NOT inherited here — the template gates them.
+    // (TFND-209 / ADR 0015. A project override still wins, e.g. a library that really does own a control.)
+    private static PolicyLayer Library() => new()
+    {
+        Assertions =
+        {
+            new ControlAssertion
+            {
+                Kind = ControlDispositionKind.Inherited,
+                InheritedFrom = "the system that deploys this library (hosting platform + consuming service, under its ATO)",
+                Justification = "A code library implements no runtime access control, communications protection, identification/authentication, or audit logging of its own; the deploying system provides them.",
+                ControlIds =
+                [
+                    "AC-2", "AC-2(1)", "AC-2(2)", "AC-2(3)", "AC-2(4)", "AC-2(5)", "AC-2(11)", "AC-2(12)", "AC-2(13)",
+                    "AC-3", "AC-4", "AC-4(4)", "AC-5", "AC-6", "AC-6(1)", "AC-6(2)", "AC-6(3)", "AC-6(5)", "AC-6(7)",
+                    "AC-6(9)", "AC-6(10)", "AC-7", "AC-8", "AC-10", "AC-11", "AC-11(1)", "AC-12", "AC-14",
+                    "AC-17", "AC-17(1)", "AC-17(2)", "AC-17(3)", "AC-17(4)", "AC-20", "AC-20(1)", "AC-20(2)", "AC-21", "AC-22",
+                    "AU-2", "AU-3", "AU-3(1)", "AU-4", "AU-5", "AU-5(1)", "AU-5(2)", "AU-6", "AU-6(1)", "AU-6(3)",
+                    "AU-6(5)", "AU-6(6)", "AU-7", "AU-7(1)", "AU-8", "AU-9", "AU-9(2)", "AU-9(3)", "AU-9(4)",
+                    "AU-10", "AU-11", "AU-12", "AU-12(1)", "AU-12(3)",
+                    "IA-2", "IA-2(1)", "IA-2(2)", "IA-2(5)", "IA-2(8)", "IA-2(12)", "IA-3", "IA-4", "IA-4(4)",
+                    "IA-5(1)", "IA-5(2)", "IA-5(6)", "IA-6", "IA-8", "IA-8(1)", "IA-8(2)", "IA-8(4)",
+                    "IA-11", "IA-12", "IA-12(2)", "IA-12(3)", "IA-12(4)", "IA-12(5)",
+                    "SC-2", "SC-3", "SC-4", "SC-5", "SC-7(3)", "SC-7(4)", "SC-7(5)", "SC-7(7)", "SC-7(8)",
+                    "SC-7(18)", "SC-7(21)", "SC-10", "SC-20", "SC-21", "SC-22", "SC-23", "SC-24", "SC-39",
+                ],
+            },
+            new ControlAssertion
+            {
+                Kind = ControlDispositionKind.NotApplicable,
+                Justification = "The component implements no wireless, mobile-device, or collaborative-computing technologies, so these controls have no applicable surface.",
+                ControlIds =
+                [
+                    "AC-18", "AC-18(1)", "AC-18(3)", "AC-18(4)", "AC-18(5)", "AC-19", "AC-19(5)", "SC-15",
+                ],
+            },
+        },
+    };
 
     // + base-image freshness (a container that isn't web-facing).
     private static PolicyLayer Container() => new()

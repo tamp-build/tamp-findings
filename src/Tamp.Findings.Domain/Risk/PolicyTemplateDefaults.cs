@@ -100,6 +100,29 @@ public static class PolicyTemplateDefaults
             Justification = "physical and environmental protection is provided by the underlying platform",
         });
 
+        // Organizational / authorization-program common controls (TFND-209 / ADR 0015): control
+        // assessment (CA), the acquisition & SDLC program (SA), the supply-chain program (SR), risk
+        // management (RA), and planning (PL) documentation are owned by the org's authorization
+        // boundary, not any single artifact. Archetype-INDEPENDENT (true for a library and a service
+        // alike), so they live on the template rather than an archetype layer. A project that genuinely
+        // owns one can override it upward. The "we prove it" members of these families (RA-5, SA-11,
+        // SA-15, CA-8, SR-3) are gated above and not repeated here.
+        layer.Assertions.Add(new ControlAssertion
+        {
+            Kind = ControlDispositionKind.Inherited,
+            InheritedFrom = "the organizational common-control provider / system authorization boundary",
+            Justification = "control assessment, acquisition/SDLC, supply-chain, risk-management, and planning program controls are provided by the organization's authorization boundary, not an individual artifact",
+            ControlIds =
+            [
+                "CA-2", "CA-2(1)", "CA-2(2)", "CA-3", "CA-3(6)", "CA-6", "CA-7(1)", "CA-8(1)", "CA-9",
+                "SA-2", "SA-3", "SA-4", "SA-4(1)", "SA-4(2)", "SA-4(5)", "SA-4(9)", "SA-4(10)", "SA-5",
+                "SA-8", "SA-9", "SA-9(2)", "SA-16", "SA-17", "SA-21",
+                "SR-2", "SR-2(1)", "SR-5", "SR-6", "SR-8", "SR-12", "SR-11(1)", "SR-11(2)",
+                "RA-2", "RA-3", "RA-7", "RA-9",
+                "PL-2", "PL-4", "PL-4(1)", "PL-8",
+            ],
+        });
+
         // The meta-gate itself: enabled so coverage is measured; blocking is the
         // enforcement lever (ADR 0004) — advisory until the matrix is clean.
         layer.Gates[GateKeys.NoUnmapped] = On();

@@ -11,11 +11,21 @@ namespace Tamp.Findings.Domain.Tests.Risk;
 public class ArchetypeLayersTests
 {
     [Fact]
-    public void Library_adds_nothing_over_the_baseline()
+    public void Library_adds_no_gates_but_asserts_control_applicability()
     {
         var lib = ArchetypeLayers.For(ProjectArchetype.Library);
+        // A library owes no extra GATES or scanners over the baseline.
         Assert.Empty(lib.Gates);
         Assert.Empty(lib.RequiredScanners);
+        // But it does declare the runtime control families it inherits and the ones that don't apply.
+        var inherited = lib.Assertions.Where(a => a.Kind == ControlDispositionKind.Inherited).SelectMany(a => a.ControlIds).ToHashSet();
+        var na = lib.Assertions.Where(a => a.Kind == ControlDispositionKind.NotApplicable).SelectMany(a => a.ControlIds).ToHashSet();
+        Assert.Contains("AC-2", inherited);     // access control — the deploying system's
+        Assert.Contains("AU-2", inherited);     // audit logging — the deploying system's
+        Assert.Contains("IA-2", inherited);     // user authentication — the deploying system's
+        Assert.Contains("AC-18", na);           // wireless — no applicable surface
+        // A library never GATES via the archetype layer (that would claim it owns + proves the control).
+        Assert.DoesNotContain("SA-11", inherited);   // developer testing is OWNED (template-gated), not inherited
     }
 
     [Fact]
@@ -93,11 +103,16 @@ public class ArchetypeLayersTests
     public void Every_archetype_layer_is_additive_only_never_loosens(ProjectArchetype? archetype)
     {
         var layer = ArchetypeLayers.For(archetype);
-        // Additive-only: it carries no mode, no licence denials, no control assertions, no POA&M
-        // windows — only gate/required-scanner ADDITIONS. So a merge can never use it to loosen.
+        // Additive-only: no mode override, no licence denials, no POA&M windows — only gate/scanner
+        // ADDITIONS and control-APPLICABILITY assertions, so a merge can never use it to loosen.
         Assert.Null(layer.Mode);
         Assert.Empty(layer.DeniedLicenses);
-        Assert.Empty(layer.Assertions);
         Assert.Empty(layer.PoamDeadlineDays);
+        // Any assertions it carries are applicability only (Inherited / NotApplicable) — never a Gated
+        // ownership claim, which under strictest-wins is the one kind that could displace a stricter
+        // upper-layer disposition.
+        Assert.All(layer.Assertions, a =>
+            Assert.True(a.Kind is ControlDispositionKind.Inherited or ControlDispositionKind.NotApplicable,
+                $"archetype assertions must be applicability-only, found {a.Kind}"));
     }
 }
