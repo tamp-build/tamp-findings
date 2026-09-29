@@ -1,0 +1,129 @@
+@* Undocumented decisions (TFND-197 / ADR 0013). Reverse-examination — architectural decisions
+   the code made that NO ADR records, a CM-3 change-control drift signal. The inverse of the
+   conformance verdicts: those check code AGAINST an ADR; these find code with no governing ADR.
+   ADVISORY, always: never a gate, never a verdict — the remedy is "write an ADR." Read-only. *@
+@page "/c/{Client}/p/{Project}/decisions"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using Tamp.Findings.Application.Compliance
+@inject RouteScope Scope
+@inject ProjectHubQuery Hub
+@inject DecisionDiagnosticsQuery DecisionsQuery
+@inject CurrentUser Me
+
+<PageTitle>Undocumented decisions — @Project</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>Undocumented decisions</h1>
+        <Card><div class="row"><Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" /><span>Could not load decisions. @_error</span></div></Card>
+    </div>
+}
+else if (_project is null)
+{
+    <div class="stack"><h1>Project not found</h1><Card><p>No project matches <code class="mono">@Client / @Project</code>.</p></Card></div>
+}
+else
+{
+    <div class="stack">
+        <div>
+            <div class="kicker">reverse-examination · change control (CM-3, ADR 0013)</div>
+            <h1>@_project.ProjectName</h1>
+        </div>
+
+        @if (_report is null)
+        {
+            <Card>
+                <div class="row"><Chip Label="Not examined" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="○" /><span>No reverse-examination has run for this project's latest build. An absent report is honestly "not examined" — not "every decision is documented".</span></div>
+            </Card>
+        }
+        else
+        {
+            <Card>
+                <div class="row row--between">
+                    <div class="row" style="gap: var(--space-4)">
+                        <Stat Label="Undocumented" Value="@_report.Decisions.Count" Tone="@(_report.Decisions.Count > 0 ? "var(--color-medium)" : "var(--color-pass)")" />
+                        <Stat Label="Kinds" Value="@_report.CountsByKind.Count" />
+                    </div>
+                    @if (_report.CommitSha is { Length: > 0 })
+                    {
+                        <Chip Label="@($"commit {_report.CommitSha[..Math.Min(8, _report.CommitSha.Length)]}")" Tone="var(--color-neutral-500)" Style="Chip.ChipStyle.Outlined" Glyph="⎇" />
+                    }
+                </div>
+                <p class="field__help">
+                    Each item is a decision the code made — a new dependency, endpoint, or boundary — that
+                    <strong>no ADR records</strong>. This is <strong>advisory</strong>: it never blocks a build and
+                    carries no verdict. The remedy is to <strong>write an ADR</strong> (or, if the decision isn't
+                    material, nothing). It's the inverse of conformance — that checks code against an ADR; this finds
+                    code with no governing ADR at all.
+                </p>
+            </Card>
+
+            @if (_report.Decisions.Count == 0)
+            {
+                <NothingFound Message="No undocumented decisions on the latest build — every material decision the examiner flagged is covered by an ADR." />
+            }
+            else
+            {
+                @foreach (var group in _report.Decisions.GroupBy(d => d.Kind).OrderBy(g => g.Key, StringComparer.Ordinal))
+                {
+                    <Card>
+                        <h2 class="h3">@KindLabel(group.Key) <span class="muted">· @group.Count()</span></h2>
+                        <div class="ruletable">
+                            @foreach (var d in group.OrderBy(x => x.Location, StringComparer.Ordinal))
+                            {
+                                <div class="rulerow">
+                                    <div class="rulerow__main">
+                                        <div class="row" style="gap: var(--space-2)">
+                                            <Chip Label="advisory" Tone="var(--color-neutral-500)" Style="Chip.ChipStyle.Dashed" Glyph="○" />
+                                            @if (d.Location is { Length: > 0 })
+                                            {
+                                                <code class="mono">@d.Location</code>
+                                            }
+                                            @foreach (var cr in d.ControlRefs)
+                                            {
+                                                <Chip Label="@cr" Tone="var(--color-neutral-600)" Style="Chip.ChipStyle.Outlined" />
+                                            }
+                                        </div>
+                                        <div class="rulerow__intent">@d.Summary</div>
+                                    </div>
+                                    <div class="rulerow__action muted">→ write an ADR</div>
+                                </div>
+                            }
+                        </div>
+                    </Card>
+                }
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+
+    private string? _error;
+    private Application.Projects.ProjectRef? _project;
+    private DecisionReport? _report;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project);
+        _error = null;
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
+            if (_project is null) return;
+            _report = await DecisionsQuery.ForProjectAsync(_project.ProjectId);
+        }
+        catch (Exception ex) { _error = ex.GetType().Name; }
+    }
+
+    // "new-dependency" → "New dependency". Producer-defined kinds, so just humanize the slug.
+    private static string KindLabel(string kind)
+    {
+        var s = kind.Replace('-', ' ').Replace('_', ' ').Trim();
+        return s.Length == 0 ? "Decision" : char.ToUpperInvariant(s[0]) + s[1..];
+    }
+}

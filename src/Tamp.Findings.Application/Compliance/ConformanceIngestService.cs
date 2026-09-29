@@ -173,4 +173,7 @@ public sealed class ConformanceIngestService(FindingsDbContext db)
 internal static class BuildEventTypes
 {
     public const string ConformanceEvaluated = "conformance.evaluated";
+    // Reverse-examination advisories ride the generic diagnostic channel (ADR 0013); the
+    // undocumented-decision: ruleId prefix distinguishes them from other diagnostics.
+    public const string DiagnosticEmitted = "diagnostic.emitted";
 }

@@ -200,6 +200,8 @@ public static class AuditActions
     public const string AdrRulesPushed = "adr_rules.pushed";
     public const string AdrRulesetRead = "adr_ruleset.read";
     public const string ConformanceIngested = "conformance.ingested";
+    // Reverse-examination advisories ingested (ADR 0013) — undocumented-decision notes.
+    public const string DiagnosticsIngested = "diagnostics.ingested";
 
     // Access — who can do what changed.
     // The two bootstrap paths to administrator — the single most privileged,
