@@ -45,6 +45,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<ControlCatalog> ControlCatalogs => Set<ControlCatalog>();
     public DbSet<Framework> Frameworks => Set<Framework>();
     public DbSet<ConformanceFinding> ConformanceFindings => Set<ConformanceFinding>();
+    public DbSet<DecisionDiagnostic> DecisionDiagnostics => Set<DecisionDiagnostic>();
     public DbSet<KevAdvisory> KevAdvisories => Set<KevAdvisory>();
     public DbSet<VexStatement> VexStatements => Set<VexStatement>();
     public DbSet<PoamItem> PoamItems => Set<PoamItem>();
@@ -617,6 +618,22 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.MandateId).HasMaxLength(128);
             e.HasIndex(x => x.ComponentVersionId);
             e.HasIndex(x => x.MandateId);
+        });
+
+        // Undocumented-decision advisories (reverse-examination, ADR 0013). Advisory-only
+        // governance evidence — never gates. Upsert key is (build, ruleId, location) so a
+        // re-run refreshes rather than duplicates.
+        b.Entity<DecisionDiagnostic>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.RuleId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Kind).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Summary).HasColumnType("text").IsRequired();
+            e.Property(x => x.Location).HasMaxLength(1024);
+            e.Property(x => x.CommitSha).HasMaxLength(128);
+            e.Property(x => x.ControlRefs).HasColumnType("jsonb");
+            e.HasIndex(x => x.ComponentVersionId);
+            e.HasIndex(x => new { x.ComponentVersionId, x.RuleId, x.Location });
         });
 
         // ── tamp-EOProvenance (ADR 0011) ──

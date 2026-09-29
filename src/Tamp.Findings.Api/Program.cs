@@ -709,6 +709,7 @@ app.MapZtProfile();
 app.MapConformanceRules();
 app.MapConformanceDisposition();
 app.MapConformanceIngest();
+app.MapDecisionDiagnosticIngest();
 
 // SPA-facing query endpoints — protected by the fallback policy
 // (RequireAuthenticatedUser; see AuthExtensions) AND, since TFND-133, by the

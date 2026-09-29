@@ -82,6 +82,11 @@ public static class Routes
     public static string ControlCoverage(string client, string project) =>
         $"/c/{E(client)}/p/{E(project)}/coverage";
 
+    /// <summary>Undocumented decisions (TFND-197 / ADR 0013): reverse-examination advisories —
+    /// architectural decisions in the code that no ADR records (CM-3 change-control drift).</summary>
+    public static string Decisions(string client, string project) =>
+        $"/c/{E(client)}/p/{E(project)}/decisions";
+
     /// <summary>
     /// Deep link to one statement, or to writing the one that is missing.
     ///

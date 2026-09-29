@@ -127,6 +127,7 @@
                     new(L["Nav.Poam"], Routes.Poam(c!, p!)),
                     new(L["Nav.Vex"], Routes.Vex(c!, p!)),
                     new(new Microsoft.Extensions.Localization.LocalizedString("Conformance rules", "Conformance rules"), Routes.ConformanceRules(c!, p!)),
+                    new(new Microsoft.Extensions.Localization.LocalizedString("Undocumented decisions", "Undocumented decisions"), Routes.Decisions(c!, p!)),
                     new(L["Nav.Costs"], Routes.Costs(c!, p!)),
                 };
                 if (b is not null) evidence.Add(new(L["Nav.Attestation"], Routes.Attestation(c!, p!, b)));
