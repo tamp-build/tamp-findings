@@ -1,0 +1,97 @@
+@* Policy pack import (TFND-203 phase B). Baseline policy templates are the source of truth in the
+   DB, described by a versioned content pack (JSON). An admin applies a pack here — a DB update — so
+   a baseline change ships WITHOUT an app republish. The startup code seeder is only the first-boot
+   bootstrap; an applied template is marked not-seeded so the seeder leaves it alone. EditPolicyWeights. *@
+@page "/system/policy-pack"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using System.Text.Json
+@using Tamp.Findings.Application.Policy
+@inject PolicyPackService Packs
+@inject CurrentUser Me
+
+<PageTitle>Policy pack — tamp.findings</PageTitle>
+
+<div class="stack">
+    <div>
+        <div class="kicker">system · baseline distribution (ADR 0007 / TFND-203)</div>
+        <h1>Policy pack</h1>
+    </div>
+
+    <Card>
+        <p class="field__help">
+            Apply a versioned <strong>content pack</strong> of baseline policy templates. This is a
+            database update — a baseline change ships this way, <strong>not</strong> by rebuilding and
+            redeploying the app. Applying a template marks it pack-managed, so the shipped bootstrap
+            never overwrites it on a later deploy. Idempotent: a template already matching the pack is
+            left untouched. Shape: <code class="mono">{ "packVersion": "…", "templates": [ { "name": "…",
+            "scoring": "default|federal", "layer": { …PolicyLayer… } } ] }</code>.
+        </p>
+
+        <label class="field">
+            <span class="field__label">Pack JSON</span>
+            <textarea class="field__input mono" rows="16" @bind="_json" @bind:event="oninput"
+                      disabled="@(!_can.Allowed)" spellcheck="false"
+                      placeholder='{ "packVersion": "2026-09-30", "templates": [ … ] }'></textarea>
+        </label>
+
+        @if (_error is not null)
+        {
+            <Card Surface><div class="row"><Chip Label="Not applied" Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" Glyph="!" /><span>@_error</span></div></Card>
+        }
+        @if (_result is { } r)
+        {
+            <Card Surface>
+                <div class="row" style="gap: var(--space-4)">
+                    <Chip Label="@($"Applied {r.PackVersion ?? "(unversioned)"}")" Tone="var(--color-pass)" Style="Chip.ChipStyle.Solid" Glyph="✓" />
+                    <Stat Label="Created" Value="@r.Created" Tone="var(--color-pass)" />
+                    <Stat Label="Updated" Value="@r.Updated" Tone="@(r.Updated > 0 ? "var(--color-accent)" : null)" />
+                    <Stat Label="Unchanged" Value="@r.Unchanged" />
+                </div>
+            </Card>
+        }
+
+        <div class="row" style="gap: var(--space-2); margin-top: var(--space-3)">
+            <Button Variant="Button.ButtonVariant.Primary"
+                    Disabled="@(!_can.Allowed || _busy || string.IsNullOrWhiteSpace(_json))"
+                    DisabledReason="@(_can.Allowed ? null : _can.Reason)"
+                    OnClick="Apply">Apply pack</Button>
+        </div>
+    </Card>
+</div>
+
+@code {
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    private string _json = "";
+    private string? _error;
+    private PolicyPackResult? _result;
+    private bool _busy;
+    private AuthorizationDecision _can = AuthorizationDecision.Deny("Checking…");
+
+    protected override async Task OnInitializedAsync()
+    {
+        _can = await Me.CanAsync(Capability.EditPolicyWeights, ScopeTarget.Instance);
+    }
+
+    private async Task Apply()
+    {
+        if (_busy) return;
+        _busy = true; _error = null; _result = null;
+        try
+        {
+            PolicyPack? pack;
+            try { pack = JsonSerializer.Deserialize<PolicyPack>(_json, Json); }
+            catch (JsonException ex) { _error = $"That is not a valid pack: {ex.Message}"; return; }
+            if (pack is null) { _error = "The pack was empty."; return; }
+
+            var actor = await Me.AtAsync(ScopeTarget.Instance);
+            if (actor is null) { _error = "You must be signed in."; return; }
+
+            var result = await Packs.ApplyAsync(actor, pack);
+            if (!result.Success) { _error = result.Error; return; }
+            _result = result.Value;
+        }
+        finally { _busy = false; }
+    }
+}

@@ -124,6 +124,10 @@ public static class Routes
     /// of EO/memo directives: what was mandated, by what authority, and in force as of any date.</summary>
     public static string EoRegistry() => "/system/eo-registry";
 
+    /// <summary>System → Policy pack import (TFND-203 phase B). Apply a versioned content pack of
+    /// baseline templates — a DB update, so a baseline change ships without an app republish.</summary>
+    public static string PolicyPack() => "/system/policy-pack";
+
     /// <summary>Manage → Policy templates (ADR 0007). The list, or one template's editor.</summary>
     public static string PolicyTemplates(Guid? id = null) =>
         id is { } g ? $"/manage/policy-templates/{g}" : "/manage/policy-templates";
