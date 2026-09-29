@@ -222,21 +222,29 @@ public sealed class ConformanceRulesService(FindingsDbContext db, CapabilityEval
     }
 
     // A real content change — the fields a human reviews — not the per-push generation sha.
-    // A per-rule RulesSha, when the generator supplies one, is the authoritative signal;
-    // otherwise fall back to comparing the reviewed content field-by-field.
+    //
+    // Findings owns whether its stored review is still valid; it does NOT assume the producer's
+    // content hash covers everything findings reviews. The generator's per-rule RulesSha is a
+    // precise signal for what it DOES hash (tamp's is sha256 over checkSpec + ruleId + intent),
+    // so it's used for those; but the method and the mapping annotations (which mandate, which
+    // controls, which ZT function a verdict gates) are reviewed content too and are NOT in that
+    // hash — so they are always compared directly, regardless of the RulesSha. That keeps
+    // re-review correct against any producer, whatever its hash happens to include.
     private static bool ContentChanged(ConformanceRule existing, AdrRuleDto dto)
     {
-        if (!string.IsNullOrWhiteSpace(dto.RulesSha))
-            return !string.Equals(existing.RulesSha, dto.RulesSha, StringComparison.OrdinalIgnoreCase);
-
-        return existing.CheckSpec != dto.CheckSpec
-            || existing.Method != Parse(dto.Method, ConformanceMethod.Deterministic)
-            || existing.Intent != dto.Intent
+        // Reviewed fields outside the producer's content hash — always checked directly.
+        if (existing.Method != Parse(dto.Method, ConformanceMethod.Deterministic)
             || existing.MandateId != dto.MandateId
             || existing.ZtPillar != dto.ZtPillar
             || existing.ZtFunction != dto.ZtFunction
             || existing.ZtStage != dto.ZtStage
-            || !new HashSet<string>(existing.ControlRefs, StringComparer.Ordinal).SetEquals(dto.ControlRefs ?? []);
+            || !new HashSet<string>(existing.ControlRefs, StringComparer.Ordinal).SetEquals(dto.ControlRefs ?? []))
+            return true;
+
+        // The checkable content: the per-rule hash when supplied, else the fields themselves.
+        if (!string.IsNullOrWhiteSpace(dto.RulesSha))
+            return !string.Equals(existing.RulesSha, dto.RulesSha, StringComparison.OrdinalIgnoreCase);
+        return existing.CheckSpec != dto.CheckSpec || existing.Intent != dto.Intent;
     }
 
     private static TEnum Parse<TEnum>(string? value, TEnum fallback) where TEnum : struct
