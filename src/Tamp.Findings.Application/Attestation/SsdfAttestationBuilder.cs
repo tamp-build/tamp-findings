@@ -31,11 +31,13 @@ public sealed class SsdfAttestationBuilder
 {
     private readonly FindingsDbContext _db;
     private readonly RiskInputsBuilder _inputs;
+    private readonly Risk.ScoringPolicyResolver _scoring;
 
-    public SsdfAttestationBuilder(FindingsDbContext db, RiskInputsBuilder inputs)
+    public SsdfAttestationBuilder(FindingsDbContext db, RiskInputsBuilder inputs, Risk.ScoringPolicyResolver scoring)
     {
         _db = db;
         _inputs = inputs;
+        _scoring = scoring;
     }
 
     /// <summary>
@@ -86,12 +88,7 @@ public sealed class SsdfAttestationBuilder
             .ToList();
         var buildSig = wanted;
 
-        var policyId = project.RiskPolicyId ?? project.Client?.RiskPolicyId;
-        RiskPolicy? policy = null;
-        if (policyId is { } pid)
-            policy = await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == pid, ct);
-        policy ??= await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
-        if (policy is null) return null;
+        var policy = await _scoring.ForProjectAsync(project.Id, ct);
 
         // TFND-32: VDP metadata drives RV.3.1 evidence.
         var vdp = new VdpEvidence(project.VdpPolicyUrl, project.VdpContactEmail, project.VdpReportingFormUrl);

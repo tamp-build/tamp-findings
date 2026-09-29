@@ -80,7 +80,8 @@
 
     <p class="field__help">
         SAT = category saturated: more findings of that class cannot raise the score.
-        @Data.Risk.Breakdown.Count of @Data.Risk.Breakdown.Count scored categories shown.
+        @Data.Risk.Breakdown.Count(r => r.Enabled) of @Data.Risk.Breakdown.Count scored categories shown.
+        Categories the component cannot produce evidence for are excluded from the score.
     </p>
 </Card>
 

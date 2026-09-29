@@ -67,8 +67,16 @@
     {
         if (Gates.Enabled == 0) return "No gates are enabled on this project.";
 
+        // Eligible = enabled MINUS the ones this component cannot produce evidence for
+        // (N/A). An N/A gate is neither passing nor failing, so counting it in the
+        // denominator would read "1 of 14" when only 11 gates could ever return a verdict.
+        var eligible = Gates.Enabled - Gates.NotApplicable;
+
+        if (eligible == 0)
+            return $"All {Gates.Enabled} enabled gates are not applicable to this component.";
+
         var parts = new List<string>();
-        if (Gates.Failed > 0) parts.Add($"{Gates.Failed} of {Gates.Enabled} enabled gates failing on this build");
+        if (Gates.Failed > 0) parts.Add($"{Gates.Failed} of {eligible} eligible gates failing on this build");
         if (Gates.Unknown > 0) parts.Add($"{Gates.Unknown} unanswered");
         if (Gates.Errored > 0) parts.Add($"{Gates.Errored} could not be evaluated");
 
@@ -77,8 +85,8 @@
         // to a library is the false-pass this feature exists to kill.
         return parts.Count == 0
             ? (Gates.NotApplicable > 0
-                ? $"{Gates.Passed} of {Gates.Enabled} enabled gates passing · {Gates.NotApplicable} not applicable to this component"
-                : $"All {Gates.Enabled} enabled gates passing on this build")
+                ? $"All {eligible} eligible gates passing · {Gates.NotApplicable} not applicable to this component"
+                : $"All {eligible} eligible gates passing on this build")
             : string.Join(" · ", parts);
     }
 

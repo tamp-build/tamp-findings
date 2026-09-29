@@ -25,15 +25,18 @@ public sealed class ProjectHubQuery
     private readonly FindingsDbContext _db;
     private readonly RiskInputsBuilder _inputs;
     private readonly Policy.PolicyResolver _resolver;
+    private readonly ScoringPolicyResolver _scoring;
     private readonly Compliance.ControlDispositionQuery _dispositions;
     private readonly Compliance.ConformanceGateQuery _conformance;
 
     public ProjectHubQuery(FindingsDbContext db, RiskInputsBuilder inputs, Policy.PolicyResolver resolver,
+        ScoringPolicyResolver scoring,
         Compliance.ControlDispositionQuery dispositions, Compliance.ConformanceGateQuery conformance)
     {
         _db = db;
         _inputs = inputs;
         _resolver = resolver;
+        _scoring = scoring;
         _dispositions = dispositions;
         _conformance = conformance;
     }
@@ -85,7 +88,16 @@ public sealed class ProjectHubQuery
     /// </summary>
     public async Task<ProjectHubData?> LoadAsync(ProjectRef project, string? commitSha, CancellationToken ct = default)
     {
-        var policy = await ResolvePolicyAsync(project, ct);
+        var policy = await _scoring.ForProjectAsync(project.ProjectId, ct);
+
+        // The compliance baseline (the client's policy template) is what the header names — the
+        // thing an operator thinks of as "our policy" (e.g. FedRAMP High), distinct from the
+        // scoring RiskPolicy the bands come from.
+        var baseline = await (
+            from c in _db.Clients.AsNoTracking()
+            where c.Id == project.ClientId && c.PolicyTemplateId != null
+            join t in _db.PolicyTemplates.AsNoTracking() on c.PolicyTemplateId equals t.Id
+            select t.Name).FirstOrDefaultAsync(ct);
 
         var builds = await _db.ComponentVersions.AsNoTracking()
             .Where(cv => cv.ProjectId == project.ProjectId)
@@ -174,7 +186,7 @@ public sealed class ProjectHubQuery
         var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, coverage, conformanceEnabled, capability, ct);
 
         return new ProjectHubData(project, head.CommitSha, head.VersionString, head.CreatedAt,
-            policy.Name, result, gates, inputs, history, images);
+            policy.Name, baseline, result, gates, inputs, history, images);
     }
 
     /// <summary>
@@ -232,21 +244,6 @@ public sealed class ProjectHubQuery
         return rows;
     }
 
-    private async Task<(string Name, RiskPolicyConfig Config)> ResolvePolicyAsync(
-        ProjectRef project, CancellationToken ct)
-    {
-        var policy = project.RiskPolicyId is { } id
-            ? await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct)
-            : await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
-
-        // No policy at all should be impossible — Program.cs seeds one on
-        // startup — but falling back to the built-in defaults is better than
-        // throwing on a screen whose whole job is to tell someone what their
-        // posture is.
-        return policy is null
-            ? ("Tamp Standard v1", RiskPolicyDefaults.BuildTampStandardV1())
-            : (policy.Name, policy.Config);
-    }
 }
 
 /// <summary>
@@ -273,6 +270,8 @@ public sealed record ProjectHubData(
     string VersionString,
     DateTimeOffset BuiltAt,
     string PolicyName,
+    /// <summary>The client's compliance template (e.g. "FedRAMP High"), or null if none is set.</summary>
+    string? ComplianceBaseline,
     RiskResult Risk,
     GateEvaluation Gates,
     RiskInputs Inputs,

@@ -72,7 +72,15 @@ else
                 <a class="hubhead__back" href="@Routes.Portfolio">← Portfolio</a>
                 <h1>@_data.Project.ProjectName</h1>
                 <p class="muted">
-                    @_data.Project.ClientName · policy @_data.PolicyName
+                    @_data.Project.ClientName
+                    @if (_data.ComplianceBaseline is { Length: > 0 } baseline)
+                    {
+                        <text> · @baseline · scored by @_data.PolicyName</text>
+                    }
+                    else
+                    {
+                        <text> · policy @_data.PolicyName</text>
+                    }
                 </p>
             </div>
         </div>

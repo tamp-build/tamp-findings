@@ -39,9 +39,12 @@ public sealed class GitHubCheckPublisher
     private readonly ILogger<GitHubCheckPublisher> _log;
     private readonly TimeProvider _clock;
 
+    private readonly Risk.ScoringPolicyResolver _scoring;
+
     public GitHubCheckPublisher(
         FindingsDbContext db, RiskInputsBuilder inputs, ProviderSecretProtector protector,
-        AuditLog audit, HttpClient http, ILogger<GitHubCheckPublisher> log, TimeProvider clock)
+        AuditLog audit, HttpClient http, ILogger<GitHubCheckPublisher> log, TimeProvider clock,
+        Risk.ScoringPolicyResolver scoring)
     {
         _db = db;
         _inputs = inputs;
@@ -50,6 +53,7 @@ public sealed class GitHubCheckPublisher
         _http = http;
         _log = log;
         _clock = clock;
+        _scoring = scoring;
     }
 
     /// <summary>
@@ -186,12 +190,7 @@ public sealed class GitHubCheckPublisher
             .OrderByDescending(g => g.Latest)
             .FirstOrDefault();
 
-        var policyId = project.RiskPolicyId ?? project.Client?.RiskPolicyId;
-        var policy = policyId is { } id
-            ? await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct)
-            : null;
-        policy ??= await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
-        if (policy is null) return null;
+        var policy = await _scoring.ForProjectAsync(project.Id, ct);
 
         var inputs = await _inputs.BuildAsync(currentCvIds, policy.Config, project.Id, ct);
         var result = RiskScorer.Compute(policy.Config, inputs);
