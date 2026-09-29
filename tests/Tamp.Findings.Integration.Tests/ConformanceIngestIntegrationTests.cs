@@ -33,7 +33,7 @@ public class ConformanceIngestIntegrationTests
         var client = new Client { Name = $"cf-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"cf-project-{suffix}" };
         var component = new Component { ProjectId = project.Id, Name = $"cf-comp-{suffix}" };
-        var cv = new ComponentVersion { ComponentId = component.Id, VersionString = "1.0.0", CommitSha = Sha };
+        var cv = new ComponentVersion { ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = Sha };
         db.AddRange(user, client, project, component, cv);
         await db.SaveChangesAsync();
         return (project.Id, cv.Id, user.Id);

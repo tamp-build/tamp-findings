@@ -160,6 +160,9 @@ public static class CoverageIngestEndpoints
         {
             version = new ComponentVersion
             {
+                // Component-collapse PR1: anchor to project + flavor tag, dual-writing legacy FKs.
+                ProjectId = project!.Id,
+                Flavor = flavor?.Name,
                 ComponentId = component.Id,
                 FlavorId = flavor?.Id,
                 VersionString = req.Version,

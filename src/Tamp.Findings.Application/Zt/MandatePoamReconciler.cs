@@ -27,7 +27,7 @@ public sealed class MandatePoamReconciler(FindingsDbContext db, PolicyResolver r
 
         // Latest mandate result per mandateId for the project's builds.
         var cvIds = await db.ComponentVersions.AsNoTracking()
-            .Where(v => v.Component!.ProjectId == projectId).Select(v => v.Id).ToListAsync(ct);
+            .Where(v => v.ProjectId == projectId).Select(v => v.Id).ToListAsync(ct);
         if (cvIds.Count == 0) return [];
 
         var results = await db.ConformanceFindings.AsNoTracking()

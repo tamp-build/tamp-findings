@@ -85,6 +85,10 @@ public static class IngestEndpoints
         {
             version = new ComponentVersion
             {
+                // Component-collapse PR1: anchor the build to the project directly and keep the
+                // flavor as a string tag, while still dual-writing the legacy Component/Flavor FKs.
+                ProjectId = project!.Id,
+                Flavor = flavor?.Name,
                 ComponentId = component.Id,
                 FlavorId = flavor?.Id,
                 VersionString = req.Version,
@@ -326,6 +330,6 @@ public static class IngestEndpoints
         FindingsDbContext db, Guid componentVersionId, CancellationToken ct) =>
         await db.ComponentVersions.AsNoTracking()
             .Where(v => v.Id == componentVersionId)
-            .Select(v => v.Component!.ProjectId)
+            .Select(v => v.ProjectId)
             .SingleAsync(ct);
 }

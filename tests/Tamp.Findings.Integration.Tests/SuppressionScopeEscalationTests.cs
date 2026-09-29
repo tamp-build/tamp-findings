@@ -181,7 +181,7 @@ public class SuppressionScopeEscalationTests
         var other = new Component { ProjectId = project.Id, Name = "web" };
         var version = new ComponentVersion
         {
-            ComponentId = component.Id, VersionString = "1.0.0", CommitSha = suffix + "cccccc",
+            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = suffix + "cccccc",
         };
 
         var finding = new Finding

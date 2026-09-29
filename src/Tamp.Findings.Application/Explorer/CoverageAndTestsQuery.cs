@@ -31,8 +31,7 @@ public sealed class CoverageAndTestsQuery
             from m in _db.CoverageModules.AsNoTracking()
             join r in _db.CoverageReports.AsNoTracking() on m.CoverageReportId equals r.Id
             join cv in _db.ComponentVersions.AsNoTracking() on r.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId && (commitSha == null || cv.CommitSha == commitSha)
+            where cv.ProjectId == projectId && (commitSha == null || cv.CommitSha == commitSha)
             select new { m.Id, m.Name, m.SequenceCoverage, m.CoveredSequences, m.TotalSequences })
             .ToArrayAsync(ct);
 
@@ -79,8 +78,7 @@ public sealed class CoverageAndTestsQuery
             join f in _db.CoverageSourceFiles.AsNoTracking() on cls.CoverageSourceFileId equals f.Id
             join r in _db.CoverageReports.AsNoTracking() on f.CoverageReportId equals r.Id
             join cv in _db.ComponentVersions.AsNoTracking() on r.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId
+            where cv.ProjectId == projectId
                   && (commitSha == null || cv.CommitSha == commitSha)
                   && f.RelativePath == relativePath
             select new { f.SourceText, cls.VisitedLines, cls.UnvisitedLines })
@@ -110,8 +108,7 @@ public sealed class CoverageAndTestsQuery
             from s in _db.TestSuiteResults.AsNoTracking()
             join r in _db.TestRunReports.AsNoTracking() on s.TestRunReportId equals r.Id
             join cv in _db.ComponentVersions.AsNoTracking() on r.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId && (commitSha == null || cv.CommitSha == commitSha)
+            where cv.ProjectId == projectId && (commitSha == null || cv.CommitSha == commitSha)
             select new
             {
                 s.AssemblyName, s.ClassName,
@@ -149,8 +146,7 @@ public sealed class CoverageAndTestsQuery
             join s in _db.TestSuiteResults.AsNoTracking() on tc.TestSuiteResultId equals s.Id
             join r in _db.TestRunReports.AsNoTracking() on s.TestRunReportId equals r.Id
             join cv in _db.ComponentVersions.AsNoTracking() on r.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId
+            where cv.ProjectId == projectId
                   && (commitSha == null || cv.CommitSha == commitSha)
                   && s.ClassName == className
             select new TestCase(tc.Name, tc.Outcome, tc.DurationMs, tc.ErrorMessage))

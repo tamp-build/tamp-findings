@@ -5,6 +5,18 @@ namespace Tamp.Findings.Domain.Entities;
 public sealed class ComponentVersion
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+
+    // TFND (component-collapse PR1): the build is anchored directly to its Project.
+    // The old Component tier is being removed — scoring is assigned at the project level
+    // and every project had exactly one component. Reads move to ProjectId; ComponentId
+    // and Flavor(Id) remain during PR1 so ingest can dual-write and nothing is dropped
+    // until the reparent is proven live. PR2 removes ComponentId/FlavorId and the tables.
+    public Guid ProjectId { get; set; }
+
+    // The build variant (net10 / web / deployed), formerly a ComponentFlavor row.
+    // Kept as a plain tag on the build so variants stay distinguishable without a tier.
+    public string? Flavor { get; set; }
+
     public Guid ComponentId { get; set; }
     public Guid? FlavorId { get; set; }
 
@@ -26,7 +38,8 @@ public sealed class ComponentVersion
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
+    public Project? Project { get; set; }
     public Component? Component { get; set; }
-    public ComponentFlavor? Flavor { get; set; }
+    public ComponentFlavor? FlavorRef { get; set; }
     public ICollection<Finding> Findings { get; set; } = [];
 }

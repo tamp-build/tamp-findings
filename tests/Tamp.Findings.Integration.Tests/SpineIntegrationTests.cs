@@ -349,7 +349,7 @@ public class SpineIntegrationTests
         var component = new Component { ProjectId = project.Id, Name = $"sp-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ComponentId = component.Id, VersionString = "0.1.0", CommitSha = sha,
+            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "0.1.0", CommitSha = sha,
         };
 
         db.Clients.Add(client);

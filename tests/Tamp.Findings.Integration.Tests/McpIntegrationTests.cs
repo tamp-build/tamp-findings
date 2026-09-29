@@ -561,7 +561,7 @@ public class McpIntegrationTests
         {
             var version = new ComponentVersion
             {
-                ComponentId = component.Id,
+                ProjectId = component.ProjectId, ComponentId = component.Id,
                 VersionString = "1.0.0",
                 CommitSha = suffix + "aaaaaa",
                 BranchName = "main",

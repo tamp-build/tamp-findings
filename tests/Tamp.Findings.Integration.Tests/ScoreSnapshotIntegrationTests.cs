@@ -34,8 +34,8 @@ public class ScoreSnapshotIntegrationTests
         var comp = new Component { ProjectId = project.Id, Name = "svc" };
         db.Components.Add(comp);
         var now = DateTimeOffset.UtcNow;
-        var v1 = new ComponentVersion { ComponentId = comp.Id, VersionString = "0.1.0", CommitSha = $"{s}old", BranchName = "main", CreatedAt = now.AddDays(-1) };
-        var v2 = new ComponentVersion { ComponentId = comp.Id, VersionString = "0.2.0", CommitSha = $"{s}new", BranchName = "main", CreatedAt = now };
+        var v1 = new ComponentVersion { ProjectId = comp.ProjectId, ComponentId = comp.Id, VersionString = "0.1.0", CommitSha = $"{s}old", BranchName = "main", CreatedAt = now.AddDays(-1) };
+        var v2 = new ComponentVersion { ProjectId = comp.ProjectId, ComponentId = comp.Id, VersionString = "0.2.0", CommitSha = $"{s}new", BranchName = "main", CreatedAt = now };
         db.ComponentVersions.AddRange(v1, v2);
         // A finding on the newer build so the two builds don't score identically.
         db.Findings.Add(new Finding

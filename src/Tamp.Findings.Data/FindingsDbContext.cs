@@ -146,12 +146,20 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.VersionString).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Flavor).HasMaxLength(64);
             e.Property(x => x.CommitSha).HasMaxLength(64);
             e.Property(x => x.BranchName).HasMaxLength(256);
             e.Property(x => x.BuildId).HasMaxLength(128);
             e.Property(x => x.PullRequestRef).HasMaxLength(128);
+            // Component-collapse PR1: the build is anchored to its Project directly. The old
+            // Component/Flavor FKs stay for now (dual-write) and are removed in PR2.
+            e.HasOne(x => x.Project).WithMany(p => p.Versions).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+            // Non-unique in PR1: the legacy (ComponentId, FlavorId, VersionString) unique index still
+            // guards get-or-create during the dual-write window. PR2 makes this the unique build key
+            // once the Component tier (and the old index) are dropped.
+            e.HasIndex(x => new { x.ProjectId, x.Flavor, x.VersionString });
             e.HasOne(x => x.Component).WithMany(c => c.Versions).HasForeignKey(x => x.ComponentId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(x => x.Flavor).WithMany().HasForeignKey(x => x.FlavorId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.FlavorRef).WithMany().HasForeignKey(x => x.FlavorId).OnDelete(DeleteBehavior.SetNull);
             e.HasIndex(x => new { x.ComponentId, x.FlavorId, x.VersionString }).IsUnique();
             e.HasIndex(x => x.CommitSha);
         });

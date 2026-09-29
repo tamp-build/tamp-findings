@@ -435,7 +435,7 @@ public class PoamIntegrationTests
         var component = new Component { ProjectId = project.Id, Name = $"poam-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ComponentId = component.Id, VersionString = "0.1.0", CommitSha = suffix + "cccccc",
+            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "0.1.0", CommitSha = suffix + "cccccc",
         };
 
         db.Clients.Add(client);

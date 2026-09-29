@@ -83,8 +83,8 @@ public sealed class ClientQuery
             .ToArrayAsync(ct);
 
         var lastBuilds = await _db.ComponentVersions.AsNoTracking()
-            .Where(v => projectIds.Contains(v.Component!.ProjectId))
-            .GroupBy(v => v.Component!.ProjectId)
+            .Where(v => projectIds.Contains(v.ProjectId))
+            .GroupBy(v => v.ProjectId)
             .Select(g => new { ProjectId = g.Key, Last = g.Max(v => v.CreatedAt) })
             .ToArrayAsync(ct);
 

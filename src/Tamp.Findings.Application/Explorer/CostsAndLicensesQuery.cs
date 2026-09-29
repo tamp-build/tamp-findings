@@ -38,9 +38,8 @@ public sealed class CostsAndLicensesQuery
         var snapshots = await (
             from s in _db.SbomSnapshots.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on s.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId
-            select new { s.Id, ComponentId = c.Id, ComponentName = c.Name, cv.CreatedAt })
+            where cv.ProjectId == projectId
+            select new { s.Id, ComponentId = cv.ComponentId, ComponentName = cv.Component!.Name, cv.CreatedAt })
             .ToArrayAsync(ct);
 
         var latest = snapshots

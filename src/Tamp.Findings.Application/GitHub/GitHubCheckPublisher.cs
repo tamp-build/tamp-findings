@@ -158,7 +158,7 @@ public sealed class GitHubCheckPublisher
         // gets a check (which is exactly where branch protection reads it), not
         // only canonical main builds.
         var currentCvs = await _db.ComponentVersions.AsNoTracking()
-            .Where(v => v.Component!.ProjectId == project.Id && v.CommitSha == commitSha)
+            .Where(v => v.ProjectId == project.Id && v.CommitSha == commitSha)
             .Select(v => new { v.Id, v.CreatedAt })
             .ToListAsync(ct);
         if (currentCvs.Count == 0) return null;
@@ -172,7 +172,7 @@ public sealed class GitHubCheckPublisher
         // the dashboard computed a real delta. Prior = the most recent canonical
         // (non-PR main/master) build older than this one, on a different commit.
         var canonical = await _db.ComponentVersions.AsNoTracking()
-            .Where(v => v.Component!.ProjectId == project.Id
+            .Where(v => v.ProjectId == project.Id
                      && v.CommitSha != commitSha
                      && v.PullRequestRef == null
                      && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))

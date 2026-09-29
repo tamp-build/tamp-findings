@@ -26,7 +26,7 @@ internal static class IngestAudit
 
         var scope = await db.ComponentVersions.AsNoTracking()
             .Where(v => v.Id == componentVersionId)
-            .Select(v => new { v.ComponentId, v.Component!.ProjectId, v.Component.Project!.ClientId })
+            .Select(v => new { v.ComponentId, v.ProjectId, v.Project!.ClientId })
             .FirstOrDefaultAsync(ct);
 
         var target = scope is null

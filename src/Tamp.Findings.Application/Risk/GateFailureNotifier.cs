@@ -49,7 +49,7 @@ public sealed class GateFailureNotifier
         if (project is null) return;
 
         var build = await _db.ComponentVersions.AsNoTracking()
-            .Where(v => v.Component!.ProjectId == projectId && v.CommitSha == commitSha)
+            .Where(v => v.ProjectId == projectId && v.CommitSha == commitSha)
             .Select(v => v.Id)
             .ToListAsync(ct);
         if (build.Count == 0) return;

@@ -265,9 +265,9 @@ public class RetentionIntegrationTests : IAsyncLifetime
 
         // Old enough for both windows, and the one an attestation covers.
         var attestedSha = $"{suffix}attested";
-        var oldBuild = Build(db, component.Id, $"{suffix}old", now.AddDays(-400));
-        var attestedBuild = Build(db, component.Id, attestedSha, now.AddDays(-400));
-        var recentBuild = Build(db, component.Id, $"{suffix}new", now.AddDays(-1));
+        var oldBuild = Build(db, project.Id, component.Id, $"{suffix}old", now.AddDays(-400));
+        var attestedBuild = Build(db, project.Id, component.Id, attestedSha, now.AddDays(-400));
+        var recentBuild = Build(db, project.Id, component.Id, $"{suffix}new", now.AddDays(-1));
 
         db.AttestationSnapshots.Add(new AttestationSnapshot
         {
@@ -320,10 +320,11 @@ public class RetentionIntegrationTests : IAsyncLifetime
     }
 
     private static ComponentVersion Build(
-        Tamp.Findings.Data.FindingsDbContext db, Guid componentId, string sha, DateTimeOffset created)
+        Tamp.Findings.Data.FindingsDbContext db, Guid projectId, Guid componentId, string sha, DateTimeOffset created)
     {
         var version = new ComponentVersion
         {
+            ProjectId = projectId,
             ComponentId = componentId,
             VersionString = "1.0.0",
             CommitSha = sha,

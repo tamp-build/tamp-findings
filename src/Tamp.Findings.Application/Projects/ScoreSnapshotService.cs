@@ -23,7 +23,7 @@ public sealed class ScoreSnapshotService(FindingsDbContext db, RiskInputsBuilder
     {
         var cv = await db.ComponentVersions.AsNoTracking()
             .Where(v => v.Id == componentVersionId)
-            .Select(v => new { v.CommitSha, ProjectId = v.Component!.ProjectId })
+            .Select(v => new { v.CommitSha, ProjectId = v.ProjectId })
             .FirstOrDefaultAsync(ct);
         if (cv is null || string.IsNullOrWhiteSpace(cv.CommitSha)) return;
         await RecordForCommitAsync(cv.ProjectId, cv.CommitSha!, ct);
@@ -35,7 +35,7 @@ public sealed class ScoreSnapshotService(FindingsDbContext db, RiskInputsBuilder
 
         var cvs = await db.ComponentVersions.AsNoTracking()
             .Where(v => v.CommitSha == commitSha
-                && db.Components.Any(c => c.Id == v.ComponentId && c.ProjectId == projectId))
+                && v.ProjectId == projectId)
             .Select(v => new { v.Id, v.CreatedAt })
             .ToListAsync(ct);
         if (cvs.Count == 0) return;

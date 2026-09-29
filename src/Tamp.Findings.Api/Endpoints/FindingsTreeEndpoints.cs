@@ -215,8 +215,8 @@ public static class FindingsTreeEndpoints
     {
         var q = db.Findings.AsNoTracking().Where(f => f.Status == FindingStatus.Open);
         if (componentId is { } cmp) q = q.Where(f => f.ComponentVersion!.ComponentId == cmp);
-        if (projectId is { } prj) q = q.Where(f => f.ComponentVersion!.Component!.ProjectId == prj);
-        if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli);
+        if (projectId is { } prj) q = q.Where(f => f.ComponentVersion!.ProjectId == prj);
+        if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Project!.ClientId == cli);
         if (!string.IsNullOrWhiteSpace(ruleId)) q = q.Where(f => f.RuleId == ruleId);
         if (latest)
         {

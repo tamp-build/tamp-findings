@@ -207,8 +207,8 @@ public static class TestResultsEndpoints
     {
         var q = db.TestRunReports.AsNoTracking().AsQueryable();
         if (componentId is { } cmp) q = q.Where(r => r.ComponentVersion!.ComponentId == cmp);
-        if (projectId is { } prj) q = q.Where(r => r.ComponentVersion!.Component!.ProjectId == prj);
-        if (clientId is { } cli) q = q.Where(r => r.ComponentVersion!.Component!.Project!.ClientId == cli);
+        if (projectId is { } prj) q = q.Where(r => r.ComponentVersion!.ProjectId == prj);
+        if (clientId is { } cli) q = q.Where(r => r.ComponentVersion!.Project!.ClientId == cli);
         if (latest)
         {
             var latestCvIds = await db.ComponentVersions
@@ -244,6 +244,9 @@ public static class TestResultsEndpoints
         {
             version = new ComponentVersion
             {
+                // Component-collapse PR1: anchor to project + flavor tag, dual-writing legacy FKs.
+                ProjectId = project!.Id,
+                Flavor = flavor?.Name,
                 ComponentId = component.Id,
                 FlavorId = flavor?.Id,
                 VersionString = req.Version,

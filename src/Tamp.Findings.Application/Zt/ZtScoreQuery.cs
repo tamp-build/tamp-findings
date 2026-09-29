@@ -44,7 +44,7 @@ public sealed class ZtScoreQuery(FindingsDbContext db)
         if (system.ProjectId is { } projectId)
         {
             var cvIds = await db.ComponentVersions.AsNoTracking()
-                .Where(v => v.Component!.ProjectId == projectId)
+                .Where(v => v.ProjectId == projectId)
                 .Select(v => v.Id).ToListAsync(ct);
 
             var findings = await db.ConformanceFindings.AsNoTracking()

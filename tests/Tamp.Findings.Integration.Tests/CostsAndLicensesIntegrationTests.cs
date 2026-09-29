@@ -495,7 +495,7 @@ public class CostsAndLicensesIntegrationTests
         {
             var version = new ComponentVersion
             {
-                ComponentId = component.Id, VersionString = "1.0.0", CommitSha = suffix + "dddddd",
+                ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = suffix + "dddddd",
             };
             var snapshot = new SbomSnapshot
             {

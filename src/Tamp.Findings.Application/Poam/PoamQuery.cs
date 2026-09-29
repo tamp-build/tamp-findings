@@ -99,8 +99,7 @@ public sealed class PoamQuery
         var links = await (
             from f in _db.Findings.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId && item.LinkedFindingIds.Contains(f.Id)
+            where cv.ProjectId == projectId && item.LinkedFindingIds.Contains(f.Id)
             select new PoamLink(f.Id, f.Severity, f.RuleId, f.Title, f.FilePath, f.Scanner, cv.CommitSha))
             .ToArrayAsync(ct);
 

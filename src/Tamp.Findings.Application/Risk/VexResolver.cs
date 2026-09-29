@@ -46,7 +46,7 @@ public sealed class VexResolver(FindingsDbContext db)
         // the tight predicate anyway; the in-memory match below
         // handles the purl/version comparison.
         var candidates = await db.Vulnerabilities.AsNoTracking()
-            .Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.Component!.ProjectId == projectId)
+            .Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.ProjectId == projectId)
             .Where(v => advisoryIds.Contains(v.AdvisoryId))
             .Select(v => new
             {
