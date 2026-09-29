@@ -48,7 +48,7 @@ public sealed class ConformanceQuery(FindingsDbContext db)
 
         var now = DateTimeOffset.UtcNow;
         var rows = findings.Select(f => new ConformanceFindingRow(
-            f.AdrRef, f.RuleId, f.Claim, f.Verdict, f.Method, f.AdrQuote, f.CodeEvidence, f.Location,
+            f.Id, f.AdrRef, f.RuleId, f.Claim, f.Verdict, f.Method, f.AdrQuote, f.CodeEvidence, f.Location,
             f.ModelId, f.VerifyVerdict, f.ControlRefs, f.Dispositioned, f.DispositionJustification,
             f.DispositionedByLogin, f.DispositionExpiry, f.Blocks(now))).ToArray();
 
@@ -75,7 +75,7 @@ public sealed class ConformanceQuery(FindingsDbContext db)
 }
 
 public sealed record ConformanceFindingRow(
-    string AdrRef, string RuleId, string Claim, ConformanceVerdict Verdict, ConformanceMethod Method,
+    Guid Id, string AdrRef, string RuleId, string Claim, ConformanceVerdict Verdict, ConformanceMethod Method,
     string? AdrQuote, string? CodeEvidence, string? Location, string? ModelId, VerifyOutcome VerifyVerdict,
     IReadOnlyList<string> ControlRefs, bool Dispositioned, string? DispositionJustification,
     string? DispositionedByLogin, DateTimeOffset? DispositionExpiry, bool Blocks);

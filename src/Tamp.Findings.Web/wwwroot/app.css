@@ -651,6 +651,7 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 .confsplit__code { background: color-mix(in srgb, var(--color-critical) 20%, transparent); padding: 10px 12px; overflow-x: auto; font-size: var(--text-secondary); white-space: pre-wrap; }
 .confdisp { border: 1px solid var(--color-divider); padding: 10px 12px; }
 .confdisp p { margin: 6px 0 0; }
+.confcard__act { display: flex; justify-content: flex-end; }
 .cattabs { display: flex; border-bottom: 1px solid var(--color-divider); }
 .cattab { background: none; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; color: var(--color-neutral-600); cursor: pointer; font-family: var(--font-body); font-size: var(--text-body); }
 .cattab--active { color: var(--color-text); border-bottom-color: var(--color-accent); }

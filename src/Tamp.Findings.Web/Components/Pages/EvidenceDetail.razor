@@ -291,7 +291,7 @@ else
                 case EvidenceKeys.Conformance:
                     @if (_conformance is { } report)
                     {
-                        <ConformancePanel Report="report" />
+                        <ConformancePanel Report="report" ClientId="_project.ClientId" ProjectId="_project.ProjectId" OnChanged="ReloadConformanceAsync" />
                     }
                     else
                     {
@@ -451,6 +451,20 @@ else
                     : ("—", "var(--color-high)", true, "not scanned");
                 break;
         }
+    }
+
+    // Re-pull conformance after a disposition (TFND-198) so the tiles, the blocking count, and
+    // the status chip reflect the just-accepted risk without a full page reload.
+    private async Task ReloadConformanceAsync()
+    {
+        if (_project is null) return;
+        _conformance = await Conformance.ForProjectAsync(_project.ProjectId, _commitSha);
+        _status = _conformance is { } r
+            ? (r.Fail + r.Unknown + r.Error - r.Dispositioned > 0 ? "✕" : "✓",
+               r.Fail + r.Unknown + r.Error - r.Dispositioned > 0 ? "var(--color-critical)" : "var(--color-pass)",
+               false,
+               $"{r.Pass} pass · {r.Fail} fail · {r.Unknown} unknown · {r.Error} error")
+            : ("—", "var(--color-high)", true, "not scanned");
     }
 
     private void SetScanStatus(bool ran, int count) =>
