@@ -27,11 +27,13 @@ public sealed class PortfolioQuery
 
     private readonly FindingsDbContext _db;
     private readonly RiskInputsBuilder _inputs;
+    private readonly Risk.ScoringPolicyResolver _scoring;
 
-    public PortfolioQuery(FindingsDbContext db, RiskInputsBuilder inputs)
+    public PortfolioQuery(FindingsDbContext db, RiskInputsBuilder inputs, Risk.ScoringPolicyResolver scoring)
     {
         _db = db;
         _inputs = inputs;
+        _scoring = scoring;
     }
 
     /// <summary>
@@ -60,8 +62,6 @@ public sealed class PortfolioQuery
             .Where(p => visible.CanSeeProject(p.ClientId, p.Id))
             .ToArray();
 
-        var defaultPolicy = await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
-        var policies = await _db.RiskPolicies.AsNoTracking().ToDictionaryAsync(p => p.Id, ct);
 
         var rows = new List<PortfolioRow>(projects.Length);
         var now = DateTimeOffset.UtcNow;
@@ -88,15 +88,11 @@ public sealed class PortfolioQuery
             }
 
             // Resolve config AND name together — the trend reuses a snapshot only when its
-            // PolicyName matches, and the snapshot service names the policy the same way.
-            RiskPolicyConfig config;
-            string policyName;
-            if (project.RiskPolicyId is { } id && policies.TryGetValue(id, out var chosen))
-                (config, policyName) = (chosen.Config, chosen.Name);
-            else if (defaultPolicy is not null)
-                (config, policyName) = (defaultPolicy.Config, defaultPolicy.Name);
-            else
-                (config, policyName) = (RiskPolicyDefaults.BuildTampStandardV1(), "Tamp Standard v1");
+            // PolicyName matches, and the snapshot service names the policy the same way (both
+            // now go through ScoringPolicyResolver, so the compliance template drives the score).
+            var resolved = await _scoring.ForProjectAsync(project.Id, ct);
+            var config = resolved.Config;
+            var policyName = resolved.Name;
 
             var ids = await _db.ComponentVersions.AsNoTracking()
                 .Where(cv => cv.CommitSha == latest.CommitSha

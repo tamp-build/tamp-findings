@@ -54,6 +54,7 @@ public static class ApplicationServiceCollectionExtensions
         // incremental by design — a service moves when the first non-API
         // consumer needs it, not in a big bang that would destabilise ingest.
         services.AddScoped<Risk.RiskInputsBuilder>();
+        services.AddScoped<Risk.ScoringPolicyResolver>();
         services.AddScoped<Risk.VexResolver>();
         services.AddScoped<Risk.EnforcementResolver>();
         services.AddScoped<Risk.CategoryFindingsQuery>();

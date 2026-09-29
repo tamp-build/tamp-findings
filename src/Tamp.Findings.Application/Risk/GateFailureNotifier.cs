@@ -31,12 +31,14 @@ public sealed class GateFailureNotifier
     private readonly FindingsDbContext _db;
     private readonly RiskInputsBuilder _inputs;
     private readonly AuditLog _audit;
+    private readonly ScoringPolicyResolver _scoring;
 
-    public GateFailureNotifier(FindingsDbContext db, RiskInputsBuilder inputs, AuditLog audit)
+    public GateFailureNotifier(FindingsDbContext db, RiskInputsBuilder inputs, AuditLog audit, ScoringPolicyResolver scoring)
     {
         _db = db;
         _inputs = inputs;
         _audit = audit;
+        _scoring = scoring;
     }
 
     public async Task NotifyIfBlockedAsync(Guid projectId, string commitSha, CancellationToken ct = default)
@@ -54,12 +56,7 @@ public sealed class GateFailureNotifier
             .ToListAsync(ct);
         if (build.Count == 0) return;
 
-        var policyId = project.RiskPolicyId ?? project.Client?.RiskPolicyId;
-        var policy = policyId is { } id
-            ? await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct)
-            : null;
-        policy ??= await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
-        if (policy is null) return;
+        var policy = await _scoring.ForProjectAsync(projectId, ct);
 
         var inputs = await _inputs.BuildAsync(build, policy.Config, projectId, ct);
         var score = RiskScorer.Compute(policy.Config, inputs);

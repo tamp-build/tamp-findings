@@ -37,16 +37,19 @@ public sealed class GateDecisionService
     private readonly Compliance.ConformanceGateQuery _conformance;
 
     public GateDecisionService(FindingsDbContext db, RiskInputsBuilder inputs, EnforcementResolver enforcement,
-        Policy.PolicyResolver resolver, Compliance.ControlDispositionQuery dispositions,
+        Policy.PolicyResolver resolver, ScoringPolicyResolver scoring, Compliance.ControlDispositionQuery dispositions,
         Compliance.ConformanceGateQuery conformance)
     {
         _db = db;
         _inputs = inputs;
         _enforcement = enforcement;
         _resolver = resolver;
+        _scoring = scoring;
         _dispositions = dispositions;
         _conformance = conformance;
     }
+
+    private readonly ScoringPolicyResolver _scoring;
 
     public async Task<(GateDecisionStatus Status, GateDecisionResult? Result)> ForLatestAsync(
         Guid projectId, CancellationToken ct = default)
@@ -80,12 +83,7 @@ public sealed class GateDecisionService
         var current = byCommit[0];
         var prior = byCommit.Count > 1 ? byCommit[1] : null;
 
-        var effectivePolicyId = project.RiskPolicyId ?? project.Client?.RiskPolicyId;
-        RiskPolicy? policy = null;
-        if (effectivePolicyId is { } id)
-            policy = await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
-        policy ??= await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
-        if (policy is null) return (GateDecisionStatus.NoPolicy, null);
+        var policy = await _scoring.ForProjectAsync(projectId, ct);
 
         var currentInputs = await _inputs.BuildAsync(current.CvIds, policy.Config, projectId, ct);
         var currentResult = RiskScorer.Compute(policy.Config, currentInputs);
@@ -135,7 +133,7 @@ public sealed class GateDecisionService
             CurrentBand: currentResult.Band,
             PriorScore: priorScore,
             PriorBand: priorBand,
-            PolicyId: policy.Id,
+            PolicyId: policy.Id ?? Guid.Empty,
             PolicyName: policy.Name,
             Evaluation: evaluation,
             Mode: mode));
