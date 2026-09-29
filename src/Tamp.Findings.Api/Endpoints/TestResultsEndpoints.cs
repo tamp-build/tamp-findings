@@ -69,42 +69,43 @@ public static class TestResultsEndpoints
         db.TestRunReports.Add(report);
         await db.SaveChangesAsync(ct);
 
+        // Merge suites that share an (assembly, class): a .trx can split one class across several
+        // result groups, and a producer's mapper may chunk them however it likes. The sink stores
+        // one row per class per assembly, so we group here rather than 500 on a duplicate — an
+        // ingest must be tolerant of well-formed evidence, not brittle to how it was serialised.
+        var groups = req.Suites
+            .Where(s => !string.IsNullOrWhiteSpace(s.ClassName))
+            .GroupBy(s => (Assembly: s.AssemblyName ?? "", s.ClassName));
+
         var suitesCount = 0;
         var casesCount = 0;
-        foreach (var s in req.Suites)
+        foreach (var g in groups)
         {
-            if (string.IsNullOrWhiteSpace(s.ClassName)) continue;
             var suite = new TestSuiteResult
             {
                 TestRunReportId = report.Id,
-                AssemblyName = s.AssemblyName,
-                ClassName = s.ClassName,
-                TotalCount = s.TotalCount,
-                PassedCount = s.PassedCount,
-                FailedCount = s.FailedCount,
-                SkippedCount = s.SkippedCount,
-                InconclusiveCount = s.InconclusiveCount,
-                DurationMs = s.DurationMs,
-            };
-            db.TestSuiteResults.Add(suite);
-            await db.SaveChangesAsync(ct);
-            suitesCount++;
-
-            foreach (var c in s.Cases)
-            {
-                db.TestCaseResults.Add(new TestCaseResult
+                AssemblyName = g.Key.Assembly,
+                ClassName = g.Key.ClassName,
+                TotalCount = g.Sum(s => s.TotalCount),
+                PassedCount = g.Sum(s => s.PassedCount),
+                FailedCount = g.Sum(s => s.FailedCount),
+                SkippedCount = g.Sum(s => s.SkippedCount),
+                InconclusiveCount = g.Sum(s => s.InconclusiveCount),
+                DurationMs = g.Sum(s => s.DurationMs),
+                Cases = g.SelectMany(s => s.Cases).Select(c => new TestCaseResult
                 {
-                    TestSuiteResultId = suite.Id,
                     Name = c.Name,
                     Outcome = c.Outcome,
                     DurationMs = c.DurationMs,
                     ErrorMessage = c.ErrorMessage,
                     ErrorStackTrace = c.ErrorStackTrace,
-                });
-                casesCount++;
-            }
-            if (s.Cases.Count > 0) await db.SaveChangesAsync(ct);
+                }).ToList(),
+            };
+            db.TestSuiteResults.Add(suite);
+            suitesCount++;
+            casesCount += suite.Cases.Count;
         }
+        await db.SaveChangesAsync(ct);
 
         await IngestAudit.RecordAsync(audit, db, token, version.Id,
             $"test-results: {suitesCount} suites, {casesCount} cases — {req.Project}@{req.Version}", ct);

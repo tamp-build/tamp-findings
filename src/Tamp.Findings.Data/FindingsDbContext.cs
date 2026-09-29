@@ -439,7 +439,9 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.AssemblyName).HasMaxLength(512).IsRequired();
             e.Property(x => x.ClassName).HasMaxLength(1024).IsRequired();
             e.HasOne(x => x.Report).WithMany(r => r.Suites).HasForeignKey(x => x.TestRunReportId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => new { x.TestRunReportId, x.ClassName }).IsUnique();
+            // A suite's identity is (assembly, class) — the same class name legitimately exists in
+            // two assemblies. The old (report, class) key 500'd on that; ingest also merges dupes.
+            e.HasIndex(x => new { x.TestRunReportId, x.AssemblyName, x.ClassName }).IsUnique();
         });
 
         b.Entity<TestCaseResult>(e =>

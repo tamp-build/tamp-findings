@@ -1,6 +1,7 @@
 namespace Tamp.Findings.Domain.Entities;
 
-// One row per (TestRunReport, ClassName). AssemblyName tags the module
+// One row per (TestRunReport, AssemblyName, ClassName): the same class name can live in two
+// assemblies, so the assembly is part of the key. AssemblyName also tags the module
 // (e.g. "Tamp.Findings.Api.Tests") so the SPA tree can group by it.
 public sealed class TestSuiteResult
 {
