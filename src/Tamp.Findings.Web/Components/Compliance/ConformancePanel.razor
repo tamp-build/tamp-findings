@@ -1,9 +1,14 @@
 @using Tamp.Findings.Domain.Compliance
 @using Tamp.Findings.Application.Compliance
+@inject CurrentUser Me
+@inject ConformanceDispositionService Disposition
 
 @* ADR-conformance evidence (v3 §5 / ADR 0006). Four-valued verdicts, never
    collapsed to pass/fail: Unknown and Error block and are never green. A
-   dispositioned fail stays listed (red OUTLINE, not fill) with its justification. *@
+   dispositioned fail stays listed (red OUTLINE, not fill) with its justification.
+   A blocking finding can be risk-accepted (VEX-disposition, TFND-198) by InfoSec
+   (Capability.AcceptRisk) with a justification and optional expiry — the same
+   accept-risk contract as a POA&M; a dispositioned finding no longer blocks. *@
 
 <div class="stack">
     <div class="confgrid">
@@ -92,14 +97,101 @@
                     <p class="field__help mono">accepted by @f.DispositionedByLogin · InfoSec · AcceptRisk@(f.DispositionExpiry is { } exp ? $" · expires {exp:yyyy-MM-dd}" : "")</p>
                 </div>
             }
+            else if (f.Verdict is not ConformanceVerdict.Pass)
+            {
+                <div class="confcard__act">
+                    <Button Variant="Button.ButtonVariant.Secondary"
+                            Disabled="@(!_can.Allowed || _busy)"
+                            DisabledReason="@(_can.Allowed ? null : _can.Reason)"
+                            OnClick="@(() => OpenAccept(f))">Accept risk…</Button>
+                </div>
+            }
         </div>
     }
 </div>
 
+<Dialog Open="@(_accept is not null)" OpenChanged="AcceptOpenChanged" Title="Accept conformance risk" Width="620">
+    <ChildContent>
+        @if (_accept is { } f)
+        {
+            <p class="field__help">
+                Accepting risk records a reviewed deviation for <strong>@f.RuleId · @f.AdrRef</strong>
+                (@f.Verdict.ToString().ToUpperInvariant()). The finding stays listed but no longer blocks the
+                build. This is InfoSec's call (AcceptRisk) and is written to the audit trail — the same
+                contract as a POA&M risk acceptance.
+            </p>
+            <TextField Label="Justification" @bind-Value="_justification" Multiline Rows="4"
+                       Help="Why is this deviation acceptable? Recorded on the finding and in the audit log." />
+            <TextField Label="Expiry (optional)" Type="date" @bind-Value="_expiry" Mono
+                       Help="After this date the acceptance lapses and the finding blocks again. Leave blank for no expiry." />
+            @if (_actionError is not null)
+            {
+                <p class="field__help" style="color: var(--color-critical)">@_actionError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Text" OnClick="@(() => _accept = null)">Cancel</Button>
+        <Button Variant="Button.ButtonVariant.Primary" Disabled="_busy" OnClick="SubmitAccept">Accept risk</Button>
+    </Footer>
+</Dialog>
+
 @code {
     [Parameter, EditorRequired] public ConformanceReport Report { get; set; } = default!;
+    // The build's project — needed to author a disposition and gate it. Optional so the
+    // panel still renders read-only (no accept action) when a host doesn't supply them.
+    [Parameter] public Guid ClientId { get; set; }
+    [Parameter] public Guid ProjectId { get; set; }
+    // Raised after a successful disposition so the host reloads the report.
+    [Parameter] public EventCallback OnChanged { get; set; }
 
     private string? _control;
+    private AuthorizationDecision _can = AuthorizationDecision.Deny("loading");
+    private ConformanceFindingRow? _accept;
+    private string _justification = "";
+    private string _expiry = "";
+    private bool _busy;
+    private string? _actionError;
+
+    private ScopeTarget Here => ProjectId == Guid.Empty ? ScopeTarget.Instance : ScopeTarget.Project(ClientId, ProjectId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _can = ProjectId == Guid.Empty ? AuthorizationDecision.Deny("no project") : await Me.CanAsync(Capability.AcceptRisk, Here);
+    }
+
+    private void OpenAccept(ConformanceFindingRow f)
+    {
+        _accept = f; _justification = ""; _expiry = ""; _actionError = null;
+    }
+
+    private void AcceptOpenChanged(bool open)
+    {
+        if (!open) _accept = null;
+    }
+
+    private async Task SubmitAccept()
+    {
+        if (_accept is null || _busy) return;
+        if (string.IsNullOrWhiteSpace(_justification)) { _actionError = "A justification is required."; return; }
+        DateTimeOffset? expiry = null;
+        if (!string.IsNullOrWhiteSpace(_expiry))
+        {
+            if (!DateTimeOffset.TryParse(_expiry, out var parsed)) { _actionError = "Expiry is not a valid date."; return; }
+            expiry = parsed;
+        }
+        _busy = true; _actionError = null;
+        try
+        {
+            var actor = await Me.AtAsync(Here);
+            if (actor is null) { _actionError = "You must be signed in to accept risk."; return; }
+            var result = await Disposition.DisposeAsync(actor, Here, ProjectId, _accept.Id, _justification.Trim(), expiry);
+            if (!result.Success) { _actionError = result.Error; return; }
+            _accept = null;
+            await OnChanged.InvokeAsync();
+        }
+        finally { _busy = false; }
+    }
 
     private IEnumerable<ConformanceFindingRow> Shown =>
         _control is null ? Report.Findings : Report.Findings.Where(f => f.ControlRefs.Contains(_control));
