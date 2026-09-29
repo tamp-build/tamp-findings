@@ -1263,3 +1263,6 @@ th.sortable--active { color: var(--color-accent-700); }
 .ztscore { display: flex; align-items: baseline; gap: var(--space-2); }
 .ztscore__n { font-size: 2.4rem; font-weight: 600; line-height: 1; }
 .ztscore__d { color: var(--color-neutral-600); font-size: var(--text-body); }
+
+/* EO registry: rescinded/superseded directives read greyed (TFND-200). */
+.rulerow--muted { opacity: 0.6; }
