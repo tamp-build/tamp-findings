@@ -160,7 +160,12 @@ public sealed class ProjectHubQuery
         // enabled gates — "clear to ship", honest, and visibly different from
         // "all gates passing".
         var gateConfig = await _resolver.EffectiveGatesAsync(project.ProjectId, project.GatesConfig, ct);
-        var capability = await AggregateCapabilityAsync(cvIds, ct);   // TFND-184
+        // TFND-203: gate applicability is driven by the project's HUMAN-ASSIGNED archetype, not the
+        // caller-declared component profile — so a service can't dodge its web/iac gates by
+        // declaring itself a code-package. Unclassified fails upward to Service.
+        var archetype = await _db.Projects.AsNoTracking()
+            .Where(p => p.Id == project.ProjectId).Select(p => p.Archetype).FirstOrDefaultAsync(ct);
+        var capability = ArchetypeLayers.Capability(archetype);
         // Control coverage for the no-unmapped meta-gate (TFND-185). Computed once
         // per request and only when the gate is enabled (the disposition query
         // loads the large OSCAL catalog). The meta-gate verdict depends only on the
@@ -176,7 +181,7 @@ public sealed class ProjectHubQuery
             : null;
         var gates = GateEvaluator.Evaluate(gateConfig, inputs, result.Score, priorInputs, priorScore, capability, coverage, conformance);
 
-        var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, coverage, conformanceEnabled, ct);
+        var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, coverage, conformanceEnabled, capability, ct);
 
         return new ProjectHubData(project, head.CommitSha, head.VersionString, head.CreatedAt,
             policy.Name, result, gates, inputs, history, images);
@@ -198,6 +203,7 @@ public sealed class ProjectHubQuery
         IReadOnlyList<Domain.Entities.ComponentVersion> builds,
         Domain.Compliance.ControlCoverage? coverage,
         bool conformanceEnabled,
+        Domain.Compliance.ComponentCapability capability,   // TFND-203: archetype-derived, per project
         CancellationToken ct)
     {
         var shas = builds
@@ -217,7 +223,6 @@ public sealed class ProjectHubQuery
             var ids = builds.Where(b => b.CommitSha == sha).Select(b => b.Id).ToArray();
             var inputs = await _inputs.BuildAsync(ids, config, project.ProjectId, ct);
             var scored = RiskScorer.Compute(config, inputs);
-            var capability = await AggregateCapabilityAsync(ids, ct);   // TFND-184
             var conformance = conformanceEnabled
                 ? await _conformance.ForBuildAsync(project.ProjectId, ids, DateTimeOffset.UtcNow, ct)
                 : null;
@@ -235,26 +240,6 @@ public sealed class ProjectHubQuery
 
         rows.Reverse();
         return rows;
-    }
-
-    // The union of a build's components' capabilities (TFND-184), so the hub
-    // shows the same N/A gates the decision enforces.
-    private async Task<Tamp.Findings.Domain.Compliance.ComponentCapability> AggregateCapabilityAsync(
-        IReadOnlyList<Guid> cvIds, CancellationToken ct)
-    {
-        var profiles = await _db.ComponentVersions.AsNoTracking()
-            .Where(cv => cvIds.Contains(cv.Id))
-            .Select(cv => cv.Component!.Profile)
-            .Distinct()
-            .ToListAsync(ct);
-
-        if (profiles.Count == 0)
-            return Tamp.Findings.Domain.Compliance.ComponentProfiles.Capabilities(
-                Tamp.Findings.Domain.Compliance.ComponentProfile.CodePackage);
-
-        return profiles.Aggregate(
-            Tamp.Findings.Domain.Compliance.ComponentCapability.None,
-            (acc, p) => acc | Tamp.Findings.Domain.Compliance.ComponentProfiles.Capabilities(p));
     }
 
     private async Task<(string Name, RiskPolicyConfig Config)> ResolvePolicyAsync(

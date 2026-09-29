@@ -107,10 +107,12 @@ public sealed class GateDecisionService
         // own GatesConfig exactly, so this is behaviour-preserving; a client or
         // template gate now applies to every project under it.
         var gates = await _resolver.EffectiveGatesAsync(projectId, project.GatesConfig, ct);
-        // The build's aggregate capability (TFND-184): the union across its
-        // components' profiles. A conditional gate the build cannot produce
-        // (DAST with no web-facing component) resolves to N/A, not a false pass.
-        var capability = await AggregateCapabilityAsync(current.CvIds, ct);
+        // TFND-203: which conditional gates apply is driven by the project's HUMAN-ASSIGNED
+        // archetype, NOT the caller-declared component profile — so a web service cannot declare
+        // itself a code-package to N/A its DAST/IaC gates. Unclassified fails upward to Service.
+        var archetype = await _db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId).Select(p => p.Archetype).FirstOrDefaultAsync(ct);
+        var capability = Tamp.Findings.Domain.Risk.ArchetypeLayers.Capability(archetype);
         // Control coverage for the no-unmapped meta-gate (TFND-185). Only computed
         // when the gate is enabled — the disposition query loads the (large) OSCAL
         // catalog, so a project that does not gate on coverage never pays for it.
@@ -139,24 +141,4 @@ public sealed class GateDecisionService
             Mode: mode));
     }
 
-    // The union of the build's components' capabilities (TFND-184). If any
-    // component is web-facing, DAST applies to the build; if it is all libraries,
-    // DAST/IaC/image are N/A. No components resolves to code-package capabilities.
-    private async Task<Tamp.Findings.Domain.Compliance.ComponentCapability> AggregateCapabilityAsync(
-        IReadOnlyList<Guid> cvIds, CancellationToken ct)
-    {
-        var profiles = await _db.ComponentVersions.AsNoTracking()
-            .Where(cv => cvIds.Contains(cv.Id))
-            .Select(cv => cv.Component!.Profile)
-            .Distinct()
-            .ToListAsync(ct);
-
-        if (profiles.Count == 0)
-            return Tamp.Findings.Domain.Compliance.ComponentProfiles.Capabilities(
-                Tamp.Findings.Domain.Compliance.ComponentProfile.CodePackage);
-
-        return profiles.Aggregate(
-            Tamp.Findings.Domain.Compliance.ComponentCapability.None,
-            (acc, p) => acc | Tamp.Findings.Domain.Compliance.ComponentProfiles.Capabilities(p));
-    }
 }
