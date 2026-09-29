@@ -23,7 +23,8 @@ public static class SbomIngestEndpoints
 
     private static async Task<IResult> IngestAsync(
         SbomIngestRequest req, HttpContext ctx, FindingsDbContext db,
-        CveReconciler reconciler, AuditLog audit, CancellationToken ct)
+        CveReconciler reconciler, AuditLog audit,
+        Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project is required");
@@ -136,6 +137,8 @@ public static class SbomIngestEndpoints
         await IngestAudit.RecordAsync(audit, db, token, version.Id,
             $"sbom: {purlToId.Count} components, {depsAdded} deps, {totalVulns + reconciled.Attached} CVEs — {req.Component}@{req.Version}", ct);
         await db.SaveChangesAsync(ct);
+
+        await snapshots.RecordForBuildAsync(version.Id, ct);   // TFND-176: cve/licence/staleness moved the score
 
         return Results.Ok(new SbomIngestResponse(
             version.Id,

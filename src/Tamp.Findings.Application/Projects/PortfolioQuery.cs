@@ -100,9 +100,16 @@ public sealed class PortfolioQuery
                 continue;
             }
 
-            var config = project.RiskPolicyId is { } id && policies.TryGetValue(id, out var chosen)
-                ? chosen.Config
-                : defaultPolicy?.Config ?? RiskPolicyDefaults.BuildTampStandardV1();
+            // Resolve config AND name together — the trend reuses a snapshot only when its
+            // PolicyName matches, and the snapshot service names the policy the same way.
+            RiskPolicyConfig config;
+            string policyName;
+            if (project.RiskPolicyId is { } id && policies.TryGetValue(id, out var chosen))
+                (config, policyName) = (chosen.Config, chosen.Name);
+            else if (defaultPolicy is not null)
+                (config, policyName) = (defaultPolicy.Config, defaultPolicy.Name);
+            else
+                (config, policyName) = (RiskPolicyDefaults.BuildTampStandardV1(), "Tamp Standard v1");
 
             var ids = await _db.ComponentVersions.AsNoTracking()
                 .Where(cv => cv.CommitSha == latest.CommitSha
@@ -115,7 +122,7 @@ public sealed class PortfolioQuery
             var gates = GateEvaluator.Evaluate(
                 project.GatesConfig ?? new ProjectGatesConfig(), inputs, result.Score, prior: null, priorScore: null);
 
-            var trend = await ComputeTrendAsync(project.Id, config, now, ct);
+            var trend = await ComputeTrendAsync(project.Id, config, policyName, now, ct);
 
             rows.Add(new PortfolioRow(
                 project.Id, project.Name, project.ClientName,
@@ -134,22 +141,23 @@ public sealed class PortfolioQuery
     }
 
     /// <summary>
-    /// Cap on trend points scored per project. Computing the sparkline live
-    /// costs one full RiskInputs build + scorer pass per point, so a project
-    /// with a busy month is bounded here rather than re-scoring its whole
-    /// history on every portfolio load. A persisted score-per-build snapshot
-    /// removes the cost entirely (TFND-176); until then, this cap is the honest
-    /// ceiling.
+    /// Cap on trend points shown per project. A persisted per-build snapshot
+    /// (TFND-176) means most points are now a cheap lookup; only builds without
+    /// a current-policy snapshot fall back to a live RiskInputs + scorer pass,
+    /// so this cap bounds that worst case rather than every point.
     /// </summary>
     private const int TrendMaxPoints = 12;
 
     /// <summary>
-    /// Scores of the recent CANONICAL builds inside the staleness window,
-    /// OLDEST first, for the portfolio sparkline. Fewer than two canonical
+    /// Scores of the recent CANONICAL builds inside the staleness window, OLDEST
+    /// first, for the portfolio sparkline. Reads each build's persisted snapshot
+    /// (TFND-176) when it was scored under the policy in force now; falls back to
+    /// a live re-score for any build without a matching snapshot, so behaviour is
+    /// unchanged and the cache fills in as builds ingest. Fewer than two canonical
     /// builds returns empty — a single point is not a trend.
     /// </summary>
     private async Task<IReadOnlyList<double>> ComputeTrendAsync(
-        Guid projectId, RiskPolicyConfig config, DateTimeOffset now, CancellationToken ct)
+        Guid projectId, RiskPolicyConfig config, string policyName, DateTimeOffset now, CancellationToken ct)
     {
         var windowStart = now - StaleAfter;
 
@@ -169,10 +177,19 @@ public sealed class PortfolioQuery
 
         if (commits.Length < 2) return [];
 
+        // Snapshots for these commits, computed under the CURRENT policy — the only
+        // ones safe to reuse (a policy change is a different score).
+        var commitKeys = commits.Select(c => c.Commit).ToArray();
+        var snapshots = await _db.ScoreSnapshots.AsNoTracking()
+            .Where(s => s.ProjectId == projectId && commitKeys.Contains(s.CommitSha) && s.PolicyName == policyName)
+            .ToDictionaryAsync(s => s.CommitSha, s => s.Score, ct);
+
         // Score oldest-first so the sparkline reads left (past) to right (now).
         var scores = new List<double>(commits.Length);
         foreach (var commit in commits.OrderBy(x => x.At))
         {
+            if (snapshots.TryGetValue(commit.Commit, out var snapped)) { scores.Add(snapped); continue; }
+
             var ids = await _db.ComponentVersions.AsNoTracking()
                 .Where(cv => cv.CommitSha == commit.Commit
                     && _db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == projectId))

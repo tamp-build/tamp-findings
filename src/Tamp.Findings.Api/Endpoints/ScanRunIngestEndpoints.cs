@@ -20,7 +20,7 @@ public static class ScanRunIngestEndpoints
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(ScanRunIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(ScanRunIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project required");
@@ -70,6 +70,8 @@ public static class ScanRunIngestEndpoints
         await IngestAudit.RecordAsync(audit, db, token, version.Id,
             $"scan-runs: {upserted} receipts — {req.Component}@{req.Version}", ct);
         await db.SaveChangesAsync(ct);
+
+        await snapshots.RecordForBuildAsync(version.Id, ct);   // TFND-176: receipts move the missing-scanners score
 
         return Results.Ok(new ScanRunIngestResponse(version.Id, upserted));
     }

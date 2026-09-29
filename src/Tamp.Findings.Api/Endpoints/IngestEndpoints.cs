@@ -27,7 +27,7 @@ public static class IngestEndpoints
     private static async Task<IResult> IngestAsync(
         IngestRequest req, HttpContext ctx, FindingsDbContext db,
         CveReconciler reconciler, Tamp.Findings.Api.Services.CheckPublishQueue checks,
-        AuditLog audit,
+        AuditLog audit, Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client is required");
@@ -305,6 +305,10 @@ public static class IngestEndpoints
         {
             checks.Enqueue(await ProjectIdForAsync(db, version.Id, ct), sha);
         }
+
+        // TFND-176: freeze this build's score now that its evidence (findings + reconciled CVEs)
+        // is stored, so the portfolio/history trends read it back instead of re-scoring on view.
+        await snapshots.RecordForBuildAsync(version.Id, ct);
 
         return Results.Ok(new IngestResponse(
             version.Id, inserted, updated, reopened, closed, suppressed,

@@ -46,6 +46,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<Framework> Frameworks => Set<Framework>();
     public DbSet<ConformanceFinding> ConformanceFindings => Set<ConformanceFinding>();
     public DbSet<DecisionDiagnostic> DecisionDiagnostics => Set<DecisionDiagnostic>();
+    public DbSet<ScoreSnapshot> ScoreSnapshots => Set<ScoreSnapshot>();
     public DbSet<KevAdvisory> KevAdvisories => Set<KevAdvisory>();
     public DbSet<VexStatement> VexStatements => Set<VexStatement>();
     public DbSet<PoamItem> PoamItems => Set<PoamItem>();
@@ -634,6 +635,18 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.ControlRefs).HasColumnType("jsonb");
             e.HasIndex(x => x.ComponentVersionId);
             e.HasIndex(x => new { x.ComponentVersionId, x.RuleId, x.Location });
+        });
+
+        // Per-build score snapshot (TFND-176). One row per (project, commit), upserted at ingest.
+        b.Entity<ScoreSnapshot>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.CommitSha).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Band).HasMaxLength(32);
+            e.Property(x => x.PolicyName).HasMaxLength(256);
+            e.Property(x => x.Breakdown).HasColumnType("jsonb");
+            e.HasIndex(x => new { x.ProjectId, x.CommitSha }).IsUnique();
+            e.HasIndex(x => new { x.ProjectId, x.BuiltAt });
         });
 
         // ── tamp-EOProvenance (ADR 0011) ──
