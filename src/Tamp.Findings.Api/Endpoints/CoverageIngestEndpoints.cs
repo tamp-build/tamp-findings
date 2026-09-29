@@ -1,6 +1,8 @@
+using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
+using Tamp.Findings.Api.Ingest.Raw;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 
@@ -15,6 +17,12 @@ public static class CoverageIngestEndpoints
         app.MapPost("/ingest/coverage", IngestAsync)
            .WithName("IngestCoverage")
            .WithSummary("Replace the coverage report for one component version. Replace-on-ingest: any prior report for the same CV is deleted before insert. Requires Authorization: Bearer cli_… or prj_…")
+           .AllowAnonymous()
+           .AddEndpointFilter<IngestAuthFilter>();
+        app.MapPost("/ingest/coverage/raw", IngestRawAsync)
+           .WithName("IngestCoverageRaw")
+           .WithSummary("Ingest a RAW coverage report file (Cobertura or OpenCover XML) — POST the file body; the server parses it into overall + per-module coverage. Line-level overlay is not produced on this path (raw reports carry no source text) — use /ingest/coverage for that. Hierarchy comes from the query string (client, project, version required; commitSha, branch, buildId, pullRequestRef, flavor, toolVersion optional). Requires Authorization: Bearer cli_… or prj_…")
+           .Accepts<string>("application/xml", "text/xml", "application/octet-stream")
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         return app;
@@ -131,6 +139,51 @@ public static class CoverageIngestEndpoints
         await snapshots.RecordForBuildAsync(version.Id, ct);   // TFND-176: coverage moved the score
 
         return Results.Ok(new CoverageIngestResponse(version.Id, report.Id, seenModules.Count, classCount, sourceFilesByPath.Count));
+    }
+
+    // Raw path: POST the cobertura/opencover file the CI run already produced; the sink parses it into
+    // overall + per-module coverage and reuses IngestAsync. Line-level classes are omitted here (raw
+    // reports have no source text), which is enough for the score and the coverageFloor gate.
+    private static async Task<IResult> IngestRawAsync(
+        HttpContext ctx, FindingsDbContext db, AuditLog audit,
+        Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct,
+        string? client, string? project, string? version,
+        string? commitSha = null, string? branch = null, string? buildId = null,
+        string? pullRequestRef = null, string? flavor = null, string? toolVersion = null)
+    {
+        if (string.IsNullOrWhiteSpace(client)) return Results.BadRequest("client required (query string)");
+        if (string.IsNullOrWhiteSpace(project)) return Results.BadRequest("project required (query string)");
+        if (string.IsNullOrWhiteSpace(version)) return Results.BadRequest("version required (query string)");
+
+        XDocument doc;
+        try { doc = await RawReportXml.LoadAsync(ctx.Request.Body, ct); }
+        catch (RawReportXml.TooLargeException ex) { return Results.Problem(ex.Message, statusCode: StatusCodes.Status413PayloadTooLarge); }
+        catch (RawReportXml.MalformedException ex) { return Results.BadRequest($"malformed report: {ex.Message}"); }
+
+        var fmt = RawReportFormat.DetectCoverage(doc);
+        if (fmt is null) return Results.BadRequest("unrecognised coverage report; expected Cobertura (<coverage>) or OpenCover (<CoverageSession>) XML");
+
+        ParsedCoverage parsed;
+        try
+        {
+            parsed = fmt switch
+            {
+                RawCoverageFormat.Cobertura => CoberturaCoverageParser.Parse(doc),
+                _ => OpenCoverCoverageParser.Parse(doc),
+            };
+        }
+        catch (RawReportXml.MalformedException ex) { return Results.BadRequest($"malformed report: {ex.Message}"); }
+
+        var req = new CoverageIngestRequest(
+            client!, project!, Component: null, ComponentKind: null, Flavor: flavor,
+            version!, commitSha, branch, buildId, pullRequestRef,
+            ToolName: parsed.ToolName, ToolVersion: toolVersion,
+            SequenceCoverage: parsed.SequenceCoverage, BranchCoverage: parsed.BranchCoverage,
+            CoveredSequences: parsed.CoveredSequences, TotalSequences: parsed.TotalSequences,
+            CoveredBranches: parsed.CoveredBranches, TotalBranches: parsed.TotalBranches,
+            Modules: parsed.Modules, SourceFiles: null);
+
+        return await IngestAsync(req, ctx, db, audit, snapshots, ct);
     }
 
     private static async Task<(ComponentVersion? version, IResult? error)> ResolveCvAsync(

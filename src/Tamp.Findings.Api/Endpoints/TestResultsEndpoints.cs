@@ -1,6 +1,8 @@
+using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Authentication;
 using Tamp.Findings.Api.Contracts;
+using Tamp.Findings.Api.Ingest.Raw;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Values;
@@ -20,6 +22,12 @@ public static class TestResultsEndpoints
         app.MapPost("/ingest/test-results", IngestAsync)
            .WithName("IngestTestResults")
            .WithSummary("Replace-on-ingest test run results. Suites + cases under one TestRunReport per ComponentVersion. Requires Authorization: Bearer cli_… or prj_…")
+           .AllowAnonymous()
+           .AddEndpointFilter<IngestAuthFilter>();
+        app.MapPost("/ingest/test-results/raw", IngestRawAsync)
+           .WithName("IngestTestResultsRaw")
+           .WithSummary("Ingest a RAW test report file (.trx or JUnit XML) — POST the file body; the server parses it into the canonical model. Hierarchy comes from the query string (client, project, version required; commitSha, branch, buildId, pullRequestRef, flavor, toolVersion optional). Requires Authorization: Bearer cli_… or prj_…")
+           .Accepts<string>("application/xml", "text/xml", "application/octet-stream")
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         app.MapGet("/test-results/tree", GetTreeAsync)
@@ -114,6 +122,53 @@ public static class TestResultsEndpoints
         await snapshots.RecordForBuildAsync(version.Id, ct);   // TFND-176: tests moved the score
 
         return Results.Ok(new TestResultsIngestResponse(version.Id, report.Id, suitesCount, casesCount));
+    }
+
+    // Raw path: the producer POSTs the .trx / JUnit file it already has, and the sink owns the parse.
+    // This kills the mapper gap — no adopter hand-rolls the trx testId join — and keeps one hardened
+    // parser instead of many. It parses into the canonical request and reuses IngestAsync verbatim, so
+    // storage, scoring, and audit are byte-identical to the normalized path.
+    private static async Task<IResult> IngestRawAsync(
+        HttpContext ctx, FindingsDbContext db, AuditLog audit,
+        Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct,
+        string? client, string? project, string? version,
+        string? commitSha = null, string? branch = null, string? buildId = null,
+        string? pullRequestRef = null, string? flavor = null, string? toolVersion = null)
+    {
+        if (string.IsNullOrWhiteSpace(client)) return Results.BadRequest("client required (query string)");
+        if (string.IsNullOrWhiteSpace(project)) return Results.BadRequest("project required (query string)");
+        if (string.IsNullOrWhiteSpace(version)) return Results.BadRequest("version required (query string)");
+
+        XDocument doc;
+        try { doc = await RawReportXml.LoadAsync(ctx.Request.Body, ct); }
+        catch (RawReportXml.TooLargeException ex) { return Results.Problem(ex.Message, statusCode: StatusCodes.Status413PayloadTooLarge); }
+        catch (RawReportXml.MalformedException ex) { return Results.BadRequest($"malformed report: {ex.Message}"); }
+
+        var fmt = RawReportFormat.DetectTest(doc);
+        if (fmt is null) return Results.BadRequest("unrecognised test report; expected a .trx (<TestRun>) or JUnit (<testsuites>/<testsuite>) document");
+
+        ParsedTestResults parsed;
+        try
+        {
+            parsed = fmt switch
+            {
+                RawTestFormat.Trx => TrxTestResultsParser.Parse(doc),
+                _ => JUnitTestResultsParser.Parse(doc),
+            };
+        }
+        catch (RawReportXml.MalformedException ex) { return Results.BadRequest($"malformed report: {ex.Message}"); }
+
+        var now = DateTimeOffset.UtcNow;
+        var req = new TestResultsIngestRequest(
+            client!, project!, Component: null, ComponentKind: null, Flavor: flavor,
+            version!, commitSha, branch, buildId, pullRequestRef,
+            ToolName: parsed.ToolName, ToolVersion: toolVersion,
+            TotalCount: parsed.TotalCount, PassedCount: parsed.PassedCount, FailedCount: parsed.FailedCount,
+            SkippedCount: parsed.SkippedCount, InconclusiveCount: parsed.InconclusiveCount,
+            DurationMs: parsed.DurationMs, StartedAt: now, CompletedAt: now,
+            Suites: parsed.Suites);
+
+        return await IngestAsync(req, ctx, db, audit, snapshots, ct);
     }
 
     private static async Task<IResult> GetTreeAsync(

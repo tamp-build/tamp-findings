@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites tests="3" failures="1" skipped="1">
+  <testsuite name="pkg.Suite" tests="3" failures="1" skipped="1" time="0.030">
+    <testcase classname="pkg.Alpha" name="passes" time="0.010" />
+    <testcase classname="pkg.Alpha" name="breaks" time="0.020">
+      <failure message="expected 1 got 2">at pkg.Alpha.breaks() in C.cs:line 12</failure>
+    </testcase>
+    <testcase classname="pkg.Alpha" name="ignored" time="0">
+      <skipped message="not ready" />
+    </testcase>
+  </testsuite>
+</testsuites>

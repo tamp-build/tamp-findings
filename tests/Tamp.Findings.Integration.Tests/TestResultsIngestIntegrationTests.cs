@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Tamp.Findings.Api.Contracts;
@@ -89,5 +90,92 @@ public class TestResultsIngestIntegrationTests
         Assert.Equal(3, merged.TotalCount);   // (1+0) + (1+1) merged
         Assert.Equal(2, merged.PassedCount);
         Assert.Equal(1, merged.FailedCount);
+    }
+
+    [SkippableFact]
+    public async Task Raw_trx_posts_the_file_and_lands_suites()
+    {
+        Skip.IfNot(_fx.Available);
+        var s = Guid.NewGuid().ToString("N")[..8];
+        var (client, project, token) = await SeedProjectTokenAsync(s);
+
+        var http = _fx.Factory!.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var trx = await File.ReadAllTextAsync(FindTrx());
+        var body = new StringContent(trx, Encoding.UTF8, "application/xml");
+        var url = $"/ingest/test-results/raw?client={Uri.EscapeDataString(client)}&project={Uri.EscapeDataString(project)}&version=1.0.0&commitSha={s}rawtrx";
+
+        var resp = await http.PostAsync(url, body);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var res = await resp.Content.ReadFromJsonAsync<TestResultsIngestResponse>();
+        Assert.NotNull(res);
+        Assert.True(res!.SuitesCount > 0);
+        Assert.True(res.CasesCount > 0);
+
+        using var scope = _fx.Scope();
+        var db = _fx.Db(scope);
+        var report = await db.TestRunReports
+            .SingleAsync(r => r.ComponentVersion!.CommitSha == $"{s}rawtrx");
+        Assert.Equal("dotnet test (trx)", report.ToolName);
+        Assert.True(report.TotalCount > 0);
+    }
+
+    [SkippableFact]
+    public async Task Raw_cobertura_posts_the_file_and_lands_coverage()
+    {
+        Skip.IfNot(_fx.Available);
+        var s = Guid.NewGuid().ToString("N")[..8];
+        var (client, project, token) = await SeedProjectTokenAsync(s);
+
+        var http = _fx.Factory!.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        const string cobertura = """
+        <coverage line-rate="0.8" branch-rate="0.5" lines-covered="8" lines-valid="10" branches-covered="1" branches-valid="2">
+          <packages><package name="Pkg" line-rate="0.8"><classes>
+            <class name="Pkg.C" filename="src/C.cs" line-rate="0.8"><lines>
+              <line number="1" hits="1"/><line number="2" hits="0"/>
+            </lines></class>
+          </classes></package></packages>
+        </coverage>
+        """;
+        var body = new StringContent(cobertura, Encoding.UTF8, "application/xml");
+        var url = $"/ingest/coverage/raw?client={Uri.EscapeDataString(client)}&project={Uri.EscapeDataString(project)}&version=1.0.0&commitSha={s}rawcov";
+
+        var resp = await http.PostAsync(url, body);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        using var scope = _fx.Scope();
+        var db = _fx.Db(scope);
+        var report = await db.CoverageReports
+            .SingleAsync(r => r.ComponentVersion!.CommitSha == $"{s}rawcov");
+        Assert.Equal("cobertura", report.ToolName);
+        Assert.Equal(80, report.SequenceCoverage);
+        Assert.Equal(10, report.TotalSequences);
+    }
+
+    [SkippableFact]
+    public async Task Raw_endpoint_rejects_an_unrecognised_document()
+    {
+        Skip.IfNot(_fx.Available);
+        var s = Guid.NewGuid().ToString("N")[..8];
+        var (client, project, token) = await SeedProjectTokenAsync(s);
+
+        var http = _fx.Factory!.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var body = new StringContent("<notAReport/>", Encoding.UTF8, "application/xml");
+        var url = $"/ingest/test-results/raw?client={Uri.EscapeDataString(client)}&project={Uri.EscapeDataString(project)}&version=1.0.0";
+
+        var resp = await http.PostAsync(url, body);
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);   // a well-formed but wrong-shape doc is the caller's error, not a 500
+    }
+
+    private static string FindTrx()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src"))) dir = dir.Parent;
+        return Path.Combine(dir!.FullName, "tests", "Fixtures", "Ingest", "raw", "dotnet-test.trx");
     }
 }

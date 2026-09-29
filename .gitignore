@@ -24,6 +24,10 @@ packages/
 coverage.opencover.xml
 coverage.cobertura.xml
 
+# ...except the curated raw-ingest fixtures, which are committed reference files
+# for the raw parser tests (real .trx / opencover samples the CI clone must have).
+!tests/Fixtures/Ingest/raw/*
+
 # Visual Studio / Rider / VS Code
 .vs/
 .idea/
