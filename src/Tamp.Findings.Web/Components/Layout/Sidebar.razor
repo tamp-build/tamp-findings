@@ -134,6 +134,7 @@
 
                 groups.Add(new(L["Nav.Group.ProjectAdmin"],
                 [
+                    new(new Microsoft.Extensions.Localization.LocalizedString("Control coverage", "Control coverage"), Routes.ControlCoverage(c!, p!)),
                     new(new Microsoft.Extensions.Localization.LocalizedString("Effective policy", "Effective policy"), Routes.ProjectPolicy(c!, p!)),
                     new(new Microsoft.Extensions.Localization.LocalizedString("Client policy", "Client policy"), Routes.ClientPolicy(c!)),
                     new(L["Nav.PolicyAndGates"], Routes.Policy(c!, p!)),

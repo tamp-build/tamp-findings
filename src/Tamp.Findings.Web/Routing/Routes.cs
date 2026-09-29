@@ -77,6 +77,11 @@ public static class Routes
     public static string ConformanceRules(string client, string project) =>
         $"/c/{E(client)}/p/{E(project)}/conformance-rules";
 
+    /// <summary>Control-coverage matrix (TFND-195): the framework's in-scope controls
+    /// and their disposition (gated / inherited / n-a / unmapped, ADR 0009).</summary>
+    public static string ControlCoverage(string client, string project) =>
+        $"/c/{E(client)}/p/{E(project)}/coverage";
+
     /// <summary>
     /// Deep link to one statement, or to writing the one that is missing.
     ///
