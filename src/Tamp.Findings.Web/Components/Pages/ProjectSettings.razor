@@ -206,6 +206,48 @@ else
         }
 
 
+        @if (Current == TabArchetype)
+        {
+            <Card>
+                <h2>Archetype</h2>
+                <p class="field__help">
+                    What this project IS, which decides the extra obligations it owes ON TOP of its
+                    client's compliance baseline — a Service must clear DAST / IaC / base-image gates,
+                    a Library owes none of them. This is set <strong>here, by a human</strong>; the
+                    ingesting pipeline can never assert it, so a service cannot declare itself a library
+                    to dodge a scan. An <strong>unclassified</strong> project fails <strong>upward</strong>
+                    to Service (the strictest posture) — it only gets a lighter set of obligations when
+                    you deliberately classify it down.
+                </p>
+
+                <label class="field">
+                    <span class="field__label">Classification</span>
+                    <select class="field__input" @bind="_archetypeSel" disabled="@(!_canEditGates.Allowed)">
+                        <option value="">Unclassified — fail upward to Service (strictest)</option>
+                        <option value="0">Library / tool / task — source + deps only (no web/image/iac)</option>
+                        <option value="1">Container / action — the library floor + base-image freshness</option>
+                        <option value="2">Service / app — + DAST + IaC + base-image (hosted, web-facing)</option>
+                    </select>
+                    <span class="field__help">Changing this changes which gates every build of this project must clear.</span>
+                </label>
+
+                @if (_archetypeError is not null)
+                {
+                    <p style="color: var(--color-critical)">@_archetypeError</p>
+                }
+                @if (_archetypeSaved)
+                {
+                    <p style="color: var(--color-pass)">Saved.</p>
+                }
+
+                <div class="row" style="gap: var(--space-2); margin-top: var(--space-3)">
+                    <Button Variant="Button.ButtonVariant.Primary"
+                            Disabled="@(!_canEditGates.Allowed)" DisabledReason="@_canEditGates.Reason"
+                            OnClick="SaveArchetype">Save classification</Button>
+                </div>
+            </Card>
+        }
+
         @if (Current == TabAgents)
         {
             <Card Padded="false">
@@ -547,9 +589,12 @@ else
     private const string TabDisclosure = "disclosure";
     private const string TabAccount = "account";
 
+    private const string TabArchetype = "archetype";
+
     private static readonly KeyValuePair<string, string>[] Tabs =
     [
         new(TabKeys, "Ingest tokens"),
+        new(TabArchetype, "Archetype"),
         new(TabAgents, "Agent access"),
         new(TabDisclosure, "Disclosure policy"),
         new(TabAccount, "Account"),
@@ -566,6 +611,12 @@ else
 
     private AuthorizationDecision _canManageKeys = AuthorizationDecision.Deny("Checking…");
     private AuthorizationDecision _canEditVdp = AuthorizationDecision.Deny("Checking…");
+    private AuthorizationDecision _canEditGates = AuthorizationDecision.Deny("Checking…");
+
+    // Archetype (TFND-203): "" = unclassified (null), else the ProjectArchetype int.
+    private string _archetypeSel = "";
+    private string? _archetypeError;
+    private bool _archetypeSaved;
 
     private bool _minting;
     private string? _newName, _mintError, _minted;
@@ -622,7 +673,11 @@ else
             _tokens = await Settings.TokensAsync(_project.ProjectId, DateTimeOffset.UtcNow);
             _canManageKeys = await Me.CanAsync(Capability.ManageIngestKey, Here);
             _canEditVdp = await Me.CanAsync(Capability.EditDisclosurePolicy, Here);
+            _canEditGates = await Me.CanAsync(Capability.EditGates, Here);
             _repository = await Settings.RepositoryAsync(_project.ProjectId);
+
+            var arc = await Settings.ArchetypeAsync(_project.ProjectId);
+            _archetypeSel = arc is null ? "" : ((int)arc.Value).ToString();
 
             _components = await Components.ListAsync(_project.ProjectId);
             _agentTokens = await AgentTokens.ListAsync(Here, DateTimeOffset.UtcNow);
@@ -744,6 +799,22 @@ else
         if (!result.Success) { _repoError = result.Error; return; }
 
         _repoSaved = true;
+    }
+
+    private async Task SaveArchetype()
+    {
+        if (_project is null) return;
+        _archetypeError = null;
+        _archetypeSaved = false;
+
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _archetypeError = "You are not signed in."; return; }
+
+        ProjectArchetype? archetype = int.TryParse(_archetypeSel, out var v) ? (ProjectArchetype)v : null;
+        var result = await Settings.SaveArchetypeAsync(actor, Here, _project.ProjectId, archetype);
+        if (!result.Success) { _archetypeError = result.Error; return; }
+
+        _archetypeSaved = true;
     }
 
     private async Task SaveDisclosure()
