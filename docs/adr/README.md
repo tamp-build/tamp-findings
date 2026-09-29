@@ -24,3 +24,4 @@ Numbering starts at 0001 for tamp.findings-local decisions.
 | [0012](0012-findings-as-the-authoritative-conformance-rules-store.md) | Findings as the authoritative conformance-rules store (amends 0006 §3) | Proposed |
 | [0013](0013-reverse-examination-undocumented-decision-advisories.md) | Reverse-examination — undocumented-decision advisories as CM-3 evidence | Proposed |
 | [0014](0014-raw-report-ingestion-and-server-side-parsing.md) | Raw report ingestion — the sink parses, and the raw report is the evidence of record | Accepted |
+| [0015](0015-project-authored-control-dispositions.md) | Project-authored control dispositions; archetype as the default (amends 0009) | Accepted |

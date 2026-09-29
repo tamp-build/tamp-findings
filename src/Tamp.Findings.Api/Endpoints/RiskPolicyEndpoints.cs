@@ -17,6 +17,16 @@ public sealed record RiskPolicySummary(
     Guid Id, string Name, string? Description, bool IsDefault, bool IsSeeded,
     DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
+// Per-control disposition authoring on a project (ADR 0009 project layer).
+public sealed record SetControlDispositionsRequest(IReadOnlyList<ControlDispositionInput> Dispositions);
+public sealed record ControlDispositionInput(
+    IReadOnlyList<string> ControlIds,
+    string Kind,                        // "Gated" | "Inherited" | "NotApplicable"
+    string? Justification = null,       // required for Inherited/NotApplicable; by convention carries the code reference
+    string? InheritedFrom = null,       // required for Inherited
+    IReadOnlyList<string>? Gates = null);
+public sealed record ControlDispositionsResult(int InScope, int Gated, int Inherited, int NotApplicable, int Unmapped);
+
 public sealed record RiskPolicyFull(
     Guid Id, string Name, string? Description, bool IsDefault, bool IsSeeded,
     RiskPolicyConfig Config,
@@ -76,6 +86,8 @@ public static class RiskPolicyEndpoints
          .WithSummary("Clone the project's current effective policy into a new RiskPolicy and assign it to the project. Used by the 'Override' button when disconnecting from the inherited policy.");
         g.MapPatch("/projects/{projectId:guid}/gates", UpdateProjectGatesAsync)
          .WithSummary("Replace the per-project gates config.");
+        g.MapPatch("/projects/{projectId:guid}/control-dispositions", SetProjectControlDispositionsAsync)
+         .WithSummary("Author per-control dispositions on a project (own/inherit/N-A + justification). Upserts one project-layer assertion per control id; overrides the inherited default from the template/archetype/client stack. Admin only. Returns the updated coverage roll-up.");
 
         return app;
     }
@@ -340,6 +352,62 @@ public static class RiskPolicyEndpoints
                 ? Results.Problem(result.Error, statusCode: StatusCodes.Status403Forbidden)
                 : Results.BadRequest(result.Error);
         return Results.NoContent();
+    }
+
+    // Per-control disposition authoring (the admin "we own this / inherit / N-A" surface). Writes
+    // project-layer ControlAssertions, one per control id, so a project can override the inherited
+    // default — e.g. tamp-http claims SC-13 Owned where tamp-core inherits it. The rationale carries
+    // the concrete justification (and, by convention, the code reference that backs it).
+    private static async Task<IResult> SetProjectControlDispositionsAsync(
+        Guid projectId, SetControlDispositionsRequest req, HttpContext ctx, FindingsDbContext db,
+        Tamp.Findings.Application.Compliance.ControlDispositionQuery coverage, CancellationToken ct)
+    {
+        var (_, deny) = await RequireAdminAsync(ctx, db, ct);
+        if (deny is not null) return deny;
+        if (req.Dispositions is null || req.Dispositions.Count == 0) return Results.BadRequest("no dispositions supplied");
+
+        var project = await db.Projects.FirstOrDefaultAsync(p => p.Id == projectId, ct);
+        if (project is null) return Results.NotFound("project not found");
+
+        var layer = project.PolicyLayer ?? PolicyLayer.Empty();
+
+        foreach (var d in req.Dispositions)
+        {
+            if (!Enum.TryParse<ControlDispositionKind>(d.Kind, ignoreCase: true, out var kind))
+                return Results.BadRequest($"unknown disposition kind '{d.Kind}' (Gated | Inherited | NotApplicable)");
+            if (d.ControlIds is null || d.ControlIds.Count == 0)
+                return Results.BadRequest("each disposition needs at least one control id");
+            if (kind is ControlDispositionKind.Inherited or ControlDispositionKind.NotApplicable
+                && string.IsNullOrWhiteSpace(d.Justification))
+                return Results.BadRequest($"{kind} requires a justification");
+            if (kind is ControlDispositionKind.Inherited && string.IsNullOrWhiteSpace(d.InheritedFrom))
+                return Results.BadRequest("Inherited requires inheritedFrom");
+
+            foreach (var raw in d.ControlIds)
+            {
+                var cid = raw.Trim();
+                if (cid.Length == 0) continue;
+                // One project-layer assertion per control id: drop any prior project claim for it, then add.
+                layer.Assertions.RemoveAll(a => a.ControlIds.Contains(cid));
+                layer.Assertions.Add(new ControlAssertion
+                {
+                    Kind = kind,
+                    ControlIds = [cid],
+                    Gates = d.Gates?.ToList() ?? [],
+                    Justification = string.IsNullOrWhiteSpace(d.Justification) ? null : d.Justification.Trim(),
+                    InheritedFrom = string.IsNullOrWhiteSpace(d.InheritedFrom) ? null : d.InheritedFrom.Trim(),
+                });
+            }
+        }
+
+        project.PolicyLayer = layer;
+        // jsonb POCO mutations aren't always change-tracked; force the update.
+        db.Entry(project).Property(p => p.PolicyLayer).IsModified = true;
+        await db.SaveChangesAsync(ct);
+
+        var cov = await coverage.ForProjectAsync(projectId, null, ct);
+        return Results.Ok(new ControlDispositionsResult(
+            cov?.InScope ?? 0, cov?.Gated ?? 0, cov?.Inherited ?? 0, cov?.NotApplicable ?? 0, cov?.Unmapped ?? 0));
     }
 
     private static async Task<(User? user, IResult? deny)> RequireAdminAsync(HttpContext ctx, FindingsDbContext db, CancellationToken ct)
