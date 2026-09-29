@@ -38,3 +38,10 @@ public enum VerifyOutcome
     Confirmed = 1,
     Disputed = 2,
 }
+
+// The review-gated conformance roll-up for a build (TFND-191 / ADR 0006), fed into
+// the adrConformance gate. BlockingFails/BlockingUnknowns count only findings that
+// are undispositioned, whose rule is Reviewed, and (for Semantic) verify-Confirmed —
+// the human-first discipline. Evaluated is the total conformance findings on the
+// build (0 = none ingested → the gate reads Unknown, "nobody looked").
+public sealed record ConformanceSummary(int Evaluated, int BlockingFails, int BlockingUnknowns);

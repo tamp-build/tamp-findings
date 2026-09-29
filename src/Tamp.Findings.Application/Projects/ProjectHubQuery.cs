@@ -26,14 +26,16 @@ public sealed class ProjectHubQuery
     private readonly RiskInputsBuilder _inputs;
     private readonly Policy.PolicyResolver _resolver;
     private readonly Compliance.ControlDispositionQuery _dispositions;
+    private readonly Compliance.ConformanceGateQuery _conformance;
 
     public ProjectHubQuery(FindingsDbContext db, RiskInputsBuilder inputs, Policy.PolicyResolver resolver,
-        Compliance.ControlDispositionQuery dispositions)
+        Compliance.ControlDispositionQuery dispositions, Compliance.ConformanceGateQuery conformance)
     {
         _db = db;
         _inputs = inputs;
         _resolver = resolver;
         _dispositions = dispositions;
+        _conformance = conformance;
     }
 
     /// <summary>
@@ -167,9 +169,14 @@ public sealed class ProjectHubQuery
         var coverage = gateConfig.Gates.TryGetValue(GateKeys.NoUnmapped, out var nu) && nu.Enabled
             ? await _dispositions.ForProjectAsync(project.ProjectId, capability, ct)
             : null;
-        var gates = GateEvaluator.Evaluate(gateConfig, inputs, result.Score, priorInputs, priorScore, capability, coverage);
+        // Review-gated ADR-conformance summary (TFND-191), per build, only when enabled.
+        var conformanceEnabled = gateConfig.Gates.TryGetValue(GateKeys.AdrConformance, out var ac) && ac.Enabled;
+        var conformance = conformanceEnabled
+            ? await _conformance.ForBuildAsync(project.ProjectId, cvIds, DateTimeOffset.UtcNow, ct)
+            : null;
+        var gates = GateEvaluator.Evaluate(gateConfig, inputs, result.Score, priorInputs, priorScore, capability, coverage, conformance);
 
-        var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, coverage, ct);
+        var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, coverage, conformanceEnabled, ct);
 
         return new ProjectHubData(project, head.CommitSha, head.VersionString, head.CreatedAt,
             policy.Name, result, gates, inputs, history, images);
@@ -190,6 +197,7 @@ public sealed class ProjectHubQuery
         ProjectGatesConfig gateConfig,
         IReadOnlyList<Domain.Entities.ComponentVersion> builds,
         Domain.Compliance.ControlCoverage? coverage,
+        bool conformanceEnabled,
         CancellationToken ct)
     {
         var shas = builds
@@ -210,7 +218,10 @@ public sealed class ProjectHubQuery
             var inputs = await _inputs.BuildAsync(ids, config, project.ProjectId, ct);
             var scored = RiskScorer.Compute(config, inputs);
             var capability = await AggregateCapabilityAsync(ids, ct);   // TFND-184
-            var gates = GateEvaluator.Evaluate(gateConfig, inputs, scored.Score, prior: null, priorScore: previousScore, capability, coverage);
+            var conformance = conformanceEnabled
+                ? await _conformance.ForBuildAsync(project.ProjectId, ids, DateTimeOffset.UtcNow, ct)
+                : null;
+            var gates = GateEvaluator.Evaluate(gateConfig, inputs, scored.Score, prior: null, priorScore: previousScore, capability, coverage, conformance);
 
             var head = builds.First(b => b.CommitSha == sha);
             rows.Add(new BuildHistoryRow(
