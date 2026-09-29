@@ -148,6 +148,7 @@ public static class PolicyTemplateDefaults
             [GateKeys.VerifiedSecrets] = On(0),
             [GateKeys.SbomAge] = On(14),
             [GateKeys.CoverageFloor] = On(70),
+            [GateKeys.TestFailures] = On(0),   // SSDF PW.8: a suite that never ran is not a passing suite
         },
     });
 
@@ -166,6 +167,7 @@ public static class PolicyTemplateDefaults
             [GateKeys.VerifiedSecrets] = On(0),
             [GateKeys.SbomAge] = On(14),
             [GateKeys.CoverageFloor] = On(70),
+            [GateKeys.TestFailures] = On(0),   // SSDF PW.8: a suite that never ran is not a passing suite
         },
     });
 
@@ -192,6 +194,7 @@ public static class PolicyTemplateDefaults
             [GateKeys.PoamPastDue] = On(0),
             [GateKeys.SbomAge] = On(14),
             [GateKeys.CoverageFloor] = On(70),
+            [GateKeys.TestFailures] = On(0),   // SSDF PW.8: a suite that never ran is not a passing suite
         },
     });
 
@@ -215,6 +218,7 @@ public static class PolicyTemplateDefaults
             [GateKeys.VerifiedSecrets] = On(0),
             [GateKeys.SbomAge] = On(14),
             [GateKeys.CoverageFloor] = On(70),
+            [GateKeys.TestFailures] = On(0),   // SSDF PW.8: a suite that never ran is not a passing suite
         },
     });
 

@@ -48,7 +48,7 @@ public static class RiskPolicyDefaults
             [RiskCategoryNames.Tests] = new()
             {
                 Enabled = true, Max = 5,
-                Weights = new() { ["failureMultiplier"] = 5, ["anyFailureFloor"] = 0.1, ["unmeasuredScore"] = 0.5 },
+                Weights = new() { ["failureMultiplier"] = 5, ["anyFailureFloor"] = 0.1, ["unmeasuredScore"] = 1.0 },
             },
             [RiskCategoryNames.License] = new()
             {
@@ -165,7 +165,7 @@ public static class RiskPolicyDefaults
             [RiskCategoryNames.Tests] = new()
             {
                 Enabled = true, Max = 5,
-                Weights = new() { ["failureMultiplier"] = 5, ["anyFailureFloor"] = 0.1, ["unmeasuredScore"] = 0.5 },
+                Weights = new() { ["failureMultiplier"] = 5, ["anyFailureFloor"] = 0.1, ["unmeasuredScore"] = 1.0 },
             },
             [RiskCategoryNames.License] = new()
             {
