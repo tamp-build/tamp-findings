@@ -52,7 +52,7 @@
                 </div>
 
                 <div class="num contrib__points">
-                    @row.Contribution.ToString("F1") / @row.EffectiveMax.ToString("F0")
+                    @Points(row).ToString("F1") / @Ceiling(row)
                 </div>
 
                 <div>
@@ -132,6 +132,38 @@
 
     private double Percent(RiskCategoryBreakdown row) =>
         row.EffectiveMax <= 0 ? 0 : Math.Clamp(row.Contribution / row.EffectiveMax * 100, 0, 100);
+
+    // The ceilings are a normalised budget — under schema v2 the exact EffectiveMaxima sum to
+    // 100. Printing each rounded to a whole number would drift off that total (most fractions
+    // round DOWN), so apportion by largest remainder: hand the leftover points to the categories
+    // with the biggest fractional ceiling. This is the same method used to allocate seats. The
+    // bar fill and the percentage still read the EXACT EffectiveMax; only the printed "/ N" is
+    // apportioned, so the column of denominators visibly adds up.
+    private Dictionary<string, int>? _ceilings;
+
+    private int Ceiling(RiskCategoryBreakdown row)
+    {
+        _ceilings ??= Apportion();
+        return _ceilings.GetValueOrDefault(row.Key, (int)Math.Round(row.EffectiveMax));
+    }
+
+    private Dictionary<string, int> Apportion()
+    {
+        var rows = Data.Risk.Breakdown.Where(r => r.Enabled && r.EffectiveMax > 0).ToList();
+        var result = rows.ToDictionary(r => r.Key, r => (int)Math.Floor(r.EffectiveMax));
+        var leftover = (int)Math.Round(rows.Sum(r => r.EffectiveMax)) - result.Values.Sum();
+        foreach (var r in rows
+                     .OrderByDescending(r => r.EffectiveMax - Math.Floor(r.EffectiveMax))
+                     .Take(Math.Max(0, leftover)))
+        {
+            result[r.Key]++;
+        }
+        return result;
+    }
+
+    // A saturated category's exact contribution equals its EffectiveMax, which can sit a fraction
+    // above the rounded-down ceiling — never print a numerator larger than the denominator.
+    private double Points(RiskCategoryBreakdown row) => Math.Min(row.Contribution, Ceiling(row));
 
     private static string FillTone(RiskCategoryBreakdown row) =>
         row.Saturated ? "var(--color-critical)"
