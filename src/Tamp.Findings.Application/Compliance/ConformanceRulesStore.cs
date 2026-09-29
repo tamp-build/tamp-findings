@@ -1,7 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Tamp.Findings.Application.Auditing;
+using Tamp.Findings.Application.Authorization;
+using Tamp.Findings.Application.Projects;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Compliance;
 using Tamp.Findings.Domain.Entities;
+using Tamp.Findings.Domain.Values;
 
 namespace Tamp.Findings.Application.Compliance;
 
@@ -36,8 +40,55 @@ public sealed class AdrRuleDto
 
 public sealed record RulesPushResult(int Upserted, int Retired, int Active);
 
-public sealed class ConformanceRulesService(FindingsDbContext db)
+public sealed class ConformanceRulesService(FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit)
 {
+    // Human review of a conformance rule (TFND-194 / ADR 0006 §, ADR 0012 §4). Promoting a
+    // rule Draft→Reviewed is what lets its verdict block a build (TFND-191) or raise a mandate
+    // POA&M (TFND-192). Gated on EditGates — conformance rules are the conformance contract,
+    // the same class of decision as the release gates (Admin + InfoSec).
+    public async Task<Result<Guid>> SetReviewStatusAsync(
+        Principal actor, ScopeTarget scope, Guid projectId, string adrRef, string ruleId,
+        ReviewStatus status, CancellationToken ct = default)
+    {
+        var decision = capabilities.Evaluate(actor, Capability.EditGates);
+        if (!decision.Allowed) return Result<Guid>.Denied(decision.Reason!);
+
+        var rule = await db.ConformanceRules.FirstOrDefaultAsync(
+            r => r.ProjectId == projectId && r.AdrRef == adrRef && r.RuleId == ruleId && r.RetiredAt == null, ct);
+        if (rule is null) return Result<Guid>.Invalid("That rule no longer exists on this project.");
+        if (rule.ReviewStatus == status) return Result<Guid>.Ok(rule.Id);
+
+        rule.ReviewStatus = status;
+        audit.Record(actor, "conformance_rule.reviewed", AuditClass.Risk, scope,
+            subjectId: rule.Id, subjectKind: nameof(ConformanceRule), detail: $"{adrRef}/{ruleId} → {status}");
+        await db.SaveChangesAsync(ct);
+        return Result<Guid>.Ok(rule.Id);
+    }
+
+    /// <summary>Promote every Draft rule (optionally only within one ADR) to Reviewed — the
+    /// bulk "I've reviewed this ADR's rules" action. Returns how many were promoted.</summary>
+    public async Task<Result<int>> PromoteDraftAsync(
+        Principal actor, ScopeTarget scope, Guid projectId, string? adrRef, CancellationToken ct = default)
+    {
+        var decision = capabilities.Evaluate(actor, Capability.EditGates);
+        if (!decision.Allowed) return Result<int>.Denied(decision.Reason!);
+
+        var q = db.ConformanceRules.Where(r => r.ProjectId == projectId && r.RetiredAt == null
+            && r.ReviewStatus == ReviewStatus.Draft);
+        if (adrRef is { Length: > 0 }) q = q.Where(r => r.AdrRef == adrRef);
+        var drafts = await q.ToListAsync(ct);
+
+        foreach (var r in drafts) r.ReviewStatus = ReviewStatus.Reviewed;
+        if (drafts.Count > 0)
+        {
+            audit.Record(actor, "conformance_rule.reviewed", AuditClass.Risk, scope,
+                subjectId: projectId, subjectKind: nameof(ConformanceRule),
+                detail: $"promoted {drafts.Count} rule(s){(adrRef is { Length: > 0 } ? " in " + adrRef : "")} to Reviewed");
+            await db.SaveChangesAsync(ct);
+        }
+        return Result<int>.Ok(drafts.Count);
+    }
+
     // Replace a project's active rule set with the pushed generation (ADR 0012 §2).
     // Idempotent: upsert by (AdrRef, RuleId), un-retire on re-appearance, retire any active
     // rule the generation drops. Rules are never hard-deleted (a past verdict cites RulesSha).

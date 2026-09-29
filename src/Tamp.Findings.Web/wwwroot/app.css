@@ -1237,3 +1237,12 @@ th.sortable--active { color: var(--color-accent-700); }
 .dep-path__arrow {
   opacity: 0.55;
 }
+
+/* ── Conformance rule review (TFND-194) ─────────────────────────────── */
+.ruletable { display: flex; flex-direction: column; margin-top: var(--space-3); }
+.rulerow { display: flex; align-items: flex-start; justify-content: space-between;
+           gap: var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--color-neutral-200); }
+.rulerow:first-child { border-top: 0; }
+.rulerow__main { min-width: 0; flex: 1; }
+.rulerow__intent { margin-top: var(--space-2); font-size: var(--text-body); }
+.rulerow__action { flex: none; }
