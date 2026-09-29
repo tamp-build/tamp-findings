@@ -231,6 +231,41 @@ public class ConformanceRulesIntegrationTests
         }
     }
 
+    // TFND-196 hardening: the producer's per-rule rulesSha covers only the checkable content
+    // (tamp's is sha256 over checkSpec+ruleId+intent). A mapping-annotation change — here a
+    // controlRefs change — with an UNCHANGED rulesSha must still force re-review, because
+    // findings owns its own review-invalidation and those fields are reviewed content.
+    [SkippableFact]
+    public async Task Mapping_change_with_matching_rulessha_still_forces_draft()
+    {
+        Skip.IfNot(_fx.Available);
+        var projectId = await NewProjectAsync();
+
+        using (var scope = _fx.Scope())
+        {
+            var svc = scope.ServiceProvider.GetRequiredService<ConformanceRulesService>();
+            await svc.PushAsync(projectId, new AdrRuleGeneration
+            {
+                Rules = [ new AdrRuleDto { AdrRef = "ADR 1", RuleId = "m", Intent = "i", Method = "deterministic",
+                    CheckSpec = "spec:x", ControlRefs = ["CM-6"], RulesSha = "h1", ReviewStatus = "Reviewed" } ],
+            });
+            // Same rulesSha (checkable content unchanged) but the control mapping changed.
+            await svc.PushAsync(projectId, new AdrRuleGeneration
+            {
+                Rules = [ new AdrRuleDto { AdrRef = "ADR 1", RuleId = "m", Intent = "i", Method = "deterministic",
+                    CheckSpec = "spec:x", ControlRefs = ["AC-6"], RulesSha = "h1", ReviewStatus = "Reviewed" } ],
+            });
+        }
+
+        using (var scope = _fx.Scope())
+        {
+            var db = _fx.Db(scope);
+            var rule = await db.ConformanceRules.SingleAsync(r => r.ProjectId == projectId && r.RuleId == "m");
+            Assert.Equal(ReviewStatus.Draft, rule.ReviewStatus);
+            Assert.Contains("AC-6", rule.ControlRefs);
+        }
+    }
+
     // The complement: an identical re-push (new generation sha, same content) is a no-op for
     // review — the human's Reviewed stands and the POA&M stays open.
     [SkippableFact]
