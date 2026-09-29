@@ -1,12 +1,6 @@
-@* Blueprint card: a transparent line drawing with four registration marks.
-
-   The marks sit OUTSIDE the border on purpose, so never put overflow on this
-   element — a scroll container counts them as overflow and clips them. Put
-   scrolling on an inner wrapper, or use <ScrollBox>. *@
+@* Blueprint card: a transparent line drawing on a hairline border. *@
 
 <div class="blueprint @(Surface ? "blueprint--surface" : null) @Class" @attributes="Extra">
-    <i class="corner tl"></i><i class="corner tr"></i>
-    <i class="corner bl"></i><i class="corner br"></i>
     @if (Padded)
     {
         <div class="card-body">@ChildContent</div>
