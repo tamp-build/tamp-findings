@@ -114,6 +114,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Compliance.ControlDispositionQuery>();
         services.AddScoped<Compliance.ConformanceRulesService>();
         services.AddScoped<Compliance.ConformanceRulesQuery>();
+        services.AddScoped<Compliance.ConformanceGateQuery>();
+        services.AddScoped<Compliance.ConformanceDispositionService>();
         services.AddScoped<Eo.EoRegistryQuery>();
         services.AddScoped<Zt.ZtProfileQuery>();
         services.AddScoped<Zt.ZtScoreQuery>();

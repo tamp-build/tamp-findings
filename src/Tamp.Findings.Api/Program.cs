@@ -707,6 +707,7 @@ app.MapGate();
 app.MapComplianceProfile();
 app.MapZtProfile();
 app.MapConformanceRules();
+app.MapConformanceDisposition();
 app.MapConformanceIngest();
 
 // SPA-facing query endpoints — protected by the fallback policy

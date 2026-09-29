@@ -95,7 +95,8 @@ public static class GateEvaluator
         RiskInputs? prior,
         double? priorScore,
         Compliance.ComponentCapability? capability = null,
-        Compliance.ControlCoverage? coverage = null)
+        Compliance.ControlCoverage? coverage = null,
+        Compliance.ConformanceSummary? conformance = null)
     {
         var deltaPoints = priorScore.HasValue ? currentScore - priorScore.Value : (double?)null;
         var results = new List<GateResult>();
@@ -109,6 +110,14 @@ public static class GateEvaluator
             if (key == GateKeys.NoUnmapped)
             {
                 results.Add(EvaluateNoUnmapped(gateCfg, coverage));
+                continue;
+            }
+
+            // The adrConformance meta-gate reads the review-gated conformance
+            // roll-up, not a scanner count.
+            if (key == GateKeys.AdrConformance)
+            {
+                results.Add(EvaluateAdrConformance(gateCfg, conformance));
                 continue;
             }
 
@@ -156,6 +165,36 @@ public static class GateEvaluator
             + "the mapping is incomplete");
     }
 
+    // The review-gated ADR-conformance meta-gate (TFND-191 / ADR 0006). Human-first:
+    // a conformance finding blocks only when undispositioned, its rule is Reviewed, and
+    // (for Semantic) verify-Confirmed — all decided upstream in the summary. A build
+    // with no conformance evidence reads Unknown ("nobody looked"), same discipline as
+    // the scanner gates.
+    private static GateResult EvaluateAdrConformance(GateConfig cfg, Compliance.ConformanceSummary? summary)
+    {
+        if (!cfg.Enabled)
+            return new GateResult(GateKeys.AdrConformance, false, GateVerdict.Pass, "—", cfg.Threshold, null);
+
+        if (summary is null || summary.Evaluated == 0)
+            return new GateResult(GateKeys.AdrConformance, true, GateVerdict.Unknown,
+                "no ADR-conformance evidence on this build", cfg.Threshold,
+                "cannot evaluate ADR conformance: no conformance verdicts were ingested for this build");
+
+        if (summary.BlockingFails > 0)
+            return new GateResult(GateKeys.AdrConformance, true, GateVerdict.Fail,
+                $"{summary.BlockingFails} reviewed conformance rule(s) failing", cfg.Threshold,
+                $"{summary.BlockingFails} reviewed, undispositioned ADR-conformance findings contradict the code");
+
+        if (summary.BlockingUnknowns > 0)
+            return new GateResult(GateKeys.AdrConformance, true, GateVerdict.Unknown,
+                $"{summary.BlockingUnknowns} reviewed conformance rule(s) unproven", cfg.Threshold,
+                $"{summary.BlockingUnknowns} reviewed conformance findings could not be evaluated — a non-answer is not a pass");
+
+        return new GateResult(GateKeys.AdrConformance, true, GateVerdict.Pass,
+            $"all {summary.Evaluated} conformance verdicts clear", cfg.Threshold,
+            "no reviewed, undispositioned ADR-conformance finding blocks this build");
+    }
+
     /// <summary>The capability a conditional gate needs; null means it always
     /// applies. The single shared gate→capability map (ADR 0009): consumed by the
     /// intersection rule here and by the control-disposition resolver.</summary>
@@ -194,6 +233,7 @@ public static class GateEvaluator
         GateKeys.CoverageFloor,
         GateKeys.PoamPastDue,
         GateKeys.NoUnmapped,
+        GateKeys.AdrConformance,
     ];
 
     /// <summary>
@@ -224,6 +264,7 @@ public static class GateEvaluator
         GateKeys.CoverageFloor => "Coverage floor",
         GateKeys.PoamPastDue => "POA&M past due",
         GateKeys.NoUnmapped => "Control coverage",
+        GateKeys.AdrConformance => "ADR conformance",
         _ => key,
     };
 
@@ -272,6 +313,11 @@ public static class GateEvaluator
             "A meta-gate: blocks when any in-scope control has no disposition (not gated, inherited "
             + "or justified N/A). It measures the coverage of the mapping itself, not any one "
             + "control. Unanswerable without a compliance framework assigned to the project.",
+        GateKeys.AdrConformance =>
+            "Blocks when a REVIEWED, undispositioned ADR-conformance finding contradicts the code "
+            + "(a semantic verdict must be adversarially verify-confirmed first). Draft rules and "
+            + "accepted deviations never block. Unanswerable without ingested conformance verdicts — "
+            + "a build with none is unassessed, not clean.",
         _ => "No description registered for this gate.",
     };
 

@@ -107,6 +107,13 @@ public static class GateKeys
     // framework is assigned or no catalog is loaded — a gate that claims to cover
     // controls with no controls to check is a misconfiguration, not a clean build.
     public const string NoUnmapped = "noUnmapped";
+
+    // TFND-191 / ADR 0006 — the review-gated ADR-conformance gate. Turns
+    // ADR-conformance evidence into a go/no-go, but human-first: a conformance
+    // finding blocks ONLY when it is undispositioned, its RULE is Reviewed (Draft
+    // rules never block), and a Semantic verdict is verify-Confirmed. Rides the
+    // advisory<enforcing machinery (ADR 0004) — no new enforcement mechanism.
+    public const string AdrConformance = "adrConformance";
 }
 
 public static class ProjectGatesDefaults

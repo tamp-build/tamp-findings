@@ -34,15 +34,18 @@ public sealed class GateDecisionService
     private readonly EnforcementResolver _enforcement;
     private readonly Policy.PolicyResolver _resolver;
     private readonly Compliance.ControlDispositionQuery _dispositions;
+    private readonly Compliance.ConformanceGateQuery _conformance;
 
     public GateDecisionService(FindingsDbContext db, RiskInputsBuilder inputs, EnforcementResolver enforcement,
-        Policy.PolicyResolver resolver, Compliance.ControlDispositionQuery dispositions)
+        Policy.PolicyResolver resolver, Compliance.ControlDispositionQuery dispositions,
+        Compliance.ConformanceGateQuery conformance)
     {
         _db = db;
         _inputs = inputs;
         _enforcement = enforcement;
         _resolver = resolver;
         _dispositions = dispositions;
+        _conformance = conformance;
     }
 
     public async Task<(GateDecisionStatus Status, GateDecisionResult? Result)> ForLatestAsync(
@@ -114,7 +117,12 @@ public sealed class GateDecisionService
         var coverage = gates.Gates.TryGetValue(GateKeys.NoUnmapped, out var nu) && nu.Enabled
             ? await _dispositions.ForProjectAsync(projectId, capability, ct)
             : null;
-        var evaluation = GateEvaluator.Evaluate(gates, currentInputs, currentResult.Score, priorInputs, priorScore, capability, coverage);
+        // Review-gated ADR-conformance summary for the current build (TFND-191). Only
+        // computed when the gate is enabled.
+        var conformance = gates.Gates.TryGetValue(GateKeys.AdrConformance, out var ac) && ac.Enabled
+            ? await _conformance.ForBuildAsync(projectId, current.CvIds, DateTimeOffset.UtcNow, ct)
+            : null;
+        var evaluation = GateEvaluator.Evaluate(gates, currentInputs, currentResult.Score, priorInputs, priorScore, capability, coverage, conformance);
 
         var mode = await _enforcement.ForProjectAsync(projectId, ct);
 
