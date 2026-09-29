@@ -23,6 +23,13 @@ public sealed class Project
     // Null → the project adds no hardening of its own.
     public Risk.PolicyLayer? PolicyLayer { get; set; }
 
+    // The project's archetype (TFND-203): the additive obligation layer composed over the
+    // client's baseline (Library adds nothing / Container adds image / Service adds web+iac+image).
+    // Set INSIDE findings by a human (EditGates) — the trust boundary — never by the ingesting
+    // caller. Null = unclassified, which fails UPWARD (resolved as the strictest, Service), so a
+    // project only gets a lighter posture once a human deliberately classifies it down.
+    public Values.ProjectArchetype? Archetype { get; set; }
+
     // TFND-32: vulnerability disclosure policy metadata. Federal
     // procurement (per CISA BOD 20-01 / NIST SSDF RV.3.1) expects a
     // published path for coordinated disclosure. When any of these are
