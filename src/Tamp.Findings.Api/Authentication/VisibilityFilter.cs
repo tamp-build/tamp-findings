@@ -185,7 +185,7 @@ public sealed class VisibilityFilter : IEndpointFilter
 
         var row = await _db.ComponentVersions.AsNoTracking()
             .Where(v => v.Id == versionId)
-            .Select(v => new { v.ComponentId, v.Component!.ProjectId, v.Component!.Project!.ClientId })
+            .Select(v => new { v.ComponentId, v.ProjectId, v.Project!.ClientId })
             .SingleOrDefaultAsync(ct);
 
         return row is null || visible.CanSeeComponent(row.ClientId, row.ProjectId, row.ComponentId);

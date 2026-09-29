@@ -87,7 +87,7 @@ public class PortfolioIntegrationTests
             db.Components.Add(component);
             db.ComponentVersions.Add(new ComponentVersion
             {
-                ComponentId = component.Id,
+                ProjectId = component.ProjectId, ComponentId = component.Id,
                 VersionString = "0.1.0",
                 CommitSha = suffix + "aaaaaa",
             });

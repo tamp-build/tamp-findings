@@ -73,7 +73,7 @@ public class IngestActorPersistenceTests
         var component = new Component { ProjectId = project.Id, Name = $"actor-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ComponentId = component.Id, VersionString = "1.0.0", CommitSha = suffix + "aaaaaa",
+            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = suffix + "aaaaaa",
         };
         db.Clients.Add(client);
         db.Projects.Add(project);

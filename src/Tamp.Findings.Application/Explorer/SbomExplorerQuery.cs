@@ -30,8 +30,7 @@ public sealed class SbomExplorerQuery
             from sc in _db.SbomComponents.AsNoTracking()
             join snap in _db.SbomSnapshots.AsNoTracking() on sc.SbomSnapshotId equals snap.Id
             join cv in _db.ComponentVersions.AsNoTracking() on snap.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId && (commitSha == null || cv.CommitSha == commitSha)
+            where cv.ProjectId == projectId && (commitSha == null || cv.CommitSha == commitSha)
             select new
             {
                 sc.Id, sc.Purl, sc.Name, sc.Version, sc.License,
@@ -105,8 +104,7 @@ public sealed class SbomExplorerQuery
             join sc in _db.SbomComponents.AsNoTracking() on v.SbomComponentId equals sc.Id
             join snap in _db.SbomSnapshots.AsNoTracking() on sc.SbomSnapshotId equals snap.Id
             join cv in _db.ComponentVersions.AsNoTracking() on snap.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId
+            where cv.ProjectId == projectId
                   && (commitSha == null || cv.CommitSha == commitSha)
                   && sc.Purl == purl
             select new { v.AdvisoryId, v.Severity, v.Title, v.FixedInVersion, v.Source, v.CvssScore, v.CvssVector, v.ReferenceUrl, sc.Version })

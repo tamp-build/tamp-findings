@@ -66,8 +66,8 @@ public static class FindingsListEndpoints
 
         if (componentVersionId is { } cv) q = q.Where(f => f.ComponentVersionId == cv);
         if (componentId is { } cmp) q = q.Where(f => f.ComponentVersion!.ComponentId == cmp);
-        if (projectId is { } prj) q = q.Where(f => f.ComponentVersion!.Component!.ProjectId == prj);
-        if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli);
+        if (projectId is { } prj) q = q.Where(f => f.ComponentVersion!.ProjectId == prj);
+        if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Project!.ClientId == cli);
         if (severities.Count > 0) q = q.Where(f => severities.Contains(f.Severity));
         if (scanners.Count > 0) q = q.Where(f => scanners.Contains(f.Scanner));
 
@@ -130,7 +130,7 @@ public static class FindingsListEndpoints
                 f.ComponentVersion!.VersionString,
                 f.ComponentVersion.ComponentId,
                 f.ComponentVersion.Component!.Name,
-                f.ComponentVersion.Component.ProjectId,
+                f.ComponentVersion.ProjectId,
                 f.ComponentVersion.Component.Project!.Name,
                 f.ComponentVersion.Component.Project.ClientId,
                 f.ComponentVersion.Component.Project.Client!.Name))
@@ -240,8 +240,8 @@ public static class FindingsListEndpoints
         if (visible.IsEmpty) return q.Where(_ => false);
 
         return q.Where(f =>
-            visible.Clients.Contains(f.ComponentVersion!.Component!.Project!.ClientId)
-            || visible.Projects.Contains(f.ComponentVersion!.Component!.ProjectId)
+            visible.Clients.Contains(f.ComponentVersion!.Project!.ClientId)
+            || visible.Projects.Contains(f.ComponentVersion!.ProjectId)
             || visible.Components.Contains(f.ComponentVersion!.ComponentId));
     }
 

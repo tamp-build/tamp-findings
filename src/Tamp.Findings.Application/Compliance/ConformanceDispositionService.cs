@@ -31,7 +31,7 @@ public sealed class ConformanceDispositionService(FindingsDbContext db, Capabili
         // The finding must belong to the scoped project (join through the build).
         var finding = await db.ConformanceFindings
             .Where(f => f.Id == findingId
-                && db.ComponentVersions.Any(v => v.Id == f.ComponentVersionId && v.Component!.ProjectId == projectId))
+                && db.ComponentVersions.Any(v => v.Id == f.ComponentVersionId && v.ProjectId == projectId))
             .FirstOrDefaultAsync(ct);
         if (finding is null) return Result<Guid>.Invalid("That conformance finding no longer exists on this project.");
 

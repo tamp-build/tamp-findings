@@ -30,7 +30,7 @@ public class MandatePoamIntegrationTests
         db.Projects.Add(project);
         var comp = new Component { ProjectId = project.Id, Name = "svc" };
         db.Components.Add(comp);
-        var cv = new ComponentVersion { ComponentId = comp.Id, VersionString = "1.0.0", CommitSha = $"sha{s}" };
+        var cv = new ComponentVersion { ProjectId = comp.ProjectId, ComponentId = comp.Id, VersionString = "1.0.0", CommitSha = $"sha{s}" };
         db.ComponentVersions.Add(cv);
         foreach (var (mandateId, verdict) in mandates)
         {
@@ -143,7 +143,7 @@ public class MandatePoamIntegrationTests
             db.Projects.Add(project);
             var comp = new Component { ProjectId = project.Id, Name = "svc" };
             db.Components.Add(comp);
-            var cv = new ComponentVersion { ComponentId = comp.Id, VersionString = "1.0.0", CommitSha = $"sha{s}" };
+            var cv = new ComponentVersion { ProjectId = comp.ProjectId, ComponentId = comp.Id, VersionString = "1.0.0", CommitSha = $"sha{s}" };
             db.ComponentVersions.Add(cv);
             db.ConformanceFindings.Add(new ConformanceFinding
             {

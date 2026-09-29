@@ -254,7 +254,7 @@ public sealed class PolicyService
             // preview against a pull-request build would move a number nobody
             // is looking at.
             var build = await _db.ComponentVersions.AsNoTracking()
-                .Where(v => v.Component!.ProjectId == project.Id
+                .Where(v => v.ProjectId == project.Id
                          && v.PullRequestRef == null
                          && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))
                 .OrderByDescending(v => v.CreatedAt)

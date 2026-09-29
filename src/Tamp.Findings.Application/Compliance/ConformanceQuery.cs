@@ -19,7 +19,7 @@ public sealed class ConformanceQuery(FindingsDbContext db)
         if (string.IsNullOrWhiteSpace(sha))
         {
             sha = await db.ComponentVersions.AsNoTracking()
-                .Where(cv => db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == projectId))
+                .Where(cv => cv.ProjectId == projectId)
                 .OrderByDescending(cv => cv.CreatedAt)
                 .Select(cv => cv.CommitSha)
                 .FirstOrDefaultAsync(ct);
@@ -27,7 +27,7 @@ public sealed class ConformanceQuery(FindingsDbContext db)
         if (sha is null) return [];
         return await db.ComponentVersions.AsNoTracking()
             .Where(cv => cv.CommitSha == sha
-                && db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == projectId))
+                && cv.ProjectId == projectId)
             .Select(cv => cv.Id)
             .ToArrayAsync(ct);
     }

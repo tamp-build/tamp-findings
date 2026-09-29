@@ -36,8 +36,7 @@ public sealed class RuleBreakdownQuery
         var rows = await (
             from f in _db.Findings.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId
+            where cv.ProjectId == projectId
                   && (commitSha == null || cv.CommitSha == commitSha)
                   && scanners.Contains(f.Scanner)
                   && f.Status == FindingStatus.Open

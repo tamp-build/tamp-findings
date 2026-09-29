@@ -58,10 +58,9 @@ public sealed class SuppressionExpiryService
         var located = await (
             from f in _db.Findings.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            join p in _db.Projects.AsNoTracking() on c.ProjectId equals p.Id
+            join p in _db.Projects.AsNoTracking() on cv.ProjectId equals p.Id
             where f.Status == FindingStatus.Suppressed
-            select new { f.Id, p.ClientId, ProjectId = p.Id, ComponentId = c.Id })
+            select new { f.Id, p.ClientId, ProjectId = p.Id, ComponentId = cv.ComponentId })
             .ToArrayAsync(ct);
 
         if (located.Length == 0) return 0;

@@ -59,7 +59,7 @@ public sealed class SsdfAttestationBuilder
         // Canonical builds only: a pull-request build is a proposal, and
         // attesting off one would sign for code that was never merged.
         var canonical = await _db.ComponentVersions.AsNoTracking()
-            .Where(v => v.Component!.ProjectId == projectId
+            .Where(v => v.ProjectId == projectId
                      && v.PullRequestRef == null
                      && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))
             .OrderByDescending(v => v.CreatedAt)

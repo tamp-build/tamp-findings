@@ -44,8 +44,8 @@ public static class DastEndpoints
             .Where(f => f.Status == FindingStatus.Open && DastScanners.Contains(f.Scanner));
 
         if (componentId is { } cmp) q = q.Where(f => f.ComponentVersion!.ComponentId == cmp);
-        if (projectId is { } prj) q = q.Where(f => f.ComponentVersion!.Component!.ProjectId == prj);
-        if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli);
+        if (projectId is { } prj) q = q.Where(f => f.ComponentVersion!.ProjectId == prj);
+        if (clientId is { } cli) q = q.Where(f => f.ComponentVersion!.Project!.ClientId == cli);
 
         if (latest)
         {

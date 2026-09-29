@@ -364,7 +364,7 @@ public class CveReconcilerIntegrationTests
         var component = new Component { ProjectId = project.Id, Name = $"cve-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ComponentId = component.Id, VersionString = "1.0.0",
+            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0",
             CommitSha = suffix + "ffffff", BranchName = "main",
         };
 

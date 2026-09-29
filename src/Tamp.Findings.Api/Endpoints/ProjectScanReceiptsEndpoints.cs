@@ -54,7 +54,7 @@ public static class ProjectScanReceiptsEndpoints
         // (acceptance-gate posture). The SPA filter toggle flips this
         // to true to surface PR/branch builds in the receipts panel.
         IQueryable<ComponentVersion> q = db.ComponentVersions.AsNoTracking()
-            .Where(v => v.Component!.ProjectId == projectId);
+            .Where(v => v.ProjectId == projectId);
         if (!includeNonCanonical)
         {
             q = q.Where(v => v.PullRequestRef == null
@@ -72,7 +72,7 @@ public static class ProjectScanReceiptsEndpoints
                 v.Id, v.ComponentId, v.VersionString, v.CommitSha,
                 v.BranchName, v.BuildId, v.CreatedAt, v.ActorId, v.ActorKind,
                 ComponentName = v.Component!.Name,
-                FlavorName = v.Flavor != null ? v.Flavor.Name : null,
+                FlavorName = v.Flavor,
             })
             .ToListAsync(ct);
 

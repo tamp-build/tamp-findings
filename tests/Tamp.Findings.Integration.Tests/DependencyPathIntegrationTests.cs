@@ -214,7 +214,7 @@ public class DependencyPathIntegrationTests
         var component = new Component { ProjectId = projectId, Name = tag };
         var version = new ComponentVersion
         {
-            ComponentId = component.Id, VersionString = "1.0.0", CommitSha = $"{suffix}{tag}",
+            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = $"{suffix}{tag}",
         };
         var snapshot = new SbomSnapshot
         {

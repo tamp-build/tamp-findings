@@ -51,7 +51,7 @@ public static class SbomVulnerabilitiesEndpoints
         // confirmation that another tenant's snapshot exists.
         var owner = await db.SbomSnapshots.AsNoTracking()
             .Where(s => s.Id == req.SnapshotId)
-            .Select(s => new { s.ComponentVersion!.Component!.ProjectId, ClientId = s.ComponentVersion.Component.Project!.ClientId })
+            .Select(s => new { s.ComponentVersion!.ProjectId, ClientId = s.ComponentVersion.Project!.ClientId })
             .FirstOrDefaultAsync(ct);
         if (owner is null) return Results.NotFound("snapshot not found");
 

@@ -189,7 +189,7 @@ public class RuleBreakdownIntegrationTests
         var component = new Component { ProjectId = project.Id, Name = $"rule-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ComponentId = component.Id, VersionString = "1.0.0", CommitSha = sha,
+            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = sha,
         };
 
         db.Clients.Add(client);

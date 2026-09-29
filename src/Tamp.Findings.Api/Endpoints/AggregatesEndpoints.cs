@@ -39,8 +39,8 @@ public static class AggregatesEndpoints
         // accumulate across historical builds.
         var fq = db.Findings.AsNoTracking().Where(f => f.Status == FindingStatus.Open);
         if (componentId is { } cmp) fq = fq.Where(f => f.ComponentVersion!.ComponentId == cmp);
-        if (projectId is { } prj) fq = fq.Where(f => f.ComponentVersion!.Component!.ProjectId == prj);
-        if (clientId is { } cli) fq = fq.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli);
+        if (projectId is { } prj) fq = fq.Where(f => f.ComponentVersion!.ProjectId == prj);
+        if (clientId is { } cli) fq = fq.Where(f => f.ComponentVersion!.Project!.ClientId == cli);
 
         if (latest)
         {
@@ -73,8 +73,8 @@ public static class AggregatesEndpoints
         // Build a separate query that doesn't filter status.
         var statusQ = db.Findings.AsNoTracking().AsQueryable();
         if (componentId is { } cmp2) statusQ = statusQ.Where(f => f.ComponentVersion!.ComponentId == cmp2);
-        if (projectId is { } prj2) statusQ = statusQ.Where(f => f.ComponentVersion!.Component!.ProjectId == prj2);
-        if (clientId is { } cli2) statusQ = statusQ.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli2);
+        if (projectId is { } prj2) statusQ = statusQ.Where(f => f.ComponentVersion!.ProjectId == prj2);
+        if (clientId is { } cli2) statusQ = statusQ.Where(f => f.ComponentVersion!.Project!.ClientId == cli2);
         if (latest)
         {
             var latestCvIds2 = await CanonicalOnly(db.ComponentVersions)
@@ -150,8 +150,8 @@ public static class AggregatesEndpoints
         // --- SBOM half -------------------------------------------------------
         var sq = db.SbomComponents.AsNoTracking();
         if (componentId is { } cmp3) sq = sq.Where(c => c.SbomSnapshot!.ComponentVersion!.ComponentId == cmp3);
-        if (projectId is { } prj3) sq = sq.Where(c => c.SbomSnapshot!.ComponentVersion!.Component!.ProjectId == prj3);
-        if (clientId is { } cli3) sq = sq.Where(c => c.SbomSnapshot!.ComponentVersion!.Component!.Project!.ClientId == cli3);
+        if (projectId is { } prj3) sq = sq.Where(c => c.SbomSnapshot!.ComponentVersion!.ProjectId == prj3);
+        if (clientId is { } cli3) sq = sq.Where(c => c.SbomSnapshot!.ComponentVersion!.Project!.ClientId == cli3);
 
         if (latest)
         {
@@ -203,8 +203,8 @@ public static class AggregatesEndpoints
                      && (f.Scanner == ScannerKind.TruffleHog
                          || (f.Scanner == ScannerKind.Trivy && f.SubCategory == "secret")));
         if (componentId is { } cmp4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.ComponentId == cmp4);
-        if (projectId is { } prj4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.Component!.ProjectId == prj4);
-        if (clientId is { } cli4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli4);
+        if (projectId is { } prj4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.ProjectId == prj4);
+        if (clientId is { } cli4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.Project!.ClientId == cli4);
         if (latest)
         {
             var latestCvIds3 = await CanonicalOnly(db.ComponentVersions)
@@ -248,8 +248,8 @@ public static class AggregatesEndpoints
             .Where(f => f.Scanner == ScannerKind.Trivy && f.Status == FindingStatus.Open
                      && (f.SubCategory == null || f.SubCategory == "misconfiguration"));
         if (componentId is { } cmp5) iacBase = iacBase.Where(f => f.ComponentVersion!.ComponentId == cmp5);
-        if (projectId is { } prj5) iacBase = iacBase.Where(f => f.ComponentVersion!.Component!.ProjectId == prj5);
-        if (clientId is { } cli5) iacBase = iacBase.Where(f => f.ComponentVersion!.Component!.Project!.ClientId == cli5);
+        if (projectId is { } prj5) iacBase = iacBase.Where(f => f.ComponentVersion!.ProjectId == prj5);
+        if (clientId is { } cli5) iacBase = iacBase.Where(f => f.ComponentVersion!.Project!.ClientId == cli5);
         if (latest)
         {
             var latestCvIds4 = await CanonicalOnly(db.ComponentVersions)
@@ -280,8 +280,8 @@ public static class AggregatesEndpoints
         // exists for any CV in scope, Measured=false → SPA renders grey.
         var coverageQ = db.CoverageReports.AsNoTracking();
         if (componentId is { } cmp6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.ComponentId == cmp6);
-        if (projectId is { } prj6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.Component!.ProjectId == prj6);
-        if (clientId is { } cli6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.Component!.Project!.ClientId == cli6);
+        if (projectId is { } prj6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.ProjectId == prj6);
+        if (clientId is { } cli6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.Project!.ClientId == cli6);
         if (latest)
         {
             var latestCvIds5 = await CanonicalOnly(db.ComponentVersions)
@@ -331,8 +331,8 @@ public static class AggregatesEndpoints
         // that ran clean reads as "scanned ✓" instead of grey "never ran".
         var scanRunsQ = db.ScanRunReceipts.AsNoTracking();
         if (componentId is { } cmp7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.ComponentId == cmp7);
-        if (projectId is { } prj7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.Component!.ProjectId == prj7);
-        if (clientId is { } cli7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.Component!.Project!.ClientId == cli7);
+        if (projectId is { } prj7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.ProjectId == prj7);
+        if (clientId is { } cli7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.Project!.ClientId == cli7);
         if (latest)
         {
             var latestCvIds6 = await CanonicalOnly(db.ComponentVersions)
@@ -374,8 +374,8 @@ public static class AggregatesEndpoints
         var vulnsQ = db.Vulnerabilities.AsNoTracking()
             .Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersionId != Guid.Empty);
         if (componentId is { } cmpV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.ComponentId == cmpV);
-        if (projectId  is { } prjV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.Component!.ProjectId == prjV);
-        if (clientId   is { } cliV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.Component!.Project!.ClientId == cliV);
+        if (projectId  is { } prjV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.ProjectId == prjV);
+        if (clientId   is { } cliV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.Project!.ClientId == cliV);
         // TFND-25: VEX-suppressed vulnerabilities for the scope. Empty
         // when no project context (org-wide / client-wide queries
         // intentionally don't inherit project-scoped VEX statements;
@@ -402,8 +402,8 @@ public static class AggregatesEndpoints
         // Test results — latest TestRunReport per CV in scope, summed.
         var testQ = db.TestRunReports.AsNoTracking();
         if (componentId is { } cmpT) testQ = testQ.Where(r => r.ComponentVersion!.ComponentId == cmpT);
-        if (projectId  is { } prjT) testQ = testQ.Where(r => r.ComponentVersion!.Component!.ProjectId == prjT);
-        if (clientId   is { } cliT) testQ = testQ.Where(r => r.ComponentVersion!.Component!.Project!.ClientId == cliT);
+        if (projectId  is { } prjT) testQ = testQ.Where(r => r.ComponentVersion!.ProjectId == prjT);
+        if (clientId   is { } cliT) testQ = testQ.Where(r => r.ComponentVersion!.Project!.ClientId == cliT);
         var testReports = await testQ.ToListAsync(ct);
         var testsMeasured = testReports.Count > 0;
         var testsTotal = testReports.Sum(r => r.TotalCount);

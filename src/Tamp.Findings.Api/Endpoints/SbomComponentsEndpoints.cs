@@ -49,8 +49,8 @@ public static class SbomComponentsEndpoints
             .AsNoTracking();
 
         if (componentVersionId is { } cv) q = q.Where(c => c.SbomSnapshot!.ComponentVersionId == cv);
-        if (projectId is { } prj) q = q.Where(c => c.SbomSnapshot!.ComponentVersion!.Component!.ProjectId == prj);
-        if (clientId is { } cli) q = q.Where(c => c.SbomSnapshot!.ComponentVersion!.Component!.Project!.ClientId == cli);
+        if (projectId is { } prj) q = q.Where(c => c.SbomSnapshot!.ComponentVersion!.ProjectId == prj);
+        if (clientId is { } cli) q = q.Where(c => c.SbomSnapshot!.ComponentVersion!.Project!.ClientId == cli);
 
         // Default: only the most recent snapshot per (Component, Flavor).
         // Collapses historical versions of the same component to the current
@@ -163,7 +163,7 @@ public static class SbomComponentsEndpoints
                 c.SbomSnapshot.ComponentVersion!.VersionString,
                 c.SbomSnapshot.ComponentVersion.ComponentId,
                 c.SbomSnapshot.ComponentVersion.Component!.Name,
-                c.SbomSnapshot.ComponentVersion.Component.ProjectId,
+                c.SbomSnapshot.ComponentVersion.ProjectId,
                 c.SbomSnapshot.ComponentVersion.Component.Project!.Name,
                 c.SbomSnapshot.ComponentVersion.Component.Project.ClientId,
                 c.SbomSnapshot.ComponentVersion.Component.Project.Client!.Name))

@@ -98,7 +98,7 @@ public sealed class ProjectHubQuery
         var policy = await ResolvePolicyAsync(project, ct);
 
         var builds = await _db.ComponentVersions.AsNoTracking()
-            .Where(cv => _db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == project.ProjectId))
+            .Where(cv => cv.ProjectId == project.ProjectId)
             .OrderByDescending(cv => cv.CreatedAt)
             .Take(50)
             .ToArrayAsync(ct);

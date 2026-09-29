@@ -252,7 +252,7 @@ public class SuppressionExpiryIntegrationTests
         var component = new Component { ProjectId = project.Id, Name = "api" };
         var version = new ComponentVersion
         {
-            ComponentId = component.Id, VersionString = "1.0.0", CommitSha = name + "eeeeee",
+            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = name + "eeeeee",
         };
 
         db.Clients.Add(client);

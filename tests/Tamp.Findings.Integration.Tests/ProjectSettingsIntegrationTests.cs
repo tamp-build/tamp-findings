@@ -409,7 +409,7 @@ public class ProjectSettingsIntegrationTests
         var component = new Component { ProjectId = project.Id, Name = $"set-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ComponentId = component.Id, VersionString = "1.0.0", CommitSha = sha, BranchName = "main",
+            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = sha, BranchName = "main",
         };
 
         db.Clients.Add(client);

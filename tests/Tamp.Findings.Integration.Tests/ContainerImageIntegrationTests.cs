@@ -161,7 +161,7 @@ public class ContainerImageIntegrationTests
         var component = new Component { ProjectId = project.Id, Name = "api" };
         var version = new ComponentVersion
         {
-            ComponentId = component.Id, VersionString = "1.0.0", CommitSha = $"{suffix}aaaaaa",
+            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = $"{suffix}aaaaaa",
         };
 
         db.Clients.Add(client);
@@ -180,7 +180,7 @@ public class ContainerImageIntegrationTests
             var web = new Component { ProjectId = project.Id, Name = "web" };
             var secondVersion = new ComponentVersion
             {
-                ComponentId = web.Id, VersionString = "1.0.0", CommitSha = $"{suffix}aaaaaa",
+                ProjectId = web.ProjectId, ComponentId = web.Id, VersionString = "1.0.0", CommitSha = $"{suffix}aaaaaa",
             };
 
             db.Components.Add(web);

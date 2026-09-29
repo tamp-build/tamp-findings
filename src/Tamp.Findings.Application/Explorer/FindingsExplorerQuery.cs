@@ -32,8 +32,7 @@ public sealed class FindingsExplorerQuery
         var rows = await (
             from f in _db.Findings.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId
+            where cv.ProjectId == projectId
                   && (commitSha == null || cv.CommitSha == commitSha)
                   && scanners.Contains(f.Scanner)
                   && f.Status == FindingStatus.Open
@@ -66,8 +65,7 @@ public sealed class FindingsExplorerQuery
         var rows = await (
             from f in _db.Findings.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId
+            where cv.ProjectId == projectId
                   && (commitSha == null || cv.CommitSha == commitSha)
                   && scanners.Contains(f.Scanner)
                   && f.Status == FindingStatus.Open
@@ -100,8 +98,7 @@ public sealed class FindingsExplorerQuery
         var rows = await (
             from f in _db.Findings.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId
+            where cv.ProjectId == projectId
                   && (commitSha == null || cv.CommitSha == commitSha)
                   && scanners.Contains(f.Scanner)
                   && f.Status == FindingStatus.Open
@@ -140,8 +137,7 @@ public sealed class FindingsExplorerQuery
             from f in _db.CoverageSourceFiles.AsNoTracking()
             join r in _db.CoverageReports.AsNoTracking() on f.CoverageReportId equals r.Id
             join cv in _db.ComponentVersions.AsNoTracking() on r.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId && f.RelativePath == normalised
+            where cv.ProjectId == projectId && f.RelativePath == normalised
             orderby r.Id
             select f.SourceText).FirstOrDefaultAsync(ct);
     }

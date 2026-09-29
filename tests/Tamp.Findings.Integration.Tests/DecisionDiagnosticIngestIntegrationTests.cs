@@ -31,7 +31,7 @@ public class DecisionDiagnosticIngestIntegrationTests
         var client = new Client { Name = $"dd-client-{s}" };
         var project = new Project { ClientId = client.Id, Name = $"dd-project-{s}" };
         var component = new Component { ProjectId = project.Id, Name = $"dd-comp-{s}" };
-        var cv = new ComponentVersion { ComponentId = component.Id, VersionString = "1.0.0", CommitSha = sha };
+        var cv = new ComponentVersion { ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = sha };
         db.AddRange(user, client, project, component, cv);
         await db.SaveChangesAsync();
         return (project.Id, user.Id, sha);

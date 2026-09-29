@@ -53,7 +53,7 @@ public sealed class ConformanceIngestService(FindingsDbContext db)
         {
             var rows = await db.ComponentVersions.AsNoTracking()
                 .Where(cv => cv.CommitSha != null && shas.Contains(cv.CommitSha)
-                    && db.Components.Any(c => c.Id == cv.ComponentId && candidateProjectIds.Contains(c.ProjectId)))
+                    && candidateProjectIds.Contains(cv.ProjectId))
                 .OrderBy(cv => cv.CreatedAt)
                 .Select(cv => new { cv.CommitSha, cv.Id })
                 .ToListAsync(ct);

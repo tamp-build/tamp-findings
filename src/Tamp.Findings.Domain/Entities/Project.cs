@@ -58,5 +58,8 @@ public sealed class Project
     public string? VdpReportingFormUrl { get; set; }
 
     public Client? Client { get; set; }
+    // Component-collapse PR1: builds anchor directly to the project now. Components stays
+    // during the dual-write window and is removed in PR2 along with the Component entity.
+    public ICollection<ComponentVersion> Versions { get; set; } = [];
     public ICollection<Component> Components { get; set; } = [];
 }

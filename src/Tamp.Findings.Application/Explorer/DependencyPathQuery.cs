@@ -43,8 +43,7 @@ public sealed class DependencyPathQuery
             from sc in _db.SbomComponents.AsNoTracking()
             join snap in _db.SbomSnapshots.AsNoTracking() on sc.SbomSnapshotId equals snap.Id
             join cv in _db.ComponentVersions.AsNoTracking() on snap.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId
+            where cv.ProjectId == projectId
                   && (commitSha == null || cv.CommitSha == commitSha)
                   && sc.Purl == purl
             orderby cv.CreatedAt descending

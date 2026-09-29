@@ -86,7 +86,7 @@ public sealed class PortfolioQuery
             // and the alternative, one giant join, would still do the same
             // scoring work while being far harder to read.
             var latest = await _db.ComponentVersions.AsNoTracking()
-                .Where(cv => _db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == project.Id))
+                .Where(cv => cv.ProjectId == project.Id)
                 .OrderByDescending(cv => cv.CreatedAt)
                 .FirstOrDefaultAsync(ct);
 
@@ -113,7 +113,7 @@ public sealed class PortfolioQuery
 
             var ids = await _db.ComponentVersions.AsNoTracking()
                 .Where(cv => cv.CommitSha == latest.CommitSha
-                             && _db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == project.Id))
+                             && cv.ProjectId == project.Id)
                 .Select(cv => cv.Id)
                 .ToArrayAsync(ct);
 
@@ -168,7 +168,7 @@ public sealed class PortfolioQuery
                 && cv.PullRequestRef == null
                 && (cv.BranchName == null || cv.BranchName == "main" || cv.BranchName == "master")
                 && cv.CreatedAt >= windowStart
-                && _db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == projectId))
+                && cv.ProjectId == projectId)
             .GroupBy(cv => cv.CommitSha!)
             .Select(g => new { Commit = g.Key, At = g.Max(x => x.CreatedAt) })
             .OrderByDescending(x => x.At)
@@ -192,7 +192,7 @@ public sealed class PortfolioQuery
 
             var ids = await _db.ComponentVersions.AsNoTracking()
                 .Where(cv => cv.CommitSha == commit.Commit
-                    && _db.Components.Any(c => c.Id == cv.ComponentId && c.ProjectId == projectId))
+                    && cv.ProjectId == projectId)
                 .Select(cv => cv.Id)
                 .ToArrayAsync(ct);
             if (ids.Length == 0) continue;

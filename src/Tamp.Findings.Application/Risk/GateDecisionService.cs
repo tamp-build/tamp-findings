@@ -59,7 +59,7 @@ public sealed class GateDecisionService
         // Canonical CV set per (Component, Flavor): most-recent canonical
         // commit's CVs, plus the second-most-recent for delta-aware gates.
         var canonical = await _db.ComponentVersions.AsNoTracking()
-            .Where(v => v.Component!.ProjectId == projectId
+            .Where(v => v.ProjectId == projectId
                      && v.PullRequestRef == null
                      && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))
             .Select(v => new { v.Id, v.CommitSha, v.VersionString, v.CreatedAt })

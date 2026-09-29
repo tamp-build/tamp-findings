@@ -148,9 +148,9 @@ public static class CoverageDetailEndpoints
         if (componentId is { } cmp)
             q = q.Where(r => r.ComponentVersion!.ComponentId == cmp);
         if (projectId is { } prj)
-            q = q.Where(r => r.ComponentVersion!.Component!.ProjectId == prj);
+            q = q.Where(r => r.ComponentVersion!.ProjectId == prj);
         if (clientId is { } cli)
-            q = q.Where(r => r.ComponentVersion!.Component!.Project!.ClientId == cli);
+            q = q.Where(r => r.ComponentVersion!.Project!.ClientId == cli);
         return await q.ToListAsync(ct);
     }
 }
