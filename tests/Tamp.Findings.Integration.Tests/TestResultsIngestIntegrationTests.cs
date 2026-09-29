@@ -203,6 +203,58 @@ public class TestResultsIngestIntegrationTests
     }
 
     [SkippableFact]
+    public async Task Raw_post_stores_the_original_file_as_an_artifact()
+    {
+        Skip.IfNot(_fx.Available);
+        var s = Guid.NewGuid().ToString("N")[..8];
+        var (client, project, token) = await SeedProjectTokenAsync(s);
+        var http = _fx.Factory!.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var sha = $"{s}artifact";
+
+        var trxBytes = await File.ReadAllBytesAsync(FindTrx());
+        async Task PostTrx(string fileName, byte[] bytes)
+        {
+            var body = new ByteArrayContent(bytes);
+            body.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/xml");
+            var resp = await http.PostAsync(
+                $"/ingest/test-results/raw?client={Uri.EscapeDataString(client)}&project={Uri.EscapeDataString(project)}&version=1.0.0&commitSha={sha}&filename={fileName}",
+                body);
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        }
+
+        await PostTrx("Core.trx", trxBytes);
+
+        Guid cvId;
+        using (var scope = _fx.Scope())
+        {
+            var db = _fx.Db(scope);
+            var cv = await db.ComponentVersions.SingleAsync(v => v.CommitSha == sha);
+            cvId = cv.Id;
+            var art = await db.RawReportArtifacts.SingleAsync(a => a.ComponentVersionId == cvId);
+            Assert.Equal(Tamp.Findings.Domain.Values.RawArtifactKind.TestResults, art.Kind);
+            Assert.Equal("trx", art.Format);
+            Assert.Equal("Core.trx", art.FileName);
+            Assert.Equal(trxBytes.Length, art.SizeBytes);
+            Assert.True(art.CompressedBytes.Length < art.SizeBytes);   // actually compressed
+            // The stored artifact round-trips to the exact bytes the producer POSTed.
+            Assert.Equal(trxBytes, Tamp.Findings.Api.Ingest.Raw.RawArtifactStore.Gunzip(art.CompressedBytes));
+        }
+
+        // A different filename coexists; re-posting the same filename replaces (still one row for it).
+        await PostTrx("Cli.trx", trxBytes);
+        await PostTrx("Core.trx", trxBytes);
+        using (var scope = _fx.Scope())
+        {
+            var db = _fx.Db(scope);
+            var arts = await db.RawReportArtifacts.Where(a => a.ComponentVersionId == cvId).ToListAsync();
+            Assert.Equal(2, arts.Count);   // Core.trx (replaced in place) + Cli.trx
+            Assert.Contains(arts, a => a.FileName == "Core.trx");
+            Assert.Contains(arts, a => a.FileName == "Cli.trx");
+        }
+    }
+
+    [SkippableFact]
     public async Task Raw_endpoint_rejects_an_unrecognised_document()
     {
         Skip.IfNot(_fx.Available);

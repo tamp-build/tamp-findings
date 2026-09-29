@@ -5,6 +5,7 @@ using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Api.Ingest.Raw;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
+using Tamp.Findings.Domain.Values;
 
 using Tamp.Findings.Application.Auditing;
 
@@ -28,7 +29,10 @@ public static class CoverageIngestEndpoints
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(CoverageIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct)
+    private static Task<IResult> IngestAsync(CoverageIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct)
+        => IngestCoreAsync(req, ctx, db, audit, snapshots, raw: null, rawFormat: null, rawFileName: null, ct);
+
+    private static async Task<IResult> IngestCoreAsync(CoverageIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, byte[]? raw, string? rawFormat, string? rawFileName, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project required");
@@ -132,6 +136,13 @@ public static class CoverageIngestEndpoints
             if (m.Classes.Count > 0) await db.SaveChangesAsync(ct);
         }
 
+        // Keep the raw file as evidence of record (TFND-209) — only the raw endpoint supplies it.
+        if (raw is not null)
+        {
+            await RawArtifactStore.UpsertAsync(db, version.Id, RawArtifactKind.Coverage, rawFormat ?? "", rawFileName, req.ToolName, raw, ct);
+            await db.SaveChangesAsync(ct);
+        }
+
         await IngestAudit.RecordAsync(audit, db, token, version.Id,
             $"coverage: {seenModules.Count} modules, {classCount} classes — {req.Project}@{req.Version}", ct);
         await db.SaveChangesAsync(ct);
@@ -149,18 +160,18 @@ public static class CoverageIngestEndpoints
         Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct,
         string? client, string? project, string? version,
         string? commitSha = null, string? branch = null, string? buildId = null,
-        string? pullRequestRef = null, string? flavor = null, string? toolVersion = null)
+        string? pullRequestRef = null, string? flavor = null, string? toolVersion = null, string? filename = null)
     {
         if (string.IsNullOrWhiteSpace(client)) return Results.BadRequest("client required (query string)");
         if (string.IsNullOrWhiteSpace(project)) return Results.BadRequest("project required (query string)");
         if (string.IsNullOrWhiteSpace(version)) return Results.BadRequest("version required (query string)");
 
-        XDocument doc;
-        try { doc = await RawReportXml.LoadAsync(ctx.Request.Body, ct); }
+        RawReportXml.Loaded loaded;
+        try { loaded = await RawReportXml.LoadWithBytesAsync(ctx.Request.Body, ct); }
         catch (RawReportXml.TooLargeException ex) { return Results.Problem(ex.Message, statusCode: StatusCodes.Status413PayloadTooLarge); }
         catch (RawReportXml.MalformedException ex) { return Results.BadRequest($"malformed report: {ex.Message}"); }
 
-        var fmt = RawReportFormat.DetectCoverage(doc);
+        var fmt = RawReportFormat.DetectCoverage(loaded.Doc);
         if (fmt is null) return Results.BadRequest("unrecognised coverage report; expected Cobertura (<coverage>) or OpenCover (<CoverageSession>) XML");
 
         ParsedCoverage parsed;
@@ -168,8 +179,8 @@ public static class CoverageIngestEndpoints
         {
             parsed = fmt switch
             {
-                RawCoverageFormat.Cobertura => CoberturaCoverageParser.Parse(doc),
-                _ => OpenCoverCoverageParser.Parse(doc),
+                RawCoverageFormat.Cobertura => CoberturaCoverageParser.Parse(loaded.Doc),
+                _ => OpenCoverCoverageParser.Parse(loaded.Doc),
             };
         }
         catch (RawReportXml.MalformedException ex) { return Results.BadRequest($"malformed report: {ex.Message}"); }
@@ -183,7 +194,8 @@ public static class CoverageIngestEndpoints
             CoveredBranches: parsed.CoveredBranches, TotalBranches: parsed.TotalBranches,
             Modules: parsed.Modules, SourceFiles: null);
 
-        return await IngestAsync(req, ctx, db, audit, snapshots, ct);
+        var format = fmt == RawCoverageFormat.Cobertura ? "cobertura" : "opencover";
+        return await IngestCoreAsync(req, ctx, db, audit, snapshots, loaded.Raw, format, filename, ct);
     }
 
     private static async Task<(ComponentVersion? version, IResult? error)> ResolveCvAsync(

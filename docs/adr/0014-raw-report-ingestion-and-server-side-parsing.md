@@ -65,11 +65,16 @@ to a thin "POST this file" client.
    **400**, never a 500. One hardened parser replaces N hand-rolled ones of unknown posture.
 
 4. **The raw report is retained as the evidence of record.** The raw file the producer POSTs is
-   persisted, linked to the report it produced, so the evidence we attest to is the tool's own output
-   and we can re-parse it as the canonical model grows (per-test timing, categories, rerun data)
-   without asking adopters to re-ingest. *(Implementation staged: the parsers ship first with
-   parse-and-discard; raw persistence is the immediate follow-up under TFND-209. The decision — that
-   raw is stored — is fixed here so the storage work builds to it.)*
+   persisted (`RawReportArtifact`), linked to the build, so the evidence we attest to is the tool's own
+   output and we can re-parse it as the canonical model grows (per-test timing, categories, rerun data)
+   without asking adopters to re-ingest. It is stored in Postgres — a dedicated table, gzip-compressed
+   `bytea`, written in the same transaction as the parsed evidence and cascade-deleted with the build —
+   not an object store: there is none deployed, the files are small (XML compresses ~10-20×), and the
+   evidence must never be a dangling reference to a blob the DB backup doesn't cover. Retention is
+   **replace-by-file with content dedup**: the supersession identity is the producer's filename (an
+   optional `?filename=`) or `sha256:<hash>` when none is given, so re-posting the same file replaces
+   it, a build's several files coexist, and identical bytes are a no-op — the stored raw always mirrors
+   the current parsed evidence, and the audit log remains the per-event trail. (TFND-209.)
 
 5. **The normalized endpoints remain.** `/ingest/test-results` and `/ingest/coverage` stay supported:
    they are the canonical model the raw path parses **into**, the fallback for formats we don't parse

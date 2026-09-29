@@ -37,6 +37,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<TestRunReport> TestRunReports => Set<TestRunReport>();
     public DbSet<TestSuiteResult> TestSuiteResults => Set<TestSuiteResult>();
     public DbSet<TestCaseResult> TestCaseResults => Set<TestCaseResult>();
+    public DbSet<RawReportArtifact> RawReportArtifacts => Set<RawReportArtifact>();
     public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
     public DbSet<PolicyTemplate> PolicyTemplates => Set<PolicyTemplate>();
@@ -452,6 +453,21 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.ErrorStackTrace).HasColumnType("text");
             e.HasOne(x => x.Suite).WithMany(s => s.Cases).HasForeignKey(x => x.TestSuiteResultId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.TestSuiteResultId, x.Name });
+        });
+
+        b.Entity<RawReportArtifact>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Format).HasMaxLength(32).IsRequired();
+            e.Property(x => x.FileName).HasMaxLength(512);
+            e.Property(x => x.SlotKey).HasMaxLength(512).IsRequired();
+            e.Property(x => x.Sha256).HasMaxLength(64).IsRequired();
+            e.Property(x => x.ToolName).HasMaxLength(128);
+            e.Property(x => x.CompressedBytes).HasColumnType("bytea").IsRequired();
+            e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
+            // Replace-by-file with dedup: one row per (build, kind, slot); re-posting the same slot
+            // supersedes it, different files coexist. SlotKey is the filename, or "sha256:<hash>".
+            e.HasIndex(x => new { x.ComponentVersionId, x.Kind, x.SlotKey }).IsUnique();
         });
 
         b.Entity<ScanRunReceipt>(e =>

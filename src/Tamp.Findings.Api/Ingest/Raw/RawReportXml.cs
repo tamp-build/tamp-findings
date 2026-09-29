@@ -17,7 +17,14 @@ public static class RawReportXml
     public sealed class TooLargeException(long limit) : Exception($"report exceeds the {limit}-byte limit");
     public sealed class MalformedException(string why) : Exception(why);
 
-    public static async Task<XDocument> LoadAsync(Stream body, CancellationToken ct)
+    // The parsed document plus the exact bytes read, so a caller can persist the raw file (evidence of
+    // record) without reading the stream twice.
+    public sealed record Loaded(XDocument Doc, byte[] Raw);
+
+    public static async Task<XDocument> LoadAsync(Stream body, CancellationToken ct) =>
+        (await LoadWithBytesAsync(body, ct)).Doc;
+
+    public static async Task<Loaded> LoadWithBytesAsync(Stream body, CancellationToken ct)
     {
         // Copy through a capped buffer first: XmlReader would otherwise stream an unbounded body.
         using var buffer = new MemoryStream();
@@ -43,10 +50,11 @@ public static class RawReportXml
             IgnoreComments = true,
             IgnoreProcessingInstructions = true,
         };
+        var raw = buffer.ToArray();
         try
         {
             using var reader = XmlReader.Create(buffer, settings);
-            return XDocument.Load(reader);
+            return new Loaded(XDocument.Load(reader), raw);
         }
         catch (XmlException ex)
         {

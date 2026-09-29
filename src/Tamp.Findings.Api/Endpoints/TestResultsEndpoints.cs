@@ -39,7 +39,10 @@ public static class TestResultsEndpoints
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(TestResultsIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct)
+    private static Task<IResult> IngestAsync(TestResultsIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct)
+        => IngestCoreAsync(req, ctx, db, audit, snapshots, raw: null, rawFormat: null, rawFileName: null, ct);
+
+    private static async Task<IResult> IngestCoreAsync(TestResultsIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, byte[]? raw, string? rawFormat, string? rawFileName, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project required");
@@ -147,6 +150,13 @@ public static class TestResultsEndpoints
         report.DurationMs = all.Sum(s => s.DurationMs);
         await db.SaveChangesAsync(ct);
 
+        // Keep the raw file as evidence of record (TFND-209) — only the raw endpoints supply it.
+        if (raw is not null)
+        {
+            await RawArtifactStore.UpsertAsync(db, version.Id, RawArtifactKind.TestResults, rawFormat ?? "", rawFileName, req.ToolName, raw, ct);
+            await db.SaveChangesAsync(ct);
+        }
+
         await IngestAudit.RecordAsync(audit, db, token, version.Id,
             $"test-results: {suitesCount} suites, {casesCount} cases — {req.Project}@{req.Version}", ct);
         await db.SaveChangesAsync(ct);
@@ -165,18 +175,18 @@ public static class TestResultsEndpoints
         Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct,
         string? client, string? project, string? version,
         string? commitSha = null, string? branch = null, string? buildId = null,
-        string? pullRequestRef = null, string? flavor = null, string? toolVersion = null)
+        string? pullRequestRef = null, string? flavor = null, string? toolVersion = null, string? filename = null)
     {
         if (string.IsNullOrWhiteSpace(client)) return Results.BadRequest("client required (query string)");
         if (string.IsNullOrWhiteSpace(project)) return Results.BadRequest("project required (query string)");
         if (string.IsNullOrWhiteSpace(version)) return Results.BadRequest("version required (query string)");
 
-        XDocument doc;
-        try { doc = await RawReportXml.LoadAsync(ctx.Request.Body, ct); }
+        RawReportXml.Loaded loaded;
+        try { loaded = await RawReportXml.LoadWithBytesAsync(ctx.Request.Body, ct); }
         catch (RawReportXml.TooLargeException ex) { return Results.Problem(ex.Message, statusCode: StatusCodes.Status413PayloadTooLarge); }
         catch (RawReportXml.MalformedException ex) { return Results.BadRequest($"malformed report: {ex.Message}"); }
 
-        var fmt = RawReportFormat.DetectTest(doc);
+        var fmt = RawReportFormat.DetectTest(loaded.Doc);
         if (fmt is null) return Results.BadRequest("unrecognised test report; expected a .trx (<TestRun>) or JUnit (<testsuites>/<testsuite>) document");
 
         ParsedTestResults parsed;
@@ -184,8 +194,8 @@ public static class TestResultsEndpoints
         {
             parsed = fmt switch
             {
-                RawTestFormat.Trx => TrxTestResultsParser.Parse(doc),
-                _ => JUnitTestResultsParser.Parse(doc),
+                RawTestFormat.Trx => TrxTestResultsParser.Parse(loaded.Doc),
+                _ => JUnitTestResultsParser.Parse(loaded.Doc),
             };
         }
         catch (RawReportXml.MalformedException ex) { return Results.BadRequest($"malformed report: {ex.Message}"); }
@@ -200,7 +210,8 @@ public static class TestResultsEndpoints
             DurationMs: parsed.DurationMs, StartedAt: now, CompletedAt: now,
             Suites: parsed.Suites);
 
-        return await IngestAsync(req, ctx, db, audit, snapshots, ct);
+        var format = fmt == RawTestFormat.Trx ? "trx" : "junit";
+        return await IngestCoreAsync(req, ctx, db, audit, snapshots, loaded.Raw, format, filename, ct);
     }
 
     private static async Task<IResult> GetTreeAsync(

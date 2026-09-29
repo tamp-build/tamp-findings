@@ -732,6 +732,7 @@ var queries = app.MapGroup("").AddEndpointFilter<Tamp.Findings.Api.Authenticatio
 
 queries.MapCoverageDetail();
 queries.MapTestResults();
+queries.MapRawArtifacts();
 queries.MapFindingsQuery();
 queries.MapFindingsList();
 queries.MapFindingsTree();
