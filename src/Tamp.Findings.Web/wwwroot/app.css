@@ -1246,3 +1246,14 @@ th.sortable--active { color: var(--color-accent-700); }
 .rulerow__main { min-width: 0; flex: 1; }
 .rulerow__intent { margin-top: var(--space-2); font-size: var(--text-body); }
 .rulerow__action { flex: none; }
+
+/* ── Control-coverage matrix (TFND-195) ─────────────────────────────── */
+.filterchip { font-size: var(--text-kicker); padding: 2px 8px; border: 1px solid var(--color-neutral-300);
+              background: transparent; color: var(--color-neutral-600); cursor: pointer; }
+.filterchip--on { border-color: var(--color-accent); color: var(--color-accent-700); background: var(--color-accent-100); }
+.covtable { display: flex; flex-direction: column; margin-top: var(--space-2); }
+.covrow { display: grid; grid-template-columns: 7rem 1fr auto; align-items: center; gap: var(--space-3);
+          padding: var(--space-2) 0; border-top: 1px solid var(--color-neutral-200); }
+.covrow:first-child { border-top: 0; }
+.covrow__id { color: var(--color-neutral-700); }
+.covrow__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1,0 +1,143 @@
+@* Control-coverage matrix (TFND-195 / ADR 0009). The framework's in-scope controls and
+   their disposition — gated / inherited / not-applicable / unmapped — so the no-unmapped
+   meta-gate's denominator is visible: which controls are actually covered vs never
+   considered. Read-only; disposition is derived (never stored), so it cannot drift. *@
+@page "/c/{Client}/p/{Project}/coverage"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using Tamp.Findings.Application.Compliance
+@inject RouteScope Scope
+@inject ProjectHubQuery Hub
+@inject ComplianceProfileQuery Profiles
+@inject CurrentUser Me
+
+<PageTitle>Control coverage — @Project</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>Control coverage</h1>
+        <Card><div class="row"><Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" /><span>Could not load coverage. @_error</span></div></Card>
+    </div>
+}
+else if (_project is null)
+{
+    <div class="stack"><h1>Project not found</h1><Card><p>No project matches <code class="mono">@Client / @Project</code>.</p></Card></div>
+}
+else
+{
+    <div class="stack">
+        <div>
+            <div class="kicker">control coverage · disposition (ADR 0009)</div>
+            <h1>@_project.ProjectName</h1>
+        </div>
+
+        @if (_profile?.Framework is null || _profile.Coverage is null)
+        {
+            <Card>
+                <div class="row"><Chip Label="No framework" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="○" /><span>This project's client has no compliance framework assigned, so there are no in-scope controls to disposition.</span></div>
+            </Card>
+        }
+        else
+        {
+            var cov = _profile.Coverage;
+            <Card>
+                <div class="row row--between">
+                    <div class="kicker">@_profile.Framework.Name · @_profile.Framework.Version</div>
+                    @if (cov.Unmapped > 0)
+                    {
+                        <Chip Label="@($"{cov.Unmapped} unmapped")" Tone="var(--color-medium)" Style="Chip.ChipStyle.Solid" Glyph="○" />
+                    }
+                    else
+                    {
+                        <Chip Label="Fully dispositioned" Tone="var(--color-pass)" Style="Chip.ChipStyle.Solid" Glyph="✓" />
+                    }
+                </div>
+                <div class="row" style="gap: var(--space-4); margin-top: var(--space-2)">
+                    <Stat Label="In scope" Value="@cov.InScope" />
+                    <Stat Label="Gated" Value="@cov.Gated" Tone="var(--color-pass)" />
+                    <Stat Label="Inherited" Value="@cov.Inherited" Tone="var(--color-accent)" />
+                    <Stat Label="N/A" Value="@cov.NotApplicable" Tone="var(--color-neutral-500)" />
+                    <Stat Label="Unmapped" Value="@cov.Unmapped" Tone="@(cov.Unmapped > 0 ? "var(--color-medium)" : null)" />
+                </div>
+                <div class="row" style="gap: var(--space-2); margin-top: var(--space-3)">
+                    @foreach (var f in _filters)
+                    {
+                        <button class="@($"filterchip {(_filter == f ? "filterchip--on" : "")}")" @onclick="@(() => _filter = f)">@f</button>
+                    }
+                </div>
+            </Card>
+
+            @foreach (var group in Filtered().GroupBy(c => c.Family).OrderBy(g => g.Key, StringComparer.Ordinal))
+            {
+                <Card>
+                    <h2 class="h3">@group.Key <span class="muted">· @group.Count()</span></h2>
+                    <div class="covtable">
+                        @foreach (var ctl in group.OrderBy(c => c.Id, StringComparer.Ordinal))
+                        {
+                            <div class="covrow">
+                                <code class="mono covrow__id">@ctl.Id</code>
+                                <span class="covrow__title">@ctl.Title</span>
+                                <Chip Label="@DispLabel(ctl.Disposition)" Tone="@DispTone(ctl.Disposition)" Style="@DispStyle(ctl.Disposition)" Glyph="@DispGlyph(ctl.Disposition)" />
+                            </div>
+                        }
+                    </div>
+                </Card>
+            }
+            @if (!Filtered().Any())
+            {
+                <NothingFound Message="@($"No {_filter.ToLowerInvariant()} controls.")" />
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+
+    private string? _error;
+    private Application.Projects.ProjectRef? _project;
+    private ComplianceProfile? _profile;
+    private static readonly string[] _filters = ["All", "Unmapped", "Gated", "Inherited", "NotApplicable"];
+    private string _filter = "All";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project);
+        _error = null;
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
+            if (_project is null) return;
+            _profile = await Profiles.ForProjectAsync(_project.ProjectId);
+        }
+        catch (Exception ex) { _error = ex.GetType().Name; }
+    }
+
+    private IEnumerable<ProfileControl> Filtered() =>
+        _profile?.Controls is null ? []
+        : _filter == "All" ? _profile.Controls
+        : _profile.Controls.Where(c => string.Equals(c.Disposition, _filter, StringComparison.OrdinalIgnoreCase));
+
+    private static string DispLabel(string? d) => d switch { "NotApplicable" => "N/A", null => "—", _ => d };
+    private static string DispTone(string? d) => d switch
+    {
+        "Gated" => "var(--color-pass)",
+        "Inherited" => "var(--color-accent)",
+        "NotApplicable" => "var(--color-neutral-500)",
+        "Unmapped" => "var(--color-medium)",
+        _ => "var(--color-neutral-500)",
+    };
+    private static Chip.ChipStyle DispStyle(string? d) => d switch
+    {
+        "Gated" => Chip.ChipStyle.Solid,
+        "Inherited" => Chip.ChipStyle.Outlined,
+        "Unmapped" => Chip.ChipStyle.Dashed,
+        _ => Chip.ChipStyle.Outlined,
+    };
+    private static string DispGlyph(string? d) => d switch
+    {
+        "Gated" => "✓", "Inherited" => "↧", "NotApplicable" => "○", "Unmapped" => "○", _ => "",
+    };
+}
