@@ -22,3 +22,5 @@ Numbering starts at 0001 for tamp.findings-local decisions.
 | [0010](0010-zero-trust-maturity-and-operational-mandates.md) | Zero Trust maturity + operational mandates in tamp.findings | Proposed |
 | [0011](0011-executive-order-mandate-provenance-registry.md) | Executive-order mandate provenance registry | Proposed |
 | [0012](0012-findings-as-the-authoritative-conformance-rules-store.md) | Findings as the authoritative conformance-rules store (amends 0006 §3) | Proposed |
+| [0013](0013-reverse-examination-undocumented-decision-advisories.md) | Reverse-examination — undocumented-decision advisories as CM-3 evidence | Proposed |
+| [0014](0014-raw-report-ingestion-and-server-side-parsing.md) | Raw report ingestion — the sink parses, and the raw report is the evidence of record | Accepted |
