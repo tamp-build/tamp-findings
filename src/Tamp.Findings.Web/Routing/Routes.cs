@@ -87,6 +87,11 @@ public static class Routes
     public static string Decisions(string client, string project) =>
         $"/c/{E(client)}/p/{E(project)}/decisions";
 
+    /// <summary>Zero Trust maturity dashboard (TFND-199 / ADR 0010): the project's ZtSystem
+    /// coverage — pillar/function dispositions and equal-weight ZTMM stage scores.</summary>
+    public static string ZeroTrust(string client, string project) =>
+        $"/c/{E(client)}/p/{E(project)}/zt";
+
     /// <summary>
     /// Deep link to one statement, or to writing the one that is missing.
     ///

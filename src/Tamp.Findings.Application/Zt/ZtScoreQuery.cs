@@ -11,6 +11,22 @@ namespace Tamp.Findings.Application.Zt;
 // stored — it cannot drift from the evidence.
 public sealed class ZtScoreQuery(FindingsDbContext db)
 {
+    /// <summary>The Zero Trust coverage for a project's repo-backed ZtSystem — the entry point
+    /// for the per-project maturity dashboard (TFND-199). Resolves the consumer system linked to
+    /// the project, then scores it. Null when the project has no linked ZtSystem or no current
+    /// ZTMM model is loaded (the client isn't ZT-scored).</summary>
+    public async Task<ZtSystemCoverage?> ForProjectAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var system = await db.ZtSystems.AsNoTracking()
+            .Where(s => s.ProjectId == projectId)
+            .OrderBy(s => s.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        if (system is null) return null;
+
+        var coverage = await ForSystemAsync(system.Id, ct);
+        return coverage is null ? null : new ZtSystemCoverage(system.Id, system.Name, system.SystemKind, coverage);
+    }
+
     /// <summary>The coverage for a system, or null when no current ZTMM model is loaded.
     /// A system with no linked project simply has no owned evidence — every function
     /// floors at 1 (the conservative default).</summary>
@@ -77,3 +93,6 @@ public sealed class ZtScoreQuery(FindingsDbContext db)
             HashCode.Combine(x.Item1.ToLowerInvariant(), x.Item2.ToLowerInvariant());
     }
 }
+
+/// <summary>A project's ZtSystem paired with its derived coverage (TFND-199).</summary>
+public sealed record ZtSystemCoverage(Guid SystemId, string SystemName, string? SystemKind, ZtCoverage Coverage);

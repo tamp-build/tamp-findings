@@ -1,0 +1,215 @@
+@* Zero Trust maturity dashboard (TFND-199 / ADR 0010). The project's repo-backed ZtSystem
+   scored against the current ZTMM model: each pillar-function resolves to one disposition
+   (owned / inherited / contradicted / N-A / undetermined) and a stage, folded up by the pinned
+   EQUAL-WEIGHT contract. Derive-on-read — no score is stored, so it cannot drift from evidence.
+   Conservative by construction: undetermined floors at Traditional, inherited caps at the
+   provider, N/A leaves the denominator. Read-only. *@
+@page "/c/{Client}/p/{Project}/zt"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using Tamp.Findings.Domain.Compliance
+@using Tamp.Findings.Application.Zt
+@inject RouteScope Scope
+@inject ProjectHubQuery Hub
+@inject ZtScoreQuery ZtScore
+@inject ZtProfileQuery ZtProfile
+@inject CurrentUser Me
+
+<PageTitle>Zero Trust maturity — @Project</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>Zero Trust maturity</h1>
+        <Card><div class="row"><Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" /><span>Could not load ZT coverage. @_error</span></div></Card>
+    </div>
+}
+else if (_project is null)
+{
+    <div class="stack"><h1>Project not found</h1><Card><p>No project matches <code class="mono">@Client / @Project</code>.</p></Card></div>
+}
+else
+{
+    <div class="stack">
+        <div>
+            <div class="kicker">zero trust maturity · ZTMM (ADR 0010)</div>
+            <h1>@_project.ProjectName</h1>
+        </div>
+
+        @if (_cov is null)
+        {
+            <Card>
+                <div class="row"><Chip Label="Not ZT-scored" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="○" /><span>This project has no linked ZT system, or its client isn't assigned a maturity model. Zero Trust scoring derives from a ZtSystem bound to the project.</span></div>
+            </Card>
+        }
+        else
+        {
+            var cov = _cov.Coverage;
+            <Card>
+                <div class="row row--between">
+                    <div>
+                        <div class="kicker">@_cov.SystemName@(_cov.SystemKind is { Length: > 0 } k ? $" · {k}" : "")</div>
+                        <div class="ztscore">
+                            <span class="ztscore__n" style="color: @ScoreColor(cov.SystemScore)">@(cov.SystemScore is { } s ? s.ToString("0.0") : "—")</span>
+                            <span class="ztscore__d">/ 4 · @ScoreLabel(cov.SystemScore)</span>
+                        </div>
+                    </div>
+                    @if (cov.Contradicted > 0)
+                    {
+                        <Chip Label="@($"{cov.Contradicted} contradicted")" Tone="var(--color-critical)" Style="Chip.ChipStyle.Solid" Glyph="✕" />
+                    }
+                </div>
+                <div class="row" style="gap: var(--space-4); margin-top: var(--space-2)">
+                    <Stat Label="Owned" Value="@cov.Owned" Tone="var(--color-pass)" />
+                    <Stat Label="Inherited" Value="@cov.Inherited" Tone="var(--color-accent)" />
+                    <Stat Label="Contradicted" Value="@cov.Contradicted" Tone="@(cov.Contradicted > 0 ? "var(--color-critical)" : null)" />
+                    <Stat Label="Undetermined" Value="@cov.Undetermined" Tone="@(cov.Undetermined > 0 ? "var(--color-medium)" : null)" />
+                    <Stat Label="N/A" Value="@cov.NotApplicable" Tone="var(--color-neutral-500)" />
+                </div>
+                <p class="field__help">
+                    Equal-weight ZTMM: a pillar score is the mean of its in-scope function stages, the system score
+                    the mean of the scored pillars. Undetermined floors at 1 (Traditional); N/A leaves the denominator.
+                </p>
+            </Card>
+
+            @foreach (var pillar in cov.Pillars)
+            {
+                var fns = cov.Functions.Where(f => f.Pillar == pillar.Pillar).OrderBy(f => f.Function, StringComparer.Ordinal).ToList();
+                <Card>
+                    <div class="row row--between">
+                        <h2 class="h3">@pillar.Pillar</h2>
+                        <div class="row" style="gap: var(--space-2)">
+                            <span class="mono" style="color: @ScoreColor(pillar.Score)">@(pillar.Score is { } ps ? ps.ToString("0.0") : "n/a")</span>
+                            <span class="muted mono">@pillar.Applicable/@pillar.Total scored</span>
+                        </div>
+                    </div>
+                    <div class="ruletable">
+                        @foreach (var f in fns)
+                        {
+                            <div class="rulerow">
+                                <div class="rulerow__main">
+                                    <div class="row" style="gap: var(--space-2)">
+                                        <Chip Label="@DispLabel(f.Disposition)" Tone="@DispTone(f.Disposition)" Style="@DispStyle(f.Disposition)" Glyph="@DispGlyph(f.Disposition)" />
+                                        <span>@f.Function</span>
+                                        @if (f.CrossCutting)
+                                        {
+                                            <Chip Label="cross-cutting" Tone="var(--color-neutral-500)" Style="Chip.ChipStyle.Outlined" />
+                                        }
+                                        @if (f.InDenominator)
+                                        {
+                                            <span class="mono muted">stage @f.Stage · @StageLabel(f.Stage)</span>
+                                        }
+                                    </div>
+                                    @if (f.Detail is { Length: > 0 })
+                                    {
+                                        <div class="rulerow__intent muted">@f.Detail</div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </Card>
+            }
+
+            @if (_mandates.Count > 0)
+            {
+                <Card>
+                    <h2 class="h3">Operational mandates <span class="muted">· @_mandates.Count(m => m.InForce) in force</span></h2>
+                    <div class="ruletable">
+                        @foreach (var m in _mandates.OrderByDescending(m => m.InForce).ThenBy(m => m.Id, StringComparer.Ordinal))
+                        {
+                            <div class="rulerow">
+                                <div class="rulerow__main">
+                                    <div class="row" style="gap: var(--space-2)">
+                                        <Chip Label="@(m.InForce ? "in force" : "dormant")"
+                                              Tone="@(m.InForce ? "var(--color-accent)" : "var(--color-neutral-500)")"
+                                              Style="@(m.InForce ? Chip.ChipStyle.Solid : Chip.ChipStyle.Dashed)"
+                                              Glyph="@(m.InForce ? "●" : "○")" />
+                                        <code class="mono">@m.Id</code>
+                                        <span>@m.Title</span>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <p class="field__help">A mandate is in force when its crosswalked EO/memo directive is Active as of today (ADR 0011); a rescinded directive's mandate goes dormant.</p>
+                </Card>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+
+    private string? _error;
+    private Application.Projects.ProjectRef? _project;
+    private ZtSystemCoverage? _cov;
+    private IReadOnlyList<ZtProfileMandate> _mandates = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project);
+        _error = null;
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
+            if (_project is null) return;
+            _cov = await ZtScore.ForProjectAsync(_project.ProjectId);
+            var profile = await ZtProfile.ForProjectAsync(_project.ProjectId);
+            _mandates = profile?.Mandates ?? [];
+        }
+        catch (Exception ex) { _error = ex.GetType().Name; }
+    }
+
+    // CISA ZTMM stages (ADR 0010 §2): 1 Traditional · 2 Initial · 3 Advanced · 4 Optimal.
+    private static string StageLabel(int stage) => stage switch
+    {
+        1 => "Traditional", 2 => "Initial", 3 => "Advanced", 4 => "Optimal", _ => $"stage {stage}",
+    };
+
+    private static string ScoreLabel(double? score) => score is not { } s ? "not applicable"
+        : s >= 3.5 ? "Optimal" : s >= 2.5 ? "Advanced" : s >= 1.5 ? "Initial" : "Traditional";
+
+    private static string ScoreColor(double? score) => score is not { } s ? "var(--color-neutral-500)"
+        : s >= 3.5 ? "var(--color-pass)" : s >= 2.5 ? "var(--color-accent)" : s >= 1.5 ? "var(--color-medium)" : "var(--color-neutral-600)";
+
+    private static string DispLabel(ZtDisposition d) => d switch
+    {
+        ZtDisposition.OwnedVerified => "verified",
+        ZtDisposition.OwnedCommitted => "committed",
+        ZtDisposition.OwnedContradicted => "contradicted",
+        ZtDisposition.InheritedAttested => "inherited · attested",
+        ZtDisposition.InheritedCommitted => "inherited",
+        ZtDisposition.NotApplicable => "N/A",
+        _ => "undetermined",
+    };
+
+    private static string DispTone(ZtDisposition d) => d switch
+    {
+        ZtDisposition.OwnedVerified => "var(--color-pass)",
+        ZtDisposition.OwnedContradicted => "var(--color-critical)",
+        ZtDisposition.InheritedAttested => "var(--color-accent)",
+        ZtDisposition.InheritedCommitted => "var(--color-accent)",
+        ZtDisposition.OwnedCommitted => "var(--color-medium)",
+        ZtDisposition.NotApplicable => "var(--color-neutral-500)",
+        _ => "var(--color-medium)",
+    };
+
+    private static Chip.ChipStyle DispStyle(ZtDisposition d) => d switch
+    {
+        ZtDisposition.OwnedVerified or ZtDisposition.OwnedContradicted => Chip.ChipStyle.Solid,
+        ZtDisposition.NotApplicable or ZtDisposition.Undetermined => Chip.ChipStyle.Dashed,
+        _ => Chip.ChipStyle.Outlined,
+    };
+
+    private static string DispGlyph(ZtDisposition d) => d switch
+    {
+        ZtDisposition.OwnedVerified => "✓",
+        ZtDisposition.OwnedContradicted => "✕",
+        ZtDisposition.InheritedAttested or ZtDisposition.InheritedCommitted => "↧",
+        ZtDisposition.OwnedCommitted => "~",
+        _ => "○",
+    };
+}
