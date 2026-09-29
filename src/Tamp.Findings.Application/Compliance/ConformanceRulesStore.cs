@@ -38,7 +38,14 @@ public sealed class AdrRuleDto
     public string? ReviewStatus { get; set; }      // Draft | Reviewed
 }
 
-public sealed record RulesPushResult(int Upserted, int Retired, int Active);
+public sealed record RulesPushResult(int Upserted, int Retired, int Active, IReadOnlyList<SupersededPoamRef> Superseded)
+{
+    public RulesPushResult(int upserted, int retired, int active) : this(upserted, retired, active, []) { }
+}
+
+/// <summary>A mandate POA&amp;M auto-closed by a push because the reviewed rule that raised it
+/// is no longer active+Reviewed (TFND-196). Carried out so the ingest surface can audit it.</summary>
+public sealed record SupersededPoamRef(Guid PoamId, string MandateId, string Reason);
 
 public sealed class ConformanceRulesService(FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit)
 {
@@ -92,6 +99,13 @@ public sealed class ConformanceRulesService(FindingsDbContext db, CapabilityEval
     // Replace a project's active rule set with the pushed generation (ADR 0012 §2).
     // Idempotent: upsert by (AdrRef, RuleId), un-retire on re-appearance, retire any active
     // rule the generation drops. Rules are never hard-deleted (a past verdict cites RulesSha).
+    //
+    // Rule-supersession lifecycle (TFND-196): a generation can invalidate the human review a
+    // rule had. When a rule's CONTENT changes at the same key, its Reviewed status is forced
+    // back to Draft — a regenerated check is unreviewed until a human re-approves it; the
+    // generator cannot self-certify. Any open mandate POA&M then left without an active,
+    // Reviewed rule mapping its mandate is auto-superseded (closed with an audited reason),
+    // so an invalidated or retired mapping does not strand a dated POA&M against an AO.
     public async Task<RulesPushResult> PushAsync(Guid projectId, AdrRuleGeneration generation, CancellationToken ct = default)
     {
         var existing = await db.ConformanceRules.Where(r => r.ProjectId == projectId).ToListAsync(ct);
@@ -106,13 +120,19 @@ public sealed class ConformanceRulesService(FindingsDbContext db, CapabilityEval
             if (string.IsNullOrWhiteSpace(dto.AdrRef) || string.IsNullOrWhiteSpace(dto.RuleId)) continue;
             pushedKeys.Add((dto.AdrRef, dto.RuleId));
 
-            if (!byKey.TryGetValue((dto.AdrRef, dto.RuleId), out var rule))
+            var isNew = !byKey.TryGetValue((dto.AdrRef, dto.RuleId), out var rule);
+            // Compare content BEFORE overwriting: a real change (not the generation sha, which
+            // churns every push) forces the rule back to Draft regardless of what the DTO claims.
+            var contentChanged = !isNew && ContentChanged(rule!, dto);
+            var prevStatus = rule?.ReviewStatus ?? ReviewStatus.Draft;
+
+            if (isNew)
             {
                 rule = new ConformanceRule { ProjectId = projectId, AdrRef = dto.AdrRef, RuleId = dto.RuleId };
                 db.ConformanceRules.Add(rule);
                 byKey[(dto.AdrRef, dto.RuleId)] = rule;
             }
-            rule.Intent = dto.Intent;
+            rule!.Intent = dto.Intent;
             rule.Method = Parse(dto.Method, ConformanceMethod.Deterministic);
             rule.CheckSpec = dto.CheckSpec;
             rule.ControlRefs = dto.ControlRefs ?? [];
@@ -122,7 +142,12 @@ public sealed class ConformanceRulesService(FindingsDbContext db, CapabilityEval
             rule.MandateId = dto.MandateId;
             rule.RulesSha = dto.RulesSha ?? generation.GenerationSha;
             rule.ExtractionModelId = generation.ExtractionModelId;
-            rule.ReviewStatus = Parse(dto.ReviewStatus, ReviewStatus.Draft);
+            // Forced to Draft on a content change; a new rule takes the DTO's claim (Draft by
+            // default); an unchanged rule PRESERVES the human review it already had, so a re-push
+            // that omits reviewStatus cannot silently un-review a rule.
+            rule.ReviewStatus = contentChanged
+                ? ReviewStatus.Draft
+                : Parse(dto.ReviewStatus, isNew ? ReviewStatus.Draft : prevStatus);
             rule.RetiredAt = null;   // (re)active
             rule.PushedAt = now;
             upserted++;
@@ -137,9 +162,81 @@ public sealed class ConformanceRulesService(FindingsDbContext db, CapabilityEval
                 retired++;
             }
 
+        // Which mandates are still backed by an active, Reviewed rule after this push. A mandate
+        // POA&M is legitimate only while such a mapping exists; a content change (→ Draft) or a
+        // retirement drops the mandate out of this set.
+        var coveredMandates = byKey.Values
+            .Where(r => r.RetiredAt is null && r.ReviewStatus == ReviewStatus.Reviewed && !string.IsNullOrWhiteSpace(r.MandateId))
+            .Select(r => r.MandateId!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var superseded = await SupersedeOrphanedMandatePoamsAsync(projectId, coveredMandates, generation.GenerationSha, now, ct);
+
         await db.SaveChangesAsync(ct);
         var active = await db.ConformanceRules.CountAsync(r => r.ProjectId == projectId && r.RetiredAt == null, ct);
-        return new RulesPushResult(upserted, retired, active);
+        return new RulesPushResult(upserted, retired, active, superseded);
+    }
+
+    // Close (Cancelled) any open mandate POA&M whose mandate is no longer mapped by an active,
+    // Reviewed rule (TFND-196). By construction a mandate POA&M implies there WAS a reviewed
+    // mapping; once it is gone the item's basis no longer holds, so it is superseded rather than
+    // left open forever (closure of a live weakness stays human-owned — this only closes ones
+    // the rule change invalidated). The reason is stamped on the item (for the AO) and audited.
+    private async Task<IReadOnlyList<SupersededPoamRef>> SupersedeOrphanedMandatePoamsAsync(
+        Guid projectId, HashSet<string> coveredMandates, string? generationSha, DateTimeOffset now, CancellationToken ct)
+    {
+        var openMandatePoams = await db.PoamItems
+            .Where(p => p.ProjectId == projectId && p.ClosedAt == null
+                && (p.SourceKind == PoamSource.OperationalMandate || p.SourceKind == PoamSource.SupplyChainMandate)
+                && p.SourceRef != null)
+            .ToListAsync(ct);
+
+        var orphaned = openMandatePoams.Where(p => !coveredMandates.Contains(p.SourceRef!)).ToList();
+        if (orphaned.Count == 0) return [];
+
+        var clientId = await db.Projects.Where(p => p.Id == projectId).Select(p => p.ClientId).FirstOrDefaultAsync(ct);
+        var scope = new ScopeTarget(clientId, projectId, null);
+        var gen = string.IsNullOrWhiteSpace(generationSha) ? "a new rule generation" : $"generation '{generationSha}'";
+        var result = new List<SupersededPoamRef>(orphaned.Count);
+
+        foreach (var poam in orphaned)
+        {
+            var reason = $"Superseded by {gen}: the reviewed conformance rule that mandate "
+                + $"'{poam.SourceRef}' was raised against is no longer active and Reviewed "
+                + "(its content was regenerated, or the rule was retired). This POA&M is cancelled "
+                + "because its basis no longer holds; if the mandate still fails under the new rule "
+                + "set, a fresh POA&M is raised once the new rule is reviewed.";
+
+            poam.Status = PoamStatus.Cancelled;
+            poam.ClosedAt = now;
+            poam.ActualCompletionDate = now;
+            poam.UpdatedAt = now;
+            poam.WeaknessDescription += $"\n\n---\n{reason}";
+
+            audit.RecordSystem(AuditActions.MandatePoamSuperseded, AuditClass.Risk, scope,
+                subjectId: poam.Id, subjectKind: nameof(PoamItem),
+                detail: $"{poam.SourceRef}: {reason}");
+            result.Add(new SupersededPoamRef(poam.Id, poam.SourceRef!, reason));
+        }
+        return result;
+    }
+
+    // A real content change — the fields a human reviews — not the per-push generation sha.
+    // A per-rule RulesSha, when the generator supplies one, is the authoritative signal;
+    // otherwise fall back to comparing the reviewed content field-by-field.
+    private static bool ContentChanged(ConformanceRule existing, AdrRuleDto dto)
+    {
+        if (!string.IsNullOrWhiteSpace(dto.RulesSha))
+            return !string.Equals(existing.RulesSha, dto.RulesSha, StringComparison.OrdinalIgnoreCase);
+
+        return existing.CheckSpec != dto.CheckSpec
+            || existing.Method != Parse(dto.Method, ConformanceMethod.Deterministic)
+            || existing.Intent != dto.Intent
+            || existing.MandateId != dto.MandateId
+            || existing.ZtPillar != dto.ZtPillar
+            || existing.ZtFunction != dto.ZtFunction
+            || existing.ZtStage != dto.ZtStage
+            || !new HashSet<string>(existing.ControlRefs, StringComparer.Ordinal).SetEquals(dto.ControlRefs ?? []);
     }
 
     private static TEnum Parse<TEnum>(string? value, TEnum fallback) where TEnum : struct
