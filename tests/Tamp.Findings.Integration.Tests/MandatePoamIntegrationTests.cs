@@ -33,11 +33,19 @@ public class MandatePoamIntegrationTests
         var cv = new ComponentVersion { ComponentId = comp.Id, VersionString = "1.0.0", CommitSha = $"sha{s}" };
         db.ComponentVersions.Add(cv);
         foreach (var (mandateId, verdict) in mandates)
+        {
             db.ConformanceFindings.Add(new ConformanceFinding
             {
                 ComponentVersionId = cv.Id, AdrRef = "-", RuleId = mandateId, Claim = mandateId,
                 Verdict = verdict, Method = ConformanceMethod.Deterministic, MandateId = mandateId,
             });
+            // TFND-192: the reconciler only raises POA&Ms for Reviewed mandate rules.
+            db.ConformanceRules.Add(new ConformanceRule
+            {
+                ProjectId = project.Id, AdrRef = "-", RuleId = mandateId,
+                MandateId = mandateId, ReviewStatus = ReviewStatus.Reviewed,
+            });
+        }
         await db.SaveChangesAsync();
         return (project.Id, user.Id);
     }
@@ -115,5 +123,49 @@ public class MandatePoamIntegrationTests
         var db = _fx.Db(scope);
         var poam = await db.PoamItems.SingleAsync(p => p.ProjectId == projectId && p.SourceRef == "secure-software-attestation");
         Assert.Equal(PoamSource.SupplyChainMandate, poam.SourceKind);
+    }
+
+    [SkippableFact]
+    public async Task Draft_ruled_mandate_raises_no_poam()
+    {
+        Skip.IfNot(_fx.Available);
+        var s = Guid.NewGuid().ToString("N")[..8];
+        Guid projectId, userId;
+        using (var scope = _fx.Scope())
+        {
+            var db = _fx.Db(scope);
+            var tplId = await db.PolicyTemplates.Where(t => t.Name == "FedRAMP High").Select(t => (Guid?)t.Id).FirstAsync();
+            var user = new User { Login = $"md-{s}", DisplayName = "md", Email = $"md{s}@e.test", IsApproved = true };
+            db.Users.Add(user);
+            var client = new Client { Name = $"mdc-{s}", PolicyTemplateId = tplId };
+            db.Clients.Add(client);
+            var project = new Project { ClientId = client.Id, Name = $"mdp-{s}" };
+            db.Projects.Add(project);
+            var comp = new Component { ProjectId = project.Id, Name = "svc" };
+            db.Components.Add(comp);
+            var cv = new ComponentVersion { ComponentId = comp.Id, VersionString = "1.0.0", CommitSha = $"sha{s}" };
+            db.ComponentVersions.Add(cv);
+            db.ConformanceFindings.Add(new ConformanceFinding
+            {
+                ComponentVersionId = cv.Id, AdrRef = "-", RuleId = "mfa", Claim = "mfa",
+                Verdict = ConformanceVerdict.Fail, Method = ConformanceMethod.Deterministic, MandateId = "mfa",
+            });
+            // Rule is DRAFT — an unvetted/heuristic mandate tag must not raise a POA&M (TFND-192).
+            db.ConformanceRules.Add(new ConformanceRule
+            {
+                ProjectId = project.Id, AdrRef = "-", RuleId = "mfa", MandateId = "mfa",
+                ReviewStatus = ReviewStatus.Draft,
+            });
+            await db.SaveChangesAsync();
+            (projectId, userId) = (project.Id, user.Id);
+        }
+
+        using (var scope = _fx.Scope())
+        {
+            var r = scope.ServiceProvider.GetRequiredService<MandatePoamReconciler>();
+            Assert.Empty(await r.ReconcileAsync(projectId, userId));
+            var db = _fx.Db(scope);
+            Assert.False(await db.PoamItems.AnyAsync(p => p.ProjectId == projectId && p.SourceRef == "mfa"));
+        }
     }
 }
