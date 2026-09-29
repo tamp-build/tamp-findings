@@ -228,7 +228,7 @@ public sealed class ProjectHubQuery
                 sha!, head.BranchName, head.VersionString, head.CreatedAt,
                 scored.Score, previousScore is null ? null : scored.Score - previousScore,
                 inputs.CoverageMeasured ? inputs.SequenceCoveragePercent : null,
-                gates));
+                gates, scored.Breakdown));
 
             previousScore = scored.Score;
         }
@@ -336,4 +336,7 @@ public sealed record BuildHistoryRow(
     double Score,
     double? Delta,
     double? CoveragePercent,
-    GateEvaluation Gates);
+    GateEvaluation Gates,
+    // The per-category breakdown for this build, so a category-detail page can trend one
+    // category's contribution across builds without recomputing (TFND-40 phase 3, §3 trend).
+    IReadOnlyList<RiskCategoryBreakdown> Breakdown);

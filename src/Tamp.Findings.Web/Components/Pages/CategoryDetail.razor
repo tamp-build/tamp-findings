@@ -377,9 +377,61 @@ else
         }
         else
         {
-            <Card>
-                <p class="muted">Per-build history for this category lands with the category-history pass (phase 3).</p>
-            </Card>
+            var hist = _history
+                .Select(h => (h.CommitSha, h.VersionString, h.IngestedAt, Row: h.Breakdown.FirstOrDefault(b => b.Key == Key)))
+                .Where(x => x.Row is not null)
+                .ToList();   // newest-first, as the hub returns it
+
+            @if (hist.Count < 2)
+            {
+                <Card>
+                    <div class="row">
+                        <Chip Label="Not enough history" Tone="var(--color-neutral-500)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
+                        <span>At least two scored builds are needed to trend this category — @hist.Count so far.</span>
+                    </div>
+                </Card>
+            }
+            else
+            {
+                var points = Enumerable.Reverse(hist).Select(x => x.Row!.Contribution).ToList();   // oldest→newest for the plot
+                var current = hist[0].Row!.Contribution;
+                var windowDelta = current - hist[^1].Row!.Contribution;   // vs the oldest build in view (lower is better)
+                <Card>
+                    <div class="row row--between">
+                        <div>
+                            <div class="kicker">points cost · last @hist.Count builds</div>
+                            <div class="cathero__points" style="color: @TrendColor(windowDelta)">
+                                @current.ToString("F1")<span class="cathero__max">/ @hist[0].Row!.EffectiveMax.ToString("F0")</span>
+                            </div>
+                        </div>
+                        <div class="row" style="gap: var(--space-3); align-items: center">
+                            <span class="mono" style="color: @TrendColor(windowDelta)">@TrendArrow(windowDelta) @(windowDelta == 0 ? "flat" : (windowDelta > 0 ? "+" : "") + windowDelta.ToString("F1"))</span>
+                            <Sparkline Points="points" Color="@TrendColor(windowDelta)" AriaLabel="@($"{Label(Key)} points over the last {hist.Count} builds")" />
+                        </div>
+                    </div>
+                    <p class="field__help">Lower is better — this is the points this category cost the score. A fall since the oldest build in view is an improvement; a rise is a regression.</p>
+                </Card>
+                <Card Padded="false">
+                    <ScrollBox Label="Per-build">
+                        <table class="table table--rows">
+                            <thead><tr><th>Build</th><th>When</th><th class="align-end">Points</th><th class="align-end">Δ vs prior</th></tr></thead>
+                            <tbody>
+                                @for (var i = 0; i < hist.Count; i++)
+                                {
+                                    var x = hist[i];
+                                    double? d = i + 1 < hist.Count ? x.Row!.Contribution - hist[i + 1].Row!.Contribution : null;
+                                    <tr>
+                                        <td class="mono">@x.VersionString <span class="muted">@(x.CommitSha.Length >= 7 ? x.CommitSha[..7] : x.CommitSha)</span></td>
+                                        <td class="mono muted">@x.IngestedAt.ToString("yyyy-MM-dd")</td>
+                                        <td class="mono align-end">@x.Row!.Contribution.ToString("F1")@(x.Row!.Saturated ? " SAT" : "")</td>
+                                        <td class="mono align-end" style="color: @(d is null ? "inherit" : TrendColor(d.Value))">@(d is null ? "—" : (d > 0 ? "+" : "") + d.Value.ToString("F1"))</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </ScrollBox>
+                </Card>
+            }
         }
     </div>
 }
@@ -401,6 +453,7 @@ else
     private IReadOnlyList<Tamp.Findings.Application.Risk.LicenseGroup> _licenses = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.StaleComponent> _stale = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.ReceiptRow> _receipts = [];
+    private IReadOnlyList<BuildHistoryRow> _history = [];
     private Tab _tab = Tab.Current;
     private bool _loading = true;
     private string? _commitSha;
@@ -425,6 +478,7 @@ else
             var data = _project is null ? null : await Hub.LoadAsync(_project, sha);
             _row = data?.Risk.Breakdown.FirstOrDefault(b => b.Key == Key);
             _commitSha = data?.CommitSha;
+            _history = data?.History ?? [];
 
             if (_project is not null && _row is not null)
             {
@@ -455,6 +509,7 @@ else
             _licenses = [];
             _stale = [];
             _receipts = [];
+            _history = [];
         }
         _loading = false;
     }
@@ -472,6 +527,13 @@ else
         "Skipped" => "— skipped",
         _ => status,
     };
+
+    // Contribution is points COST, so a fall (negative delta) is an improvement → green.
+    private static string TrendColor(double delta) =>
+        delta < -0.05 ? "var(--color-pass)" : delta > 0.05 ? "var(--color-critical)" : "var(--color-neutral-600)";
+
+    private static string TrendArrow(double delta) =>
+        delta < -0.05 ? "↓" : delta > 0.05 ? "↑" : "—";
 
     private static string Shorten(string path)
     {
