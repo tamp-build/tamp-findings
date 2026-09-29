@@ -100,5 +100,8 @@ public sealed class PolicyResolver(FindingsDbContext db)
         RequiredScanners = p.PolicyLayer?.RequiredScanners ?? [],
         DeniedLicenses = p.PolicyLayer?.DeniedLicenses ?? [],
         PoamDeadlineDays = p.PolicyLayer?.PoamDeadlineDays ?? new(),
+        // The project's own control dispositions (ADR 0015) — the admin's per-control
+        // own/inherit/N-A overrides. Without this the project layer silently dropped them.
+        Assertions = p.PolicyLayer?.Assertions ?? [],
     };
 }

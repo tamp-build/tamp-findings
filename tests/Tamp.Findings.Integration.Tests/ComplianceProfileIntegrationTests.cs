@@ -72,6 +72,56 @@ public class ComplianceProfileIntegrationTests
         Assert.False(string.IsNullOrWhiteSpace(p.Enforcement.Mode));
     }
 
+    // Regression (ADR 0015): a project-authored control disposition must flow through the policy
+    // merge. ProjectLayer() bridging once dropped PolicyLayer.Assertions, so admin overrides were
+    // silently ignored and the control stayed Unmapped.
+    [SkippableFact]
+    public async Task A_project_layer_assertion_dispositions_a_control()
+    {
+        Skip.IfNot(_fx.Available);
+        var (projectId, _, _) = await SeedAsync(withFramework: true, withTemplate: false);
+
+        // Pick a real in-scope control that starts Unmapped (no template layer here).
+        string controlId;
+        using (var scope = _fx.Scope())
+        {
+            var q = scope.ServiceProvider.GetRequiredService<ComplianceProfileQuery>();
+            var before = await q.ForProjectAsync(projectId);
+            var unmapped = before!.Controls.First(c => c.Disposition == "Unmapped");
+            controlId = unmapped.Id;
+        }
+
+        // Author a project-layer NotApplicable assertion for it.
+        using (var scope = _fx.Scope())
+        {
+            var db = _fx.Db(scope);
+            var project = await db.Projects.FirstAsync(p => p.Id == projectId);
+            project.PolicyLayer = new Tamp.Findings.Domain.Risk.PolicyLayer
+            {
+                Assertions =
+                [
+                    new Tamp.Findings.Domain.Risk.ControlAssertion
+                    {
+                        Kind = Tamp.Findings.Domain.Risk.ControlDispositionKind.NotApplicable,
+                        ControlIds = [controlId],
+                        Justification = "regression: project override",
+                    },
+                ],
+            };
+            db.Entry(project).Property(p => p.PolicyLayer).IsModified = true;
+            await db.SaveChangesAsync();
+        }
+
+        using (var scope = _fx.Scope())
+        {
+            var q = scope.ServiceProvider.GetRequiredService<ComplianceProfileQuery>();
+            var after = await q.ForProjectAsync(projectId);
+            var control = after!.Controls.First(c => c.Id == controlId);
+            Assert.Equal("NotApplicable", control.Disposition);   // the project assertion won through the merge
+            Assert.True(after.Coverage!.NotApplicable >= 1);
+        }
+    }
+
     [SkippableFact]
     public async Task A_project_with_no_framework_and_no_template_has_no_profile()
     {
