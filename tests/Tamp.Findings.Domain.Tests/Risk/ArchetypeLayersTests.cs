@@ -1,3 +1,4 @@
+using Tamp.Findings.Domain.Compliance;
 using Tamp.Findings.Domain.Risk;
 using Tamp.Findings.Domain.Values;
 
@@ -46,6 +47,42 @@ public class ArchetypeLayersTests
         Assert.True(unset.Gates[GateKeys.CriticalDast].Enabled);
         Assert.Equal(service.Gates.Count, unset.Gates.Count);
         Assert.Equal(service.RequiredScanners.Count, unset.RequiredScanners.Count);
+    }
+
+    // The trust fix: gate applicability comes from the human-assigned archetype's capability,
+    // not the caller-declared component profile. Library can't produce web/iac, Service can.
+    [Fact]
+    public void Library_capability_excludes_web_iac_and_image()
+    {
+        var cap = ArchetypeLayers.Capability(ProjectArchetype.Library);
+        Assert.True(cap.HasFlag(ComponentCapability.Source));
+        Assert.True(cap.HasFlag(ComponentCapability.Deps));
+        Assert.False(cap.HasFlag(ComponentCapability.Web));
+        Assert.False(cap.HasFlag(ComponentCapability.Iac));
+        Assert.False(cap.HasFlag(ComponentCapability.Image));
+    }
+
+    [Fact]
+    public void Container_capability_adds_image_but_not_web()
+    {
+        var cap = ArchetypeLayers.Capability(ProjectArchetype.ContainerAction);
+        Assert.True(cap.HasFlag(ComponentCapability.Image));
+        Assert.False(cap.HasFlag(ComponentCapability.Web));
+    }
+
+    [Fact]
+    public void Service_capability_includes_web_iac_and_image()
+    {
+        var cap = ArchetypeLayers.Capability(ProjectArchetype.ServiceApp);
+        Assert.True(cap.HasFlag(ComponentCapability.Web));
+        Assert.True(cap.HasFlag(ComponentCapability.Iac));
+        Assert.True(cap.HasFlag(ComponentCapability.Image));
+    }
+
+    [Fact]
+    public void Unclassified_capability_fails_upward_to_service()
+    {
+        Assert.Equal(ArchetypeLayers.Capability(ProjectArchetype.ServiceApp), ArchetypeLayers.Capability(null));
     }
 
     [Theory]

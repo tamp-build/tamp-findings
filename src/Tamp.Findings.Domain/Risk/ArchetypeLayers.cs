@@ -1,3 +1,4 @@
+using Tamp.Findings.Domain.Compliance;
 using Tamp.Findings.Domain.Values;
 
 namespace Tamp.Findings.Domain.Risk;
@@ -22,6 +23,22 @@ public static class ArchetypeLayers
         ProjectArchetype.Library => new(),
         ProjectArchetype.ContainerAction => Container(),
         _ => Service(),
+    };
+
+    /// <summary>
+    /// The capability that decides which conditional gates BITE for a project of this archetype
+    /// (TFND-203). This is the trust fix: gate applicability is driven by the human-assigned
+    /// archetype, not the caller-declared <see cref="ComponentProfile"/> — so a web service can't
+    /// declare itself a code-package to make its DAST gate go Not-Applicable. Mirrors
+    /// <see cref="ComponentProfiles.Capabilities"/> but keyed on the findings-set archetype.
+    /// Unclassified fails UPWARD to Service (every capability), so nothing is excused by omission.
+    /// </summary>
+    public static ComponentCapability Capability(ProjectArchetype? archetype) => (archetype ?? ProjectArchetype.ServiceApp) switch
+    {
+        ProjectArchetype.Library => ComponentCapability.Source | ComponentCapability.Deps,
+        ProjectArchetype.ContainerAction => ComponentCapability.Source | ComponentCapability.Deps | ComponentCapability.Image,
+        _ => ComponentCapability.Source | ComponentCapability.Deps | ComponentCapability.Image
+            | ComponentCapability.Web | ComponentCapability.Iac,
     };
 
     /// <summary>A short label for the layer's provenance in the resolved policy.</summary>
