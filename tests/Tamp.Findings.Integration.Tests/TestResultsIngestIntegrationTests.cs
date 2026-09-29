@@ -172,6 +172,51 @@ public class TestResultsIngestIntegrationTests
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);   // a well-formed but wrong-shape doc is the caller's error, not a 500
     }
 
+    [SkippableFact]
+    public async Task Evidence_for_one_commit_converges_on_one_build_despite_version_mismatch()
+    {
+        Skip.IfNot(_fx.Available);
+        var s = Guid.NewGuid().ToString("N")[..8];
+        var (client, project, token) = await SeedProjectTokenAsync(s);
+
+        var http = _fx.Factory!.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        // Producer A posts coverage under the FULL sha and its own version string.
+        var fullSha = $"{s}dbe6bc1dbbbed01f7ef2f37804a9e9abcdef01";   // 40 hex-ish chars
+        const string cobertura = """
+        <coverage line-rate="0.9" lines-covered="9" lines-valid="10">
+          <packages><package name="P"><classes>
+            <class name="P.C" filename="C.cs"><lines><line number="1" hits="1"/></lines></class>
+          </classes></package></packages>
+        </coverage>
+        """;
+        var covResp = await http.PostAsync(
+            $"/ingest/coverage/raw?client={Uri.EscapeDataString(client)}&project={Uri.EscapeDataString(project)}&version=0.0.0%2B{s}&commitSha={fullSha}",
+            new StringContent(cobertura, Encoding.UTF8, "application/xml"));
+        Assert.Equal(HttpStatusCode.OK, covResp.StatusCode);
+
+        // Producer B posts test-results under the SHORT sha (a prefix) and a DIFFERENT version string —
+        // the exact shape that used to split into a phantom build.
+        var shortSha = fullSha[..8];
+        var trx = await File.ReadAllTextAsync(FindTrx());
+        var trxResp = await http.PostAsync(
+            $"/ingest/test-results/raw?client={Uri.EscapeDataString(client)}&project={Uri.EscapeDataString(project)}&version=1.17.3&commitSha={shortSha}",
+            new StringContent(trx, Encoding.UTF8, "application/xml"));
+        Assert.Equal(HttpStatusCode.OK, trxResp.StatusCode);
+
+        // Both must have landed on ONE build, and it should carry the full sha (converged upward).
+        using var scope = _fx.Scope();
+        var db = _fx.Db(scope);
+        var builds = await db.ComponentVersions
+            .Where(v => v.CommitSha != null && v.CommitSha.StartsWith(shortSha))
+            .ToListAsync();
+        var build = Assert.Single(builds);
+        Assert.Equal(fullSha, build.CommitSha);   // the abbreviated post converged onto the full commit id
+        Assert.True(await db.CoverageReports.AnyAsync(r => r.ComponentVersionId == build.Id));
+        Assert.True(await db.TestRunReports.AnyAsync(r => r.ComponentVersionId == build.Id));
+    }
+
     private static string FindTrx()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

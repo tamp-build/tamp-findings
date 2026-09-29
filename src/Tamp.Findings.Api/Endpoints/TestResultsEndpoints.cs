@@ -26,7 +26,7 @@ public static class TestResultsEndpoints
            .AddEndpointFilter<IngestAuthFilter>();
         app.MapPost("/ingest/test-results/raw", IngestRawAsync)
            .WithName("IngestTestResultsRaw")
-           .WithSummary("Ingest a RAW test report file (.trx or JUnit XML) — POST the file body; the server parses it into the canonical model. Hierarchy comes from the query string (client, project, version required; commitSha, branch, buildId, pullRequestRef, flavor, toolVersion optional). Requires Authorization: Bearer cli_… or prj_…")
+           .WithSummary("Ingest a RAW test report file (.trx or JUnit XML) — POST the file body; the server parses it into the canonical model. Hierarchy comes from the query string (client, project, version required; commitSha, branch, buildId, pullRequestRef, flavor, toolVersion optional). Pass the SAME commitSha your build's other evidence uses — builds reconcile on the commit (short or full sha), so all evidence lands on one build. Requires Authorization: Bearer cli_… or prj_…")
            .Accepts<string>("application/xml", "text/xml", "application/octet-stream")
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();

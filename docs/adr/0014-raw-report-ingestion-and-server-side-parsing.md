@@ -78,6 +78,17 @@ to a thin "POST this file" client.
    for the score and the `coverageFloor` gate); the line-by-line Explorer overlay still requires the
    normalized `/ingest/coverage` with its `SourceFiles`.
 
+6. **Build identity is the commit, not the version string.** A build's identity is the commit it was
+   built from; the version string a producer stamps is a label, not an identity. `BuildResolver`
+   therefore reconciles an incoming ingest against any prior build for the same `(project, flavor)`
+   whose commit matches — exactly or by git short/full-sha prefix — within the same PR context, and
+   only falls back to the version string when no commit is supplied. Evidence about one commit lands
+   on one build even when two producers stamp different versions. This closes the failure mode the
+   raw dogfood surfaced: a test-results ingest under `version=1.17.3, commitSha=6648825` and a
+   coverage ingest under `version=0.0.0+6648825, commitSha=6648825947…` (the same commit, abbreviated
+   vs full) split into two builds, and the ship gate read the split as evidence missing. The rule
+   applies to every ingest endpoint, raw and normalized, since they share the resolver.
+
 ## Consequences
 
 * **The mapper gap closes upstream-side.** Adopters POST the file; no one hand-rolls a `.trx` join or
