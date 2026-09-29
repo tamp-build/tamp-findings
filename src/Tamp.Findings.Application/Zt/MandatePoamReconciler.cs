@@ -40,6 +40,18 @@ public sealed class MandatePoamReconciler(FindingsDbContext db, PolicyResolver r
             .ToList();
         if (latest.Count == 0) return [];
 
+        // Review-gate (TFND-192): human-first applies to the tracking axis too. A mandate
+        // verdict only raises a POA&M when its RULE is Reviewed — a Draft/heuristic mandate
+        // tag is not yet a vetted mapping, so raising a dated POA&M off it is extraction
+        // noise. Once a human reviews the mapping, the existing fail-closed behavior stands.
+        // Same discipline as the adrConformance block gate (TFND-191).
+        var reviewed = (await db.ConformanceRules.AsNoTracking()
+                .Where(r => r.ProjectId == projectId && r.RetiredAt == null && r.ReviewStatus == ReviewStatus.Reviewed)
+                .Select(r => new { r.AdrRef, r.RuleId })
+                .ToListAsync(ct))
+            .Select(r => (r.AdrRef, r.RuleId))
+            .ToHashSet(RuleKeyComparer.Ordinal);
+
         // Existing open mandate POA&Ms on this project, keyed by mandate ref.
         var openRefs = await db.PoamItems.AsNoTracking()
             .Where(p => p.ProjectId == projectId && p.ClosedAt == null
@@ -59,6 +71,8 @@ public sealed class MandatePoamReconciler(FindingsDbContext db, PolicyResolver r
             // A mandate is met only on Pass; Fail and Unknown both raise a POA&M.
             if (r.Verdict == Domain.Compliance.ConformanceVerdict.Pass
                 || r.Verdict == Domain.Compliance.ConformanceVerdict.Error) continue;
+            // Only a Reviewed mandate mapping is fail-closed (TFND-192).
+            if (!reviewed.Contains((r.AdrRef, r.RuleId))) continue;
             if (openSet.Contains(r.MandateId!)) continue; // already tracked
 
             var def = defByMandate.GetValueOrDefault(r.MandateId!);
@@ -95,5 +109,15 @@ public sealed class MandatePoamReconciler(FindingsDbContext db, PolicyResolver r
 
         if (created.Count > 0) await db.SaveChangesAsync(ct);
         return created;
+    }
+
+    private sealed class RuleKeyComparer : IEqualityComparer<(string, string)>
+    {
+        public static readonly RuleKeyComparer Ordinal = new();
+        public bool Equals((string, string) a, (string, string) b) =>
+            string.Equals(a.Item1, b.Item1, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(a.Item2, b.Item2, StringComparison.OrdinalIgnoreCase);
+        public int GetHashCode((string, string) x) =>
+            HashCode.Combine(x.Item1.ToLowerInvariant(), x.Item2.ToLowerInvariant());
     }
 }
