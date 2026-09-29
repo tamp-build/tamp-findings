@@ -406,15 +406,13 @@ public class ProjectSettingsIntegrationTests
 
         var client = new Client { Name = $"set-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"set-project-{suffix}" };
-        var component = new Component { ProjectId = project.Id, Name = $"set-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = sha, BranchName = "main",
+            ProjectId = project.Id, VersionString = "1.0.0", CommitSha = sha, BranchName = "main",
         };
 
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
 
         var user = new User

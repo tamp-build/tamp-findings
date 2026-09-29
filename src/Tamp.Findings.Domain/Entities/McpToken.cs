@@ -23,10 +23,9 @@ public sealed class McpToken
     public required string Name { get; set; }
 
     // The scope this token can see, narrowest tier that is set. Exactly one of
-    // these three shapes: client only, client+project, or all three.
+    // these two shapes: client only, or client+project.
     public Guid? ClientId { get; set; }
     public Guid? ProjectId { get; set; }
-    public Guid? ComponentId { get; set; }
 
     // What the agent may DO, expressed as the role it acts as.
     //

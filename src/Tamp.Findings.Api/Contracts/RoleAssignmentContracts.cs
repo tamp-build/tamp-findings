@@ -11,8 +11,7 @@ public sealed record RoleAssignmentCreateRequest(
     string UserLogin,
     ProjectRole Role,
     Guid? ClientId,
-    Guid? ProjectId,
-    Guid? ComponentId);
+    Guid? ProjectId);
 
 public sealed record RoleAssignmentResponse(
     Guid Id,
@@ -23,7 +22,5 @@ public sealed record RoleAssignmentResponse(
     string? ClientName,
     Guid? ProjectId,
     string? ProjectName,
-    Guid? ComponentId,
-    string? ComponentName,
-    string Scope,             // "Client" | "Project" | "Component"
+    string Scope,             // "Client" | "Project"
     DateTimeOffset CreatedAt);

@@ -38,14 +38,13 @@ public static class AggregatesEndpoints
         // current snapshot per (Component, Flavor); the ring shouldn't
         // accumulate across historical builds.
         var fq = db.Findings.AsNoTracking().Where(f => f.Status == FindingStatus.Open);
-        if (componentId is { } cmp) fq = fq.Where(f => f.ComponentVersion!.ComponentId == cmp);
         if (projectId is { } prj) fq = fq.Where(f => f.ComponentVersion!.ProjectId == prj);
         if (clientId is { } cli) fq = fq.Where(f => f.ComponentVersion!.Project!.ClientId == cli);
 
         if (latest)
         {
             var latestCvIds = await CanonicalOnly(db.ComponentVersions)
-                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .GroupBy(v => new { v.ProjectId, FlavorKey = v.Flavor })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
             fq = fq.Where(f => latestCvIds.Contains(f.ComponentVersionId));
@@ -72,13 +71,12 @@ public static class AggregatesEndpoints
         // user can see how much is currently suppressed/accepted/fixed.
         // Build a separate query that doesn't filter status.
         var statusQ = db.Findings.AsNoTracking().AsQueryable();
-        if (componentId is { } cmp2) statusQ = statusQ.Where(f => f.ComponentVersion!.ComponentId == cmp2);
         if (projectId is { } prj2) statusQ = statusQ.Where(f => f.ComponentVersion!.ProjectId == prj2);
         if (clientId is { } cli2) statusQ = statusQ.Where(f => f.ComponentVersion!.Project!.ClientId == cli2);
         if (latest)
         {
             var latestCvIds2 = await CanonicalOnly(db.ComponentVersions)
-                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .GroupBy(v => new { v.ProjectId, FlavorKey = v.Flavor })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
             statusQ = statusQ.Where(f => latestCvIds2.Contains(f.ComponentVersionId));
@@ -149,14 +147,13 @@ public static class AggregatesEndpoints
 
         // --- SBOM half -------------------------------------------------------
         var sq = db.SbomComponents.AsNoTracking();
-        if (componentId is { } cmp3) sq = sq.Where(c => c.SbomSnapshot!.ComponentVersion!.ComponentId == cmp3);
         if (projectId is { } prj3) sq = sq.Where(c => c.SbomSnapshot!.ComponentVersion!.ProjectId == prj3);
         if (clientId is { } cli3) sq = sq.Where(c => c.SbomSnapshot!.ComponentVersion!.Project!.ClientId == cli3);
 
         if (latest)
         {
             var latestSnapshotIds = await db.SbomSnapshots
-                .GroupBy(s => new { s.ComponentVersion!.ComponentId, FlavorKey = s.ComponentVersion.FlavorId ?? Guid.Empty })
+                .GroupBy(s => new { s.ComponentVersion!.ProjectId, FlavorKey = s.ComponentVersion.Flavor })
                 .Select(g => g.OrderByDescending(s => s.IngestedAt).First().Id)
                 .ToListAsync(ct);
             sq = sq.Where(c => latestSnapshotIds.Contains(c.SbomSnapshotId));
@@ -202,13 +199,12 @@ public static class AggregatesEndpoints
             .Where(f => f.Status == FindingStatus.Open
                      && (f.Scanner == ScannerKind.TruffleHog
                          || (f.Scanner == ScannerKind.Trivy && f.SubCategory == "secret")));
-        if (componentId is { } cmp4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.ComponentId == cmp4);
         if (projectId is { } prj4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.ProjectId == prj4);
         if (clientId is { } cli4) secretsBase = secretsBase.Where(f => f.ComponentVersion!.Project!.ClientId == cli4);
         if (latest)
         {
             var latestCvIds3 = await CanonicalOnly(db.ComponentVersions)
-                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .GroupBy(v => new { v.ProjectId, FlavorKey = v.Flavor })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
             secretsBase = secretsBase.Where(f => latestCvIds3.Contains(f.ComponentVersionId));
@@ -247,13 +243,12 @@ public static class AggregatesEndpoints
             .AsNoTracking()
             .Where(f => f.Scanner == ScannerKind.Trivy && f.Status == FindingStatus.Open
                      && (f.SubCategory == null || f.SubCategory == "misconfiguration"));
-        if (componentId is { } cmp5) iacBase = iacBase.Where(f => f.ComponentVersion!.ComponentId == cmp5);
         if (projectId is { } prj5) iacBase = iacBase.Where(f => f.ComponentVersion!.ProjectId == prj5);
         if (clientId is { } cli5) iacBase = iacBase.Where(f => f.ComponentVersion!.Project!.ClientId == cli5);
         if (latest)
         {
             var latestCvIds4 = await CanonicalOnly(db.ComponentVersions)
-                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .GroupBy(v => new { v.ProjectId, FlavorKey = v.Flavor })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
             iacBase = iacBase.Where(f => latestCvIds4.Contains(f.ComponentVersionId));
@@ -279,13 +274,12 @@ public static class AggregatesEndpoints
         // covered/total counts, recompute the percentage. If no report
         // exists for any CV in scope, Measured=false → SPA renders grey.
         var coverageQ = db.CoverageReports.AsNoTracking();
-        if (componentId is { } cmp6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.ComponentId == cmp6);
         if (projectId is { } prj6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.ProjectId == prj6);
         if (clientId is { } cli6) coverageQ = coverageQ.Where(r => r.ComponentVersion!.Project!.ClientId == cli6);
         if (latest)
         {
             var latestCvIds5 = await CanonicalOnly(db.ComponentVersions)
-                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .GroupBy(v => new { v.ProjectId, FlavorKey = v.Flavor })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
             coverageQ = coverageQ.Where(r => latestCvIds5.Contains(r.ComponentVersionId));
@@ -330,13 +324,12 @@ public static class AggregatesEndpoints
         // for every latest CV picked above. Surfaced to the SPA so a scanner
         // that ran clean reads as "scanned ✓" instead of grey "never ran".
         var scanRunsQ = db.ScanRunReceipts.AsNoTracking();
-        if (componentId is { } cmp7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.ComponentId == cmp7);
         if (projectId is { } prj7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.ProjectId == prj7);
         if (clientId is { } cli7) scanRunsQ = scanRunsQ.Where(r => r.ComponentVersion!.Project!.ClientId == cli7);
         if (latest)
         {
             var latestCvIds6 = await CanonicalOnly(db.ComponentVersions)
-                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .GroupBy(v => new { v.ProjectId, FlavorKey = v.Flavor })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
             scanRunsQ = scanRunsQ.Where(r => latestCvIds6.Contains(r.ComponentVersionId));
@@ -373,7 +366,6 @@ public static class AggregatesEndpoints
         // so there's at most one per CV anyway).
         var vulnsQ = db.Vulnerabilities.AsNoTracking()
             .Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersionId != Guid.Empty);
-        if (componentId is { } cmpV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.ComponentId == cmpV);
         if (projectId  is { } prjV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.ProjectId == prjV);
         if (clientId   is { } cliV) vulnsQ = vulnsQ.Where(v => v.SbomComponent!.SbomSnapshot!.ComponentVersion!.Project!.ClientId == cliV);
         // TFND-25: VEX-suppressed vulnerabilities for the scope. Empty
@@ -401,7 +393,6 @@ public static class AggregatesEndpoints
 
         // Test results — latest TestRunReport per CV in scope, summed.
         var testQ = db.TestRunReports.AsNoTracking();
-        if (componentId is { } cmpT) testQ = testQ.Where(r => r.ComponentVersion!.ComponentId == cmpT);
         if (projectId  is { } prjT) testQ = testQ.Where(r => r.ComponentVersion!.ProjectId == prjT);
         if (clientId   is { } cliT) testQ = testQ.Where(r => r.ComponentVersion!.Project!.ClientId == cliT);
         var testReports = await testQ.ToListAsync(ct);
@@ -556,20 +547,7 @@ public static class AggregatesEndpoints
         Guid? projectPolicyId = null;
         Guid? clientPolicyId = null;
 
-        if (componentId is { } cmp)
-        {
-            var pair = await db.Components.AsNoTracking()
-                .Where(c => c.Id == cmp)
-                .Select(c => new
-                {
-                    ProjectPolicy = c.Project!.RiskPolicyId,
-                    ClientPolicy = c.Project.Client!.RiskPolicyId,
-                })
-                .FirstOrDefaultAsync(ct);
-            projectPolicyId = pair?.ProjectPolicy;
-            clientPolicyId = pair?.ClientPolicy;
-        }
-        else if (projectId is { } prj)
+        if (projectId is { } prj)
         {
             var pair = await db.Projects.AsNoTracking()
                 .Where(p => p.Id == prj)
@@ -602,19 +580,6 @@ public static class AggregatesEndpoints
         Guid? componentId,
         CancellationToken ct)
     {
-        if (componentId is { } cmpId)
-        {
-            var row = await (
-                from c in db.Components.AsNoTracking()
-                where c.Id == cmpId
-                join p in db.Projects.AsNoTracking() on c.ProjectId equals p.Id
-                join cli in db.Clients.AsNoTracking() on p.ClientId equals cli.Id
-                select new { cli.Name, ProjectName = p.Name, ComponentName = c.Name }
-            ).FirstOrDefaultAsync(ct);
-            if (row is not null)
-                return new AggregateScope(row.Name, row.ProjectName, row.ComponentName,
-                    $"{row.Name} / {row.ProjectName} / {row.ComponentName}", "Component");
-        }
         if (projectId is { } prjId)
         {
             var row = await (

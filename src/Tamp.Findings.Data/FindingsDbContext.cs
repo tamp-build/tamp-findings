@@ -9,8 +9,6 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
 {
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<Project> Projects => Set<Project>();
-    public DbSet<Component> Components => Set<Component>();
-    public DbSet<ComponentFlavor> ComponentFlavors => Set<ComponentFlavor>();
     public DbSet<ComponentVersion> ComponentVersions => Set<ComponentVersion>();
     public DbSet<Finding> Findings => Set<Finding>();
     public DbSet<PaidComponent> PaidComponents => Set<PaidComponent>();
@@ -125,23 +123,6 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.VdpReportingFormUrl).HasMaxLength(1024);
         });
 
-        b.Entity<Component>(e =>
-        {
-            e.HasKey(x => x.Id);
-            e.Property(x => x.Name).HasMaxLength(256).IsRequired();
-            e.Property(x => x.Kind).HasMaxLength(64);
-            e.HasOne(x => x.Project).WithMany(p => p.Components).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => new { x.ProjectId, x.Name }).IsUnique();
-        });
-
-        b.Entity<ComponentFlavor>(e =>
-        {
-            e.HasKey(x => x.Id);
-            e.Property(x => x.Name).HasMaxLength(64).IsRequired();
-            e.HasOne(x => x.Component).WithMany(c => c.Flavors).HasForeignKey(x => x.ComponentId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => new { x.ComponentId, x.Name }).IsUnique();
-        });
-
         b.Entity<ComponentVersion>(e =>
         {
             e.HasKey(x => x.Id);
@@ -151,16 +132,10 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.BranchName).HasMaxLength(256);
             e.Property(x => x.BuildId).HasMaxLength(128);
             e.Property(x => x.PullRequestRef).HasMaxLength(128);
-            // Component-collapse PR1: the build is anchored to its Project directly. The old
-            // Component/Flavor FKs stay for now (dual-write) and are removed in PR2.
+            // The build anchors to its Project (component-collapse); (project, flavor, version)
+            // is the unique build key now that the Component tier is gone.
             e.HasOne(x => x.Project).WithMany(p => p.Versions).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
-            // Non-unique in PR1: the legacy (ComponentId, FlavorId, VersionString) unique index still
-            // guards get-or-create during the dual-write window. PR2 makes this the unique build key
-            // once the Component tier (and the old index) are dropped.
-            e.HasIndex(x => new { x.ProjectId, x.Flavor, x.VersionString });
-            e.HasOne(x => x.Component).WithMany(c => c.Versions).HasForeignKey(x => x.ComponentId).OnDelete(DeleteBehavior.Cascade);
-            e.HasOne(x => x.FlavorRef).WithMany().HasForeignKey(x => x.FlavorId).OnDelete(DeleteBehavior.SetNull);
-            e.HasIndex(x => new { x.ComponentId, x.FlavorId, x.VersionString }).IsUnique();
+            e.HasIndex(x => new { x.ProjectId, x.Flavor, x.VersionString }).IsUnique();
             e.HasIndex(x => x.CommitSha);
         });
 
@@ -234,7 +209,6 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.FilePath).HasMaxLength(1024);
             e.HasIndex(x => x.FindingId);
             e.HasIndex(x => x.RuleId);
-            e.HasIndex(x => x.ComponentId);
             e.HasIndex(x => x.ExpiresAt);
             // TFND-132: the matcher filters on tenant before anything else, so
             // this is the index the hot path actually uses.
@@ -307,7 +281,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
         b.Entity<ProjectRoleAssignment>(e =>
         {
             e.HasKey(x => x.Id);
-            e.HasIndex(x => new { x.UserId, x.Role, x.ClientId, x.ProjectId, x.ComponentId }).IsUnique();
+            e.HasIndex(x => new { x.UserId, x.Role, x.ClientId, x.ProjectId }).IsUnique();
         });
 
         b.Entity<SbomSnapshot>(e =>
@@ -375,7 +349,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // The hash IS the lookup key on every agent request, so it is
             // unique and indexed rather than scanned.
             e.HasIndex(x => x.TokenHash).IsUnique();
-            e.HasIndex(x => new { x.ClientId, x.ProjectId, x.ComponentId });
+            e.HasIndex(x => new { x.ClientId, x.ProjectId });
         });
 
         b.Entity<IdentityProvider>(e =>

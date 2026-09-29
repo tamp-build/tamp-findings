@@ -65,7 +65,7 @@ public sealed class ClientPolicyService(
 
         client.PolicyLayer = proposed;
         audit.Record(actor, AuditActions.ClientPolicySaved, AuditClass.Risk,
-            new ScopeTarget(clientId, null, null),
+            new ScopeTarget(clientId, null),
             subjectId: clientId, subjectKind: nameof(Client),
             detail: $"{client.Name}: client policy hardening saved");
         await db.SaveChangesAsync(ct);
@@ -92,7 +92,7 @@ public sealed class ClientPolicyService(
         var reason = $"Switch {client.Name} to {template.Label}"
                    + (note is { Length: > 0 } ? $" — {note}" : "");
         return await approvals.RequestAsync(
-            actor, new ScopeTarget(clientId, null, null), ApprovalKind.SwitchClientTemplate,
+            actor, new ScopeTarget(clientId, null), ApprovalKind.SwitchClientTemplate,
             subjectKind: nameof(Client), subjectId: clientId,
             justification: reason, payload: newTemplateId.ToString(), ct: ct);
     }

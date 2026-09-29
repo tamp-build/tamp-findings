@@ -45,7 +45,7 @@ public static class SbomComponentsEndpoints
         skip = Math.Max(skip, 0);
 
         var q = db.SbomComponents
-            .Include(c => c.SbomSnapshot)!.ThenInclude(s => s!.ComponentVersion)!.ThenInclude(v => v!.Component)!.ThenInclude(c => c!.Project)!.ThenInclude(p => p!.Client)
+            .Include(c => c.SbomSnapshot)!.ThenInclude(s => s!.ComponentVersion)!.ThenInclude(v => v!.Project)!.ThenInclude(p => p!.Client)
             .AsNoTracking();
 
         if (componentVersionId is { } cv) q = q.Where(c => c.SbomSnapshot!.ComponentVersionId == cv);
@@ -61,8 +61,8 @@ public static class SbomComponentsEndpoints
             var latestSnapshotIds = await db.SbomSnapshots
                 .GroupBy(s => new
                 {
-                    s.ComponentVersion!.ComponentId,
-                    FlavorKey = s.ComponentVersion.FlavorId ?? Guid.Empty,
+                    s.ComponentVersion!.ProjectId,
+                    FlavorKey = s.ComponentVersion.Flavor,
                 })
                 .Select(g => g.OrderByDescending(s => s.IngestedAt).First().Id)
                 .ToListAsync(ct);
@@ -161,12 +161,11 @@ public static class SbomComponentsEndpoints
                 c.Vulnerabilities.Count,
                 c.SbomSnapshot!.ComponentVersionId,
                 c.SbomSnapshot.ComponentVersion!.VersionString,
-                c.SbomSnapshot.ComponentVersion.ComponentId,
-                c.SbomSnapshot.ComponentVersion.Component!.Name,
+                c.SbomSnapshot.ComponentVersion.Flavor,
                 c.SbomSnapshot.ComponentVersion.ProjectId,
-                c.SbomSnapshot.ComponentVersion.Component.Project!.Name,
-                c.SbomSnapshot.ComponentVersion.Component.Project.ClientId,
-                c.SbomSnapshot.ComponentVersion.Component.Project.Client!.Name))
+                c.SbomSnapshot.ComponentVersion.Project!.Name,
+                c.SbomSnapshot.ComponentVersion.Project.ClientId,
+                c.SbomSnapshot.ComponentVersion.Project.Client!.Name))
             .ToListAsync(ct);
 
         return TypedResults.Ok(new SbomComponentsListResponse(

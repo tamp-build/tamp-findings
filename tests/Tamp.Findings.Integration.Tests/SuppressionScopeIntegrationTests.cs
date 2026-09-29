@@ -9,7 +9,7 @@ namespace Tamp.Findings.Integration.Tests;
 // criterion, which could not be asserted until now:
 //
 //   "An InfoSecOfficer assigned at the Client level can suppress for any
-//    project/component beneath."
+//    project beneath."
 //
 // The negative case (no assignment gets refused) was already covered without a
 // database. The positive one needs real rows, because what is being tested is
@@ -36,7 +36,6 @@ public class SuppressionScopeIntegrationTests
                  {
                      ScopeTarget.Client(world.ClientId),
                      ScopeTarget.Project(world.ClientId, world.ProjectId),
-                     ScopeTarget.Component(world.ClientId, world.ProjectId, world.ComponentId),
                  })
         {
             var principal = await resolver.ResolveAsync(world.UserId, target);
@@ -58,7 +57,7 @@ public class SuppressionScopeIntegrationTests
         var capabilities = scope.ServiceProvider.GetRequiredService<CapabilityEvaluator>();
 
         var principal = await resolver.ResolveAsync(
-            world.UserId, ScopeTarget.Component(world.ClientId, world.ProjectId, world.ComponentId));
+            world.UserId, ScopeTarget.Project(world.ClientId, world.ProjectId));
 
         Assert.NotNull(principal);
         Assert.Contains(Actor.Viewer, principal!.Actors);
@@ -72,7 +71,7 @@ public class SuppressionScopeIntegrationTests
 
         // The consequential rule from TFND-70, now proven end to end: an
         // organisation-wide InfoSec Officer who is made a Lead Dev on ONE
-        // component is demoted there. This is the behaviour most likely to
+        // project is demoted there. This is the behaviour most likely to
         // surprise someone, so it is worth proving against real rows rather
         // than only in a unit test with hand-built objects.
         var world = await SeedAsync(grantAt: Tier.Client, ProjectRole.InfoSecOfficer);
@@ -84,7 +83,8 @@ public class SuppressionScopeIntegrationTests
             {
                 UserId = world.UserId,
                 Role = ProjectRole.LeadDev,
-                ComponentId = world.ComponentId,
+                ClientId = world.ClientId,
+                ProjectId = world.ProjectId,
             });
             await db.SaveChangesAsync();
         }
@@ -93,15 +93,15 @@ public class SuppressionScopeIntegrationTests
         var resolver = scope.ServiceProvider.GetRequiredService<PrincipalResolver>();
         var capabilities = scope.ServiceProvider.GetRequiredService<CapabilityEvaluator>();
 
-        var atProject = await resolver.ResolveAsync(world.UserId, ScopeTarget.Project(world.ClientId, world.ProjectId));
-        var atComponent = await resolver.ResolveAsync(
-            world.UserId, ScopeTarget.Component(world.ClientId, world.ProjectId, world.ComponentId));
+        var atClient = await resolver.ResolveAsync(world.UserId, ScopeTarget.Client(world.ClientId));
+        var atProject = await resolver.ResolveAsync(
+            world.UserId, ScopeTarget.Project(world.ClientId, world.ProjectId));
 
-        // Still InfoSec on the project, where nothing overrides.
-        Assert.True(capabilities.Allows(atProject!, Capability.AcceptRisk));
-        // Demoted on the component they were narrowed on.
-        Assert.False(capabilities.Allows(atComponent!, Capability.AcceptRisk));
-        Assert.True(capabilities.Allows(atComponent!, Capability.ManageIngestKey));
+        // Still InfoSec on the client, where nothing overrides.
+        Assert.True(capabilities.Allows(atClient!, Capability.AcceptRisk));
+        // Demoted on the project they were narrowed on.
+        Assert.False(capabilities.Allows(atProject!, Capability.AcceptRisk));
+        Assert.True(capabilities.Allows(atProject!, Capability.ManageIngestKey));
     }
 
     [SkippableFact]
@@ -120,9 +120,9 @@ public class SuppressionScopeIntegrationTests
         Assert.Null(principal);
     }
 
-    private enum Tier { None, Client, Project, Component }
+    private enum Tier { None, Client, Project }
 
-    private sealed record World(Guid UserId, Guid ClientId, Guid ProjectId, Guid ComponentId);
+    private sealed record World(Guid UserId, Guid ClientId, Guid ProjectId);
 
     private async Task<World> SeedAsync(Tier grantAt, ProjectRole role, bool approved = true)
     {
@@ -133,12 +133,10 @@ public class SuppressionScopeIntegrationTests
         var user = new User { Login = $"user-{suffix}", DisplayName = $"user-{suffix}", IsApproved = approved };
         var client = new Client { Name = $"client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"project-{suffix}" };
-        var component = new Component { ProjectId = project.Id, Name = $"component-{suffix}" };
 
         db.Users.Add(user);
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
 
         if (grantAt != Tier.None)
         {
@@ -148,11 +146,10 @@ public class SuppressionScopeIntegrationTests
                 Role = role,
                 ClientId = grantAt == Tier.Client ? client.Id : null,
                 ProjectId = grantAt == Tier.Project ? project.Id : null,
-                ComponentId = grantAt == Tier.Component ? component.Id : null,
             });
         }
 
         await db.SaveChangesAsync();
-        return new World(user.Id, client.Id, project.Id, component.Id);
+        return new World(user.Id, client.Id, project.Id);
     }
 }

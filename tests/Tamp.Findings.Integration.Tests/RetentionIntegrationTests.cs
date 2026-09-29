@@ -257,17 +257,15 @@ public class RetentionIntegrationTests : IAsyncLifetime
 
         var client = new Client { Name = $"ret-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"ret-project-{suffix}" };
-        var component = new Component { ProjectId = project.Id, Name = "api" };
 
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
 
         // Old enough for both windows, and the one an attestation covers.
         var attestedSha = $"{suffix}attested";
-        var oldBuild = Build(db, project.Id, component.Id, $"{suffix}old", now.AddDays(-400));
-        var attestedBuild = Build(db, project.Id, component.Id, attestedSha, now.AddDays(-400));
-        var recentBuild = Build(db, project.Id, component.Id, $"{suffix}new", now.AddDays(-1));
+        var oldBuild = Build(db, project.Id, $"{suffix}old", now.AddDays(-400));
+        var attestedBuild = Build(db, project.Id, attestedSha, now.AddDays(-400));
+        var recentBuild = Build(db, project.Id, $"{suffix}new", now.AddDays(-1));
 
         db.AttestationSnapshots.Add(new AttestationSnapshot
         {
@@ -305,7 +303,6 @@ public class RetentionIntegrationTests : IAsyncLifetime
             FindingId = suppressed.Id,
             ClientId = client.Id,
             ProjectId = project.Id,
-            ComponentId = component.Id,
             CreatedByUserId = user.Id,
             CreatedByRole = ProjectRole.LeadDev,
             Reason = "Known, deferred.",
@@ -320,12 +317,11 @@ public class RetentionIntegrationTests : IAsyncLifetime
     }
 
     private static ComponentVersion Build(
-        Tamp.Findings.Data.FindingsDbContext db, Guid projectId, Guid componentId, string sha, DateTimeOffset created)
+        Tamp.Findings.Data.FindingsDbContext db, Guid projectId, string sha, DateTimeOffset created)
     {
         var version = new ComponentVersion
         {
             ProjectId = projectId,
-            ComponentId = componentId,
             VersionString = "1.0.0",
             CommitSha = sha,
             CreatedAt = created,

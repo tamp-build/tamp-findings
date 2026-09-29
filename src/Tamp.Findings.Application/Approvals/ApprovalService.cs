@@ -134,7 +134,7 @@ public sealed class ApprovalService
                 $"This was already {approval.State.ToString().ToLowerInvariant()} "
                 + $"by {approval.DecidedByLogin} on {approval.DecidedAt:yyyy-MM-dd}.");
 
-        var scope = new ScopeTarget(approval.ClientId, approval.ProjectId, null);
+        var scope = new ScopeTarget(approval.ClientId, approval.ProjectId);
         var decision = _capabilities.Evaluate(actor, DeciderCapability(approval.Kind));
         if (!decision.Allowed) return Result<ApprovalState>.Denied(decision.Reason!);
 
@@ -198,7 +198,7 @@ public sealed class ApprovalService
         approval.DecidedAt = DateTimeOffset.UtcNow;
 
         _audit.Record(actor, "approval.cancelled", AuditClass.Risk,
-            new ScopeTarget(approval.ClientId, approval.ProjectId, null),
+            new ScopeTarget(approval.ClientId, approval.ProjectId),
             subjectId: approval.SubjectId, subjectKind: approval.SubjectKind,
             detail: $"{approval.Kind} withdrawn");
 
@@ -274,7 +274,7 @@ public sealed class ApprovalService
                 // Unassigned: resolve the actor AT THIS APPROVAL'S SCOPE and
                 // ask the matrix. Roles resolve per-scope, so a capability held
                 // on one project says nothing about another.
-                var atScope = await resolveAt(new ScopeTarget(approval.ClientId, approval.ProjectId, null));
+                var atScope = await resolveAt(new ScopeTarget(approval.ClientId, approval.ProjectId));
                 if (atScope is null) continue;
                 if (!_capabilities.Evaluate(atScope, DeciderCapability(approval.Kind)).Allowed) continue;
             }

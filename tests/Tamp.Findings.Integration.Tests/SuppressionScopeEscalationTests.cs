@@ -16,10 +16,11 @@ namespace Tamp.Findings.Integration.Tests;
 // whatever fields happen to be on the request.
 //
 // Getting that wrong is not a cosmetic mismatch. `SuppressionMatcher` ignores
-// ComponentId for RuleEverywhere, so a request that carries one to satisfy the
-// authorization check produces a row that silences the rule for every client on
-// the instance — an escalation from one component to the whole deployment,
-// through a field the stored behaviour never reads.
+// the project on a RuleEverywhere row unless it is set, so a request that names
+// a project it does not hold to satisfy the authorization check would produce a
+// row whose blast radius the stored behaviour never bounded. Each scope resolves
+// to the tier its own matching predicate is bounded by, and nothing else on the
+// request can move it.
 [Collection(DatabaseCollection.Name)]
 public class SuppressionScopeEscalationTests
 {
@@ -28,28 +29,26 @@ public class SuppressionScopeEscalationTests
     public SuppressionScopeEscalationTests(DatabaseFixture fx) => _fx = fx;
 
     [SkippableFact]
-    public async Task RuleEverywhere_authorizes_at_the_instance_even_when_a_component_is_supplied()
+    public async Task RuleEverywhere_with_no_project_authorizes_at_the_instance()
     {
         Skip.IfNot(_fx.Available);
 
-        // THE escalation. A Lead Dev on one component sends RuleEverywhere with
-        // that component's id. If the target resolves to the component, their
-        // role authorizes it — and the stored row then silences the rule for
-        // every client, because the matcher never looks at ComponentId for this
-        // scope.
+        // THE escalation surface. RuleEverywhere carries no anchor of its own,
+        // so with no project named it silences the rule for every client — and
+        // only the instance flag may authorize that. A finding or file supplied
+        // alongside buys authorization the stored behaviour never reads.
         var world = await SeedAsync();
 
         var target = await TargetForAsync(world, new SuppressionCreateRequest(
             SuppressionScope.RuleEverywhere,
             FindingId: null,
             RuleId: "CA1822",
-            ComponentId: world.ComponentId,
             FilePath: null,
             Reason: "escalation attempt",
-            ExpiresAt: null));
+            ExpiresAt: null,
+            ProjectId: null));
 
         Assert.Equal(ScopeTarget.Instance, target);
-        Assert.Null(target.ComponentId);
     }
 
     [SkippableFact]
@@ -66,40 +65,39 @@ public class SuppressionScopeEscalationTests
             SuppressionScope.RuleOnFile,
             FindingId: world.FindingId,
             RuleId: "CA1822",
-            ComponentId: null,
             FilePath: "src/Api/Program.cs",
             Reason: "escalation attempt",
-            ExpiresAt: null));
+            ExpiresAt: null,
+            ProjectId: null));
 
         Assert.Equal(ScopeTarget.Instance, target);
     }
 
     [SkippableFact]
-    public async Task RuleOnComponent_still_authorizes_at_that_component()
+    public async Task RuleEverywhere_with_a_project_authorizes_at_that_project()
     {
         Skip.IfNot(_fx.Available);
 
-        // The scopes the matcher DOES anchor must keep resolving to their
-        // anchor — otherwise the fix for the escalation would quietly demand
-        // instance Admin for every ordinary suppression, which is a different
-        // way to break the feature.
+        // The scope the matcher DOES bound must keep resolving to its anchor —
+        // otherwise the fix for the escalation would quietly demand instance
+        // Admin for every ordinary project-scoped rule suppression, which is a
+        // different way to break the feature.
         var world = await SeedAsync();
 
         var target = await TargetForAsync(world, new SuppressionCreateRequest(
-            SuppressionScope.RuleOnComponent,
+            SuppressionScope.RuleEverywhere,
             FindingId: null,
             RuleId: "CA1822",
-            ComponentId: world.ComponentId,
             FilePath: null,
-            Reason: "noisy here",
-            ExpiresAt: null));
+            Reason: "noisy in this project",
+            ExpiresAt: null,
+            ProjectId: world.ProjectId));
 
-        Assert.Equal(world.ComponentId, target.ComponentId);
-        Assert.Equal(world.ProjectId, target.ProjectId);
+        Assert.Equal(ScopeTarget.Project(world.ClientId, world.ProjectId), target);
     }
 
     [SkippableFact]
-    public async Task SingleFinding_still_authorizes_at_the_findings_own_component()
+    public async Task SingleFinding_still_authorizes_at_the_findings_own_project()
     {
         Skip.IfNot(_fx.Available);
 
@@ -109,22 +107,22 @@ public class SuppressionScopeEscalationTests
             SuppressionScope.SingleFinding,
             FindingId: world.FindingId,
             RuleId: null,
-            ComponentId: null,
             FilePath: null,
             Reason: "reviewed",
-            ExpiresAt: null));
+            ExpiresAt: null,
+            ProjectId: null));
 
-        Assert.Equal(world.ComponentId, target.ComponentId);
+        Assert.Equal(ScopeTarget.Project(world.ClientId, world.ProjectId), target);
     }
 
     [SkippableFact]
-    public async Task A_supplied_component_cannot_narrow_a_single_finding_away_from_its_own()
+    public async Task A_supplied_project_cannot_narrow_a_single_finding_away_from_its_own()
     {
         Skip.IfNot(_fx.Available);
 
-        // A finding-scoped suppression is anchored by the FINDING. A component
-        // id sent alongside it must not be what the check runs against, or the
-        // same trick works one tier down: authorize on a component you hold,
+        // A finding-scoped suppression is anchored by the FINDING. A project id
+        // sent alongside it must not be what the check runs against, or the
+        // same trick works one tier down: authorize on a project you hold,
         // suppress a finding on one you do not.
         var world = await SeedAsync();
 
@@ -132,13 +130,13 @@ public class SuppressionScopeEscalationTests
             SuppressionScope.SingleFinding,
             FindingId: world.FindingId,
             RuleId: null,
-            ComponentId: world.OtherComponentId,
             FilePath: null,
             Reason: "escalation attempt",
-            ExpiresAt: null));
+            ExpiresAt: null,
+            ProjectId: world.OtherProjectId));
 
-        Assert.Equal(world.ComponentId, target.ComponentId);
-        Assert.NotEqual(world.OtherComponentId, target.ComponentId);
+        Assert.Equal(ScopeTarget.Project(world.ClientId, world.ProjectId), target);
+        Assert.NotEqual(ScopeTarget.Project(world.ClientId, world.OtherProjectId), target);
     }
 
     // ---- Helpers -------------------------------------------------------------
@@ -165,7 +163,7 @@ public class SuppressionScopeEscalationTests
     }
 
     private sealed record World(
-        Guid UserId, Guid ClientId, Guid ProjectId, Guid ComponentId, Guid OtherComponentId,
+        Guid UserId, Guid ClientId, Guid ProjectId, Guid OtherProjectId,
         Guid FindingId);
 
     private async Task<World> SeedAsync()
@@ -177,11 +175,11 @@ public class SuppressionScopeEscalationTests
 
         var client = new Client { Name = $"esc-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"esc-project-{suffix}" };
-        var component = new Component { ProjectId = project.Id, Name = "api" };
-        var other = new Component { ProjectId = project.Id, Name = "web" };
+        var other = new Project { ClientId = client.Id, Name = $"esc-other-{suffix}" };
+
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = suffix + "cccccc",
+            ProjectId = project.Id, VersionString = "1.0.0", CommitSha = suffix + "cccccc",
         };
 
         var finding = new Finding
@@ -205,25 +203,23 @@ public class SuppressionScopeEscalationTests
         };
 
         db.Clients.Add(client);
-        db.Projects.Add(project);
-        db.Components.AddRange(component, other);
+        db.Projects.AddRange(project, other);
         db.ComponentVersions.Add(version);
         db.Findings.Add(finding);
         db.Users.Add(user);
 
-        // Lead Dev on ONE component. Nothing at the client, nothing at the
+        // Lead Dev on ONE project. Nothing at the client, nothing at the
         // instance — which is exactly the position the escalation starts from.
         db.ProjectRoleAssignments.Add(new ProjectRoleAssignment
         {
             UserId = user.Id,
             ClientId = client.Id,
             ProjectId = project.Id,
-            ComponentId = component.Id,
             Role = ProjectRole.LeadDev,
         });
 
         await db.SaveChangesAsync();
 
-        return new World(user.Id, client.Id, project.Id, component.Id, other.Id, finding.Id);
+        return new World(user.Id, client.Id, project.Id, other.Id, finding.Id);
     }
 }

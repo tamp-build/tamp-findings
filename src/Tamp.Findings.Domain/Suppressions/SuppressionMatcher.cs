@@ -5,14 +5,9 @@ namespace Tamp.Findings.Domain.Suppressions;
 
 /// <summary>
 /// Where a finding sits, for the purpose of deciding whether a suppression
-/// reaches it (TFND-132).
-///
-/// A record rather than three loose parameters, because the previous signature
-/// took a bare componentId and that is exactly how the tenant came to be
-/// missing from the predicate: there was nowhere to put it that a caller would
-/// have to fill in.
+/// reaches it (TFND-132) — its client and project.
 /// </summary>
-public readonly record struct SuppressionTarget(Guid ClientId, Guid ProjectId, Guid ComponentId);
+public readonly record struct SuppressionTarget(Guid ClientId, Guid ProjectId);
 
 // Pure-domain decision helper: does any active suppression in `pool` cover
 // the given finding? Used by the ingest path to set Status=Suppressed
@@ -47,10 +42,6 @@ public static class SuppressionMatcher
             SuppressionScope.RuleOnFile =>
                 string.Equals(s.RuleId, ruleId, StringComparison.Ordinal)
                 && PathsMatch(s.FilePath, filePath),
-
-            SuppressionScope.RuleOnComponent =>
-                string.Equals(s.RuleId, ruleId, StringComparison.Ordinal)
-                && s.ComponentId == target.ComponentId,
 
             SuppressionScope.RuleEverywhere =>
                 string.Equals(s.RuleId, ruleId, StringComparison.Ordinal),

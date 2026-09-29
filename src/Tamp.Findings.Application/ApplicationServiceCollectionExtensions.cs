@@ -61,7 +61,6 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Risk.GateDecisionService>();
         services.AddScoped<Risk.GateFailureNotifier>();   // TFND-122
         services.AddScoped<Projects.ProjectHubQuery>();
-        services.AddScoped<Projects.ComponentService>();
         services.AddScoped<Projects.PortfolioQuery>();
         services.AddScoped<Projects.ScoreSnapshotService>();
         services.AddScoped<Projects.HierarchyService>();

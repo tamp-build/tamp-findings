@@ -57,7 +57,7 @@ public sealed class PoamReminderService
         foreach (var item in due)
         {
             _audit.RecordSystem("poam.due_soon", AuditClass.Risk,
-                new ScopeTarget(null, item.ProjectId, null),
+                new ScopeTarget(null, item.ProjectId),
                 subjectId: item.Id, subjectKind: "PoamItem",
                 detail: $"\"{item.Title}\" is due {item.Due:yyyy-MM-dd} "
                       + $"({(item.Due - asOf).TotalDays:0} days). Close it, get an AO extension, "

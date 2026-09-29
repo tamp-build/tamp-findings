@@ -108,15 +108,13 @@ public class ExplorerIntegrationTests
         var sha = suffix + "aaaaaa";
         var client = new Client { Name = $"ex-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"ex-project-{suffix}" };
-        var component = new Component { ProjectId = project.Id, Name = $"ex-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "0.1.0", CommitSha = sha,
+            ProjectId = project.Id, VersionString = "0.1.0", CommitSha = sha,
         };
 
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
 
         var scanner = ScannerKinds.Sast.First();

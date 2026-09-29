@@ -26,29 +26,29 @@ public sealed class CostsAndLicensesQuery
     public CostsAndLicensesQuery(FindingsDbContext db) => _db = db;
 
     /// <summary>
-    /// Costs and licences for a project's most recent SBOM per component.
+    /// Costs and licences for a project's most recent SBOM per build flavor.
     /// </summary>
     public async Task<CostsAndLicenses> LoadAsync(
         Guid projectId, DateTimeOffset asOf, CancellationToken ct = default)
     {
-        // Newest SBOM per component. A project's components are built
-        // independently, so "the latest SBOM" is not one snapshot — taking the
-        // single newest across the project would silently drop every component
-        // that has not built today.
+        // Newest SBOM per flavor. A project's flavors (net10 / web / deployed)
+        // are built independently, so "the latest SBOM" is not one snapshot —
+        // taking the single newest across the project would silently drop every
+        // flavor that has not built today.
         var snapshots = await (
             from s in _db.SbomSnapshots.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on s.ComponentVersionId equals cv.Id
             where cv.ProjectId == projectId
-            select new { s.Id, ComponentId = cv.ComponentId, ComponentName = cv.Component!.Name, cv.CreatedAt })
+            select new { s.Id, cv.Flavor, cv.CreatedAt })
             .ToArrayAsync(ct);
 
         var latest = snapshots
-            .GroupBy(s => s.ComponentId)
+            .GroupBy(s => s.Flavor)
             .Select(g => g.OrderByDescending(s => s.CreatedAt).First())
             .ToArray();
 
         var snapshotIds = latest.Select(s => s.Id).ToArray();
-        var componentOf = latest.ToDictionary(s => s.Id, s => s.ComponentName);
+        var flavorOf = latest.ToDictionary(s => s.Id, s => s.Flavor ?? "(default)");
 
         var packages = await _db.SbomComponents.AsNoTracking()
             .Where(p => snapshotIds.Contains(p.SbomSnapshotId))
@@ -88,7 +88,7 @@ public sealed class CostsAndLicensesQuery
                             or LicensePolicy.Tier.Unknown)
             .Select(x => new LicenceObligation(
                 x.p.Purl, x.p.Name, x.p.Version, x.p.License, x.Tier,
-                componentOf.TryGetValue(x.p.SbomSnapshotId, out var name) ? name : "(unknown)"))
+                flavorOf.TryGetValue(x.p.SbomSnapshotId, out var name) ? name : "(unknown)"))
             // Denied first, then strong copyleft, then unknown. Unknown is last
             // not because it is least serious — it is the one nobody can rule
             // out — but because it is usually the longest list, and burying the
@@ -111,7 +111,7 @@ public sealed class CostsAndLicensesQuery
             if (matches.Length == 0) continue;
 
             var components = matches
-                .Select(m => componentOf.TryGetValue(m.SbomSnapshotId, out var name) ? name : "(unknown)")
+                .Select(m => flavorOf.TryGetValue(m.SbomSnapshotId, out var name) ? name : "(unknown)")
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
                 .ToArray();

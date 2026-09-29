@@ -55,7 +55,7 @@ public static class ConformanceRulesEndpoints
         var actorLogin = await db.Users.AsNoTracking()
             .Where(u => u.Id == token.CreatedByUserId).Select(u => u.Login).FirstOrDefaultAsync(ct);
         audit.RecordIngest(token.Id, token.Name, actorLogin is null ? null : token.CreatedByUserId, actorLogin,
-            AuditActions.AdrRulesPushed, new ScopeTarget(token.ClientId, pid, null),
+            AuditActions.AdrRulesPushed, new ScopeTarget(token.ClientId, pid),
             detail: $"adr-rules: {result.Upserted} upserted, {result.Retired} retired, {result.Active} active"
                   + (result.Superseded.Count > 0 ? $", {result.Superseded.Count} mandate POA&M(s) superseded" : ""));
         await db.SaveChangesAsync(ct);
@@ -73,7 +73,7 @@ public static class ConformanceRulesEndpoints
         var ruleset = await rules.ForProjectAsync(pid, ct);
 
         audit.RecordIngest(token.Id, token.Name, token.CreatedByUserId, null,
-            AuditActions.AdrRulesetRead, new ScopeTarget(token.ClientId, pid, null),
+            AuditActions.AdrRulesetRead, new ScopeTarget(token.ClientId, pid),
             detail: $"adr-ruleset: {ruleset.Rules.Count} active rule(s)");
         await db.SaveChangesAsync(ct);
 

@@ -17,8 +17,7 @@ public sealed record FindingListItem(
     // each row — the Inbox view shows hierarchy inline.
     Guid ComponentVersionId,
     string VersionString,
-    Guid ComponentId,
-    string ComponentName,
+    string? Flavor,
     Guid ProjectId,
     string ProjectName,
     Guid ClientId,
@@ -32,5 +31,4 @@ public sealed record FindingsListResponse(
     IReadOnlyList<FindingListItem> Items);
 
 public sealed record ClientListItem(Guid Id, string Name, int ProjectCount, Guid? RiskPolicyId);
-public sealed record ProjectListItem(Guid Id, string Name, Guid ClientId, string ClientName, int ComponentCount);
-public sealed record ComponentListItem(Guid Id, string Name, string? Kind, Guid ProjectId, string ProjectName, Guid ClientId, string ClientName, int VersionCount);
+public sealed record ProjectListItem(Guid Id, string Name, Guid ClientId, string ClientName, int BuildCount);

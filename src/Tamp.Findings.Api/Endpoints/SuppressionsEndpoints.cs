@@ -92,7 +92,6 @@ public static class SuppressionsEndpoints
             Scope = req.Scope,
             FindingId = req.FindingId,
             RuleId = req.RuleId,
-            ComponentId = req.ComponentId,
             FilePath = req.FilePath,
             // From the RESOLVED target, not from the request (TFND-132). The
             // target is what the capability check ran against, so binding the
@@ -129,14 +128,12 @@ public static class SuppressionsEndpoints
         FindingsDbContext db,
         CancellationToken ct,
         bool activeOnly = true,
-        Guid? componentId = null,
         string? ruleId = null,
         Guid? projectId = null)
     {
         var now = DateTimeOffset.UtcNow;
         var q = db.Suppressions.AsNoTracking();
         if (activeOnly) q = q.Where(s => s.ExpiresAt == null || s.ExpiresAt > now);
-        if (componentId is { } cid) q = q.Where(s => s.ComponentId == cid);
         if (!string.IsNullOrWhiteSpace(ruleId)) q = q.Where(s => s.RuleId == ruleId);
 
         // TFND-132: everything that can silence a finding in this project —
@@ -199,8 +196,7 @@ public static class SuppressionsEndpoints
         // Authorized at the suppression's OWN scope, from the row rather than
         // from anything the caller sent. The caller supplies an id; letting
         // them supply the scope it is checked at would be TFND-132 again.
-        var target = new ScopeTarget(
-            suppression.ClientId, suppression.ProjectId, suppression.ComponentId);
+        var target = new ScopeTarget(suppression.ClientId, suppression.ProjectId);
 
         var userId = SuppressionAuthorization.UserIdFrom(http.User);
         if (userId is not { } actingId) return TypedResults.Forbid();
@@ -244,8 +240,6 @@ public static class SuppressionsEndpoints
         SuppressionScope.SingleFinding when req.FindingId is null => "SingleFinding scope requires findingId",
         SuppressionScope.RuleOnFile when string.IsNullOrWhiteSpace(req.RuleId) => "RuleOnFile scope requires ruleId",
         SuppressionScope.RuleOnFile when string.IsNullOrWhiteSpace(req.FilePath) => "RuleOnFile scope requires filePath",
-        SuppressionScope.RuleOnComponent when string.IsNullOrWhiteSpace(req.RuleId) => "RuleOnComponent scope requires ruleId",
-        SuppressionScope.RuleOnComponent when req.ComponentId is null => "RuleOnComponent scope requires componentId",
         SuppressionScope.RuleEverywhere when string.IsNullOrWhiteSpace(req.RuleId) => "RuleEverywhere scope requires ruleId",
 
         // TFND-132. The rule-scoped kinds carry no anchor of their own, so the
@@ -261,7 +255,7 @@ public static class SuppressionsEndpoints
     };
 
     private static SuppressionResponse ToResponse(Suppression s, string login) => new(
-        s.Id, s.Scope, s.FindingId, s.RuleId, s.ComponentId, s.FilePath,
+        s.Id, s.Scope, s.FindingId, s.RuleId, s.FilePath,
         s.CreatedByUserId, login, s.CreatedByRole,
         s.Reason, s.ExpiresAt, s.CreatedAt,
         IsActive: s.ExpiresAt is null || s.ExpiresAt > DateTimeOffset.UtcNow);

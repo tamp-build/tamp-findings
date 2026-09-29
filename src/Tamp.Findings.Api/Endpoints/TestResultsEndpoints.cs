@@ -35,7 +35,6 @@ public static class TestResultsEndpoints
     {
         if (string.IsNullOrWhiteSpace(req.Client)) return Results.BadRequest("client required");
         if (string.IsNullOrWhiteSpace(req.Project)) return Results.BadRequest("project required");
-        if (string.IsNullOrWhiteSpace(req.Component)) return Results.BadRequest("component required");
         if (string.IsNullOrWhiteSpace(req.Version)) return Results.BadRequest("version required");
 
         var token = IngestAuthFilter.CurrentToken(ctx);
@@ -108,7 +107,7 @@ public static class TestResultsEndpoints
         }
 
         await IngestAudit.RecordAsync(audit, db, token, version.Id,
-            $"test-results: {suitesCount} suites, {casesCount} cases — {req.Component}@{req.Version}", ct);
+            $"test-results: {suitesCount} suites, {casesCount} cases — {req.Project}@{req.Version}", ct);
         await db.SaveChangesAsync(ct);
 
         await snapshots.RecordForBuildAsync(version.Id, ct);   // TFND-176: tests moved the score
@@ -206,13 +205,12 @@ public static class TestResultsEndpoints
         CancellationToken ct)
     {
         var q = db.TestRunReports.AsNoTracking().AsQueryable();
-        if (componentId is { } cmp) q = q.Where(r => r.ComponentVersion!.ComponentId == cmp);
         if (projectId is { } prj) q = q.Where(r => r.ComponentVersion!.ProjectId == prj);
         if (clientId is { } cli) q = q.Where(r => r.ComponentVersion!.Project!.ClientId == cli);
         if (latest)
         {
             var latestCvIds = await db.ComponentVersions
-                .GroupBy(v => new { v.ComponentId, FlavorKey = v.FlavorId ?? Guid.Empty })
+                .GroupBy(v => new { v.ProjectId, FlavorKey = v.Flavor })
                 .Select(g => g.OrderByDescending(v => v.CreatedAt).First().Id)
                 .ToListAsync(ct);
             q = q.Where(r => latestCvIds.Contains(r.ComponentVersionId));
@@ -226,37 +224,8 @@ public static class TestResultsEndpoints
         var (_, project, scopeErr) = await IngestScopeGuard.ResolveAndGuardAsync(db, token, req.Client, req.Project, ct);
         if (scopeErr is not null) return (null, scopeErr);
 
-        var componentLower = req.Component.ToLower();
-        var component = await db.Components.FirstOrDefaultAsync(c => c.ProjectId == project!.Id && c.Name.ToLower() == componentLower, ct)
-            ?? db.Components.Add(new Component { ProjectId = project!.Id, Name = req.Component, Kind = req.ComponentKind }).Entity;
-        ComponentFlavor? flavor = null;
-        if (!string.IsNullOrWhiteSpace(req.Flavor))
-        {
-            var flavorLower = req.Flavor.ToLower();
-            flavor = await db.ComponentFlavors.FirstOrDefaultAsync(f => f.ComponentId == component.Id && f.Name.ToLower() == flavorLower, ct)
-                ?? db.ComponentFlavors.Add(new ComponentFlavor { ComponentId = component.Id, Name = req.Flavor }).Entity;
-        }
-        var version = await db.ComponentVersions.FirstOrDefaultAsync(v =>
-            v.ComponentId == component.Id &&
-            v.FlavorId == (flavor != null ? flavor.Id : (Guid?)null) &&
-            v.VersionString == req.Version, ct);
-        if (version is null)
-        {
-            version = new ComponentVersion
-            {
-                // Component-collapse PR1: anchor to project + flavor tag, dual-writing legacy FKs.
-                ProjectId = project!.Id,
-                Flavor = flavor?.Name,
-                ComponentId = component.Id,
-                FlavorId = flavor?.Id,
-                VersionString = req.Version,
-                CommitSha = req.CommitSha,
-                BranchName = req.Branch,
-                BuildId = req.BuildId,
-                PullRequestRef = req.PullRequestRef,
-            };
-            db.ComponentVersions.Add(version);
-        }
+        var version = await BuildResolver.GetOrCreateAsync(db, project!.Id, req.Flavor, req.Version,
+            req.CommitSha, req.Branch, req.BuildId, req.PullRequestRef, ct);
 
         // TFND-165: stamp the build with the actor that produced this ingest,
         // whether it was just created or already existed.

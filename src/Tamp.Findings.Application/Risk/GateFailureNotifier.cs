@@ -84,7 +84,7 @@ public sealed class GateFailureNotifier
         if (already) return;
 
         _audit.RecordSystem("gates.blocking", AuditClass.Risk,
-            new ScopeTarget(project.ClientId, projectId, null),
+            new ScopeTarget(project.ClientId, projectId),
             subjectId: null, subjectKind: "ProjectGates", detail: detail);
 
         await _db.SaveChangesAsync(ct);

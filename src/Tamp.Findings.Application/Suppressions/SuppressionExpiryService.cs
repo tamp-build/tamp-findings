@@ -60,13 +60,13 @@ public sealed class SuppressionExpiryService
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
             join p in _db.Projects.AsNoTracking() on cv.ProjectId equals p.Id
             where f.Status == FindingStatus.Suppressed
-            select new { f.Id, p.ClientId, ProjectId = p.Id, ComponentId = cv.ComponentId })
+            select new { f.Id, p.ClientId, ProjectId = p.Id })
             .ToArrayAsync(ct);
 
         if (located.Length == 0) return 0;
 
         var targets = located.ToDictionary(
-            r => r.Id, r => new SuppressionTarget(r.ClientId, r.ProjectId, r.ComponentId));
+            r => r.Id, r => new SuppressionTarget(r.ClientId, r.ProjectId));
 
         var ids = targets.Keys.ToArray();
 
@@ -108,7 +108,7 @@ public sealed class SuppressionExpiryService
             _audit.RecordSystem(
                 "finding.suppression_expired",
                 AuditClass.Risk,
-                new ScopeTarget(target.ClientId, target.ProjectId, target.ComponentId),
+                new ScopeTarget(target.ClientId, target.ProjectId),
                 subjectId: finding.Id,
                 subjectKind: nameof(Finding),
                 detail: $"{finding.RuleId} reopened — {Describe(pool, target, finding, asOf)}");

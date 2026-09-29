@@ -432,15 +432,13 @@ public class PoamIntegrationTests
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var client = new Client { Name = $"poam-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"poam-project-{suffix}" };
-        var component = new Component { ProjectId = project.Id, Name = $"poam-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "0.1.0", CommitSha = suffix + "cccccc",
+            ProjectId = project.Id, VersionString = "0.1.0", CommitSha = suffix + "cccccc",
         };
 
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
 
         var author = new User

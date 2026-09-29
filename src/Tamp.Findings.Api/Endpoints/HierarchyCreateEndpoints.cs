@@ -7,16 +7,14 @@ using Tamp.Findings.Domain.Entities;
 
 namespace Tamp.Findings.Api.Endpoints;
 
-// Create-side counterparts to the GET /clients|/projects|/components
-// list endpoints in FindingsListEndpoints. Admin-gated; the AddMenu in
-// the SPA header surfaces these.
+// Create-side counterparts to the GET /clients|/projects list endpoints
+// in FindingsListEndpoints. Admin-gated.
 //
 // Up-front validation is minimal — non-blank Name, uniqueness within
 // scope, FK existence. EF's unique index constraints catch concurrent
 // races and surface as 409.
 public sealed record CreateClientRequest(string Name);
 public sealed record CreateProjectRequest(string Name, Guid ClientId, string? Description);
-public sealed record CreateComponentRequest(string Name, Guid ProjectId, string? Kind);
 
 public static class HierarchyCreateEndpoints
 {
@@ -28,8 +26,6 @@ public static class HierarchyCreateEndpoints
          .WithSummary("Create a client. Admin only.");
         g.MapPost("/projects", CreateProjectAsync)
          .WithSummary("Create a project under a client. Admin only.");
-        g.MapPost("/components", CreateComponentAsync)
-         .WithSummary("Create a component under a project. Admin only.");
         return app;
     }
 
@@ -73,37 +69,6 @@ public static class HierarchyCreateEndpoints
 
         return Results.Created($"/projects/{row.Id}",
             new ProjectListItem(row.Id, row.Name, row.ClientId, client.Name, 0));
-    }
-
-    private static async Task<IResult> CreateComponentAsync(
-        CreateComponentRequest req, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
-    {
-        var (_, deny) = await RequireAdminAsync(ctx, db, ct);
-        if (deny is not null) return deny;
-        var name = req.Name?.Trim();
-        if (string.IsNullOrWhiteSpace(name)) return Results.BadRequest("name required");
-
-        var project = await db.Projects.AsNoTracking()
-            .Include(p => p.Client)
-            .FirstOrDefaultAsync(p => p.Id == req.ProjectId, ct);
-        if (project is null) return Results.BadRequest("projectId not found");
-
-        var row = new Component
-        {
-            ProjectId = req.ProjectId,
-            Name = name,
-            Kind = string.IsNullOrWhiteSpace(req.Kind) ? null : req.Kind.Trim(),
-        };
-        db.Components.Add(row);
-        try { await db.SaveChangesAsync(ct); }
-        catch (DbUpdateException) { return Results.Conflict("component name already exists under this project"); }
-
-        return Results.Created($"/components/{row.Id}",
-            new ComponentListItem(
-                row.Id, row.Name, row.Kind,
-                row.ProjectId, project.Name,
-                project.ClientId, project.Client?.Name ?? "",
-                0));
     }
 
     private static async Task<(User? user, IResult? deny)> RequireAdminAsync(HttpContext ctx, FindingsDbContext db, CancellationToken ct)

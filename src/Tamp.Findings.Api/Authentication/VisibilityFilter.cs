@@ -80,12 +80,6 @@ public sealed class VisibilityFilter : IEndpointFilter
             return NotFound;
         }
 
-        if (Id(http, "componentId") is { } componentId
-            && !await ComponentVisibleAsync(visible, componentId, ct))
-        {
-            return NotFound;
-        }
-
         if (Id(http, "projectId") is { } projectId
             && !await ProjectVisibleAsync(visible, projectId, ct))
         {
@@ -112,7 +106,6 @@ public sealed class VisibilityFilter : IEndpointFilter
     private static bool NamesAnyId(HttpContext http) =>
         Id(http, "clientId") is not null
         || Id(http, "projectId") is not null
-        || Id(http, "componentId") is not null
         || Id(http, "componentVersionId") is not null;
 
     private async Task<VisibleSet> ResolveAsync(HttpContext http, CancellationToken ct)
@@ -160,23 +153,7 @@ public sealed class VisibilityFilter : IEndpointFilter
         // that knows.
         if (clientId is not { } client) return true;
 
-        if (visible.CanSeeProject(client, projectId)) return true;
-
-        // Reachable as the container for a component the caller does hold.
-        return await _db.Components.AsNoTracking()
-            .AnyAsync(c => c.ProjectId == projectId && visible.Components.Contains(c.Id), ct);
-    }
-
-    private async Task<bool> ComponentVisibleAsync(VisibleSet visible, Guid componentId, CancellationToken ct)
-    {
-        if (visible.Unrestricted) return true;
-
-        var row = await _db.Components.AsNoTracking()
-            .Where(c => c.Id == componentId)
-            .Select(c => new { c.Id, c.ProjectId, c.Project!.ClientId })
-            .SingleOrDefaultAsync(ct);
-
-        return row is null || visible.CanSeeComponent(row.ClientId, row.ProjectId, row.Id);
+        return visible.CanSeeProject(client, projectId);
     }
 
     private async Task<bool> VersionVisibleAsync(VisibleSet visible, Guid versionId, CancellationToken ct)
@@ -185,10 +162,10 @@ public sealed class VisibilityFilter : IEndpointFilter
 
         var row = await _db.ComponentVersions.AsNoTracking()
             .Where(v => v.Id == versionId)
-            .Select(v => new { v.ComponentId, v.ProjectId, v.Project!.ClientId })
+            .Select(v => new { v.ProjectId, v.Project!.ClientId })
             .SingleOrDefaultAsync(ct);
 
-        return row is null || visible.CanSeeComponent(row.ClientId, row.ProjectId, row.ComponentId);
+        return row is null || visible.CanSeeProject(row.ClientId, row.ProjectId);
     }
 
     /// <summary>

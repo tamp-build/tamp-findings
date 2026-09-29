@@ -162,7 +162,7 @@
         if (detail is null) { _view = null; _loading = false; return; }
 
         _clientId = detail.Id;
-        _canEdit = await Me.CanAsync(Capability.EditPolicyWeights, new ScopeTarget(_clientId, null, null));
+        _canEdit = await Me.CanAsync(Capability.EditPolicyWeights, new ScopeTarget(_clientId, null));
         _view = await Svc.LoadAsync(_clientId);
         _layer = _view is null ? null : Clone(_view.Overlay);
         _templates = await Templates.LibraryAsync();
@@ -195,7 +195,7 @@
     {
         if (!Guid.TryParse(_selectedTemplateId, out var newId)) return;
         _busy = true;
-        var actor = await Me.AtAsync(new ScopeTarget(_clientId, null, null));
+        var actor = await Me.AtAsync(new ScopeTarget(_clientId, null));
         var res = await Svc.RequestTemplateSwitchAsync(actor!, _clientId, newId);
         _busy = false;
         if (res.Success) { _message = "Template switch submitted to InfoSec for approval."; _messageChip = "Submitted"; _messageTone = "var(--color-band-orange)"; }
@@ -206,7 +206,7 @@
     {
         if (_layer is null) return;
         _busy = true;
-        var actor = await Me.AtAsync(new ScopeTarget(_clientId, null, null));
+        var actor = await Me.AtAsync(new ScopeTarget(_clientId, null));
         var res = await Svc.SaveHardeningAsync(actor!, _clientId, _layer);
         _busy = false;
         if (res.Success) { _message = "Client hardening saved. Applies to every project under this client on their next evaluation."; _messageChip = "Applied"; _messageTone = "var(--color-pass)"; }

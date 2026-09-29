@@ -12,12 +12,11 @@ public sealed class Suppression
     // service layer when the entity is created — not in the entity itself.
     public Guid? FindingId { get; set; }
     public string? RuleId { get; set; }
-    public Guid? ComponentId { get; set; }
     public string? FilePath { get; set; }
 
     // The tenant this suppression belongs to (TFND-132).
     //
-    // SingleFinding and RuleOnComponent are anchored by their subject, so these
+    // SingleFinding is anchored by its subject, so these
     // are derived rather than load-bearing. For RuleOnFile and RuleEverywhere
     // they are the ONLY thing bounding the row: without them the matcher
     // silenced a rule for every client on the instance, and there was no record

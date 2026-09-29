@@ -107,15 +107,13 @@ public class GateFailureNotificationTests
             ClientId = client.Id, Name = $"gate-project-{suffix}",
             RiskPolicyId = policy.Id, GatesConfig = gates,
         };
-        var component = new Component { ProjectId = project.Id, Name = $"gate-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = sha, BranchName = "main",
+            ProjectId = project.Id, VersionString = "1.0.0", CommitSha = sha, BranchName = "main",
         };
 
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
         await db.SaveChangesAsync();
 

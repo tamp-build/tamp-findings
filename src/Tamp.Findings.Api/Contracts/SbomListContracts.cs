@@ -16,8 +16,7 @@ public sealed record SbomComponentListItem(
     // Denormalized scope for the SPA table
     Guid ComponentVersionId,
     string VersionString,
-    Guid ComponentId,
-    string ComponentName,
+    string? Flavor,
     Guid ProjectId,
     string ProjectName,
     Guid ClientId,

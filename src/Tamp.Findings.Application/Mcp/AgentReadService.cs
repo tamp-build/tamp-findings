@@ -11,7 +11,7 @@ namespace Tamp.Findings.Application.Mcp;
 ///
 /// One class rather than letting the tool layer reach into the ordinary
 /// queries, for one reason: every method here starts by resolving the token's
-/// scope to a concrete set of component ids and then filters on it. If the tool
+/// scope to a concrete set of project ids and then filters on it. If the tool
 /// layer could call <c>FindingsExplorerQuery</c> directly it would be passing a
 /// projectId the agent supplied, and the scoping rule would hold only as long
 /// as every future tool remembered to check — which is to say, not for long.
@@ -32,7 +32,7 @@ public sealed class AgentReadService
     }
 
     /// <summary>
-    /// The components this identity may see, as the hierarchy the agent should
+    /// The projects this identity may see, as the hierarchy the agent should
     /// reason about.
     ///
     /// Returned rather than assumed, because an agent given a client-scoped
@@ -45,24 +45,11 @@ public sealed class AgentReadService
         if (Denied(agent) is not null) return [];
 
         var rows = await Visible(agent)
-            .Select(c => new
-            {
-                ComponentId = c.Id,
-                ComponentName = c.Name,
-                c.Kind,
-                ProjectId = c.Project!.Id,
-                ProjectName = c.Project!.Name,
-                ClientName = c.Project!.Client!.Name,
-            })
+            .Select(p => new { p.Id, ProjectName = p.Name, ClientName = p.Client!.Name })
             .ToArrayAsync(ct);
 
         return rows
-            .GroupBy(r => new { r.ClientName, r.ProjectId, r.ProjectName })
-            .Select(g => new AgentScopeNode(
-                g.Key.ClientName, g.Key.ProjectId, g.Key.ProjectName,
-                g.Select(c => new AgentComponent(c.ComponentId, c.ComponentName, c.Kind))
-                 .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
-                 .ToArray()))
+            .Select(r => new AgentScopeNode(r.ClientName, r.Id, r.ProjectName))
             .OrderBy(p => p.Client, StringComparer.OrdinalIgnoreCase)
             .ThenBy(p => p.Project, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -81,13 +68,13 @@ public sealed class AgentReadService
     {
         if (Denied(agent) is { } reason) return AgentFindingsPage.Refused(reason);
 
-        var components = await VisibleIdsAsync(agent, ct);
-        if (components.Count == 0) return AgentFindingsPage.Empty;
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (projects.Count == 0) return AgentFindingsPage.Empty;
 
         var query =
             from f in _db.Findings.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
-            where components.Contains(cv.ComponentId) && f.Status == FindingStatus.Open
+            where projects.Contains(cv.ProjectId) && f.Status == FindingStatus.Open
             select new { f, cv };
 
         if (filter.Severity is { } minimum)
@@ -134,18 +121,17 @@ public sealed class AgentReadService
     {
         if (Denied(agent) is not null) return null;
 
-        var components = await VisibleIdsAsync(agent, ct);
+        var projects = await VisibleIdsAsync(agent, ct);
 
         var row = await (
             from f in _db.Findings.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where f.Id == findingId && components.Contains(cv.ComponentId)
+            where f.Id == findingId && projects.Contains(cv.ProjectId)
             select new
             {
                 f.Id, f.Scanner, f.RuleId, f.Severity, f.Title, f.Description,
                 f.FilePath, f.Line, f.Snippet, f.Purl, f.FirstSeen, f.LastSeen,
-                Component = c.Name, c.ProjectId, cv.CommitSha, cv.VersionString,
+                cv.ProjectId, cv.CommitSha, cv.VersionString,
             }).SingleOrDefaultAsync(ct);
 
         // Null for "not yours" as well as "no such thing". Distinguishing them
@@ -162,12 +148,12 @@ public sealed class AgentReadService
         // what the file says today.
         return new AgentFindingDetail(
             row.Id, row.Scanner, row.RuleId, row.Severity, row.Title, row.Description,
-            row.FilePath, row.Line, row.Snippet, row.Purl, row.Component,
+            row.FilePath, row.Line, row.Snippet, row.Purl,
             row.CommitSha, row.VersionString, row.FirstSeen, row.LastSeen, context);
     }
 
     /// <summary>
-    /// The dependency graph for one component's newest SBOM, as flat edges plus
+    /// The dependency graph for a project's newest SBOM, as flat edges plus
     /// the packages they connect.
     ///
     /// Flat rather than nested: the question an agent asks here is "what pulls
@@ -176,17 +162,17 @@ public sealed class AgentReadService
     /// wants to.
     /// </summary>
     public async Task<AgentDependencyGraph?> DependenciesAsync(
-        AgentIdentity agent, Guid componentId, CancellationToken ct = default)
+        AgentIdentity agent, Guid projectId, CancellationToken ct = default)
     {
         if (Denied(agent) is not null) return null;
 
-        var components = await VisibleIdsAsync(agent, ct);
-        if (!components.Contains(componentId)) return null;
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
 
         var snapshot = await (
             from s in _db.SbomSnapshots.AsNoTracking()
             join cv in _db.ComponentVersions.AsNoTracking() on s.ComponentVersionId equals cv.Id
-            where cv.ComponentId == componentId
+            where cv.ProjectId == projectId
             orderby cv.CreatedAt descending
             select new { s.Id, s.ToolName, cv.CommitSha, cv.CreatedAt })
             .FirstOrDefaultAsync(ct);
@@ -234,7 +220,7 @@ public sealed class AgentReadService
             .ToArray();
 
         return new AgentDependencyGraph(
-            componentId, snapshot.CommitSha, snapshot.ToolName, snapshot.CreatedAt, nodes, links);
+            projectId, snapshot.CommitSha, snapshot.ToolName, snapshot.CreatedAt, nodes, links);
     }
 
     /// <summary>
@@ -266,23 +252,16 @@ public sealed class AgentReadService
     {
         if (Denied(agent) is not null) return null;
 
-        var components = await VisibleIdsAsync(agent, ct);
-
-        var visibleProject = await _db.Components.AsNoTracking()
-            .AnyAsync(c => c.ProjectId == projectId && components.Contains(c.Id), ct);
-        if (!visibleProject) return null;
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
 
         // Anchored in this scope: the caller's own, reason and author included.
         var anchored = await (
             from s in _db.Suppressions.AsNoTracking()
             join f in _db.Findings.AsNoTracking() on s.FindingId equals f.Id
             join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
-            where s.FindingId != null && components.Contains(cv.ComponentId)
+            where s.FindingId != null && projects.Contains(cv.ProjectId)
             select s).ToArrayAsync(ct);
-
-        var componentAnchored = await _db.Suppressions.AsNoTracking()
-            .Where(s => s.ComponentId != null && components.Contains(s.ComponentId.Value))
-            .ToArrayAsync(ct);
 
         // Rule-scoped rows that belong to this project, or to its client.
         var clientId = await _db.Projects.AsNoTracking()
@@ -291,7 +270,7 @@ public sealed class AgentReadService
             .SingleOrDefaultAsync(ct);
 
         var ruleScoped = await _db.Suppressions.AsNoTracking()
-            .Where(s => s.FindingId == null && s.ComponentId == null && s.ClientId != null
+            .Where(s => s.FindingId == null && s.ClientId != null
                         && s.ClientId == clientId
                         && (s.ProjectId == null || s.ProjectId == projectId))
             .ToArrayAsync(ct);
@@ -299,10 +278,10 @@ public sealed class AgentReadService
         // Legacy: written before suppressions carried a tenant. Still applies
         // here, and there is no record of who asked for it.
         var legacy = await _db.Suppressions.AsNoTracking()
-            .Where(s => s.FindingId == null && s.ComponentId == null && s.ClientId == null)
+            .Where(s => s.FindingId == null && s.ClientId == null)
             .ToArrayAsync(ct);
 
-        var mine = anchored.Concat(componentAnchored).Concat(ruleScoped).ToArray();
+        var mine = anchored.Concat(ruleScoped).ToArray();
 
         var authorIds = mine.Select(s => s.CreatedByUserId).Distinct().ToArray();
         var authors = await _db.Users.AsNoTracking()
@@ -360,25 +339,21 @@ public sealed class AgentReadService
     }
 
     /// <summary>
-    /// Components under the token's scope. THE scoping rule, in one place.
+    /// Projects under the token's scope. THE scoping rule, in one place.
     ///
-    /// Component-scoped: that component alone, never its siblings.
-    /// Project-scoped: every component of that project.
-    /// Client-scoped: every component under that client.
+    /// Project-scoped: that project alone, never its siblings.
+    /// Client-scoped: every project under that client.
     /// </summary>
-    private IQueryable<Component> Visible(AgentIdentity agent)
+    private IQueryable<Project> Visible(AgentIdentity agent)
     {
         var scope = agent.Scope;
-        var query = _db.Components.AsNoTracking();
-
-        if (scope.ComponentId is { } componentId)
-            return query.Where(c => c.Id == componentId);
+        var query = _db.Projects.AsNoTracking();
 
         if (scope.ProjectId is { } projectId)
-            return query.Where(c => c.ProjectId == projectId);
+            return query.Where(p => p.Id == projectId);
 
         if (scope.ClientId is { } clientId)
-            return query.Where(c => c.Project!.ClientId == clientId);
+            return query.Where(p => p.ClientId == clientId);
 
         // No scope is no access, not all access. A token that somehow reached
         // here unscoped reads nothing rather than everything.
@@ -386,7 +361,7 @@ public sealed class AgentReadService
     }
 
     private async Task<HashSet<Guid>> VisibleIdsAsync(AgentIdentity agent, CancellationToken ct) =>
-        (await Visible(agent).Select(c => c.Id).ToArrayAsync(ct)).ToHashSet();
+        (await Visible(agent).Select(p => p.Id).ToArrayAsync(ct)).ToHashSet();
 
     /// <summary>
     /// Lines around the flagged one, when coverage happened to capture the file.
@@ -405,8 +380,7 @@ public sealed class AgentReadService
             from f in _db.CoverageSourceFiles.AsNoTracking()
             join r in _db.CoverageReports.AsNoTracking() on f.CoverageReportId equals r.Id
             join cv in _db.ComponentVersions.AsNoTracking() on r.ComponentVersionId equals cv.Id
-            join c in _db.Components.AsNoTracking() on cv.ComponentId equals c.Id
-            where c.ProjectId == projectId && f.RelativePath == normalised
+            where cv.ProjectId == projectId && f.RelativePath == normalised
             orderby cv.CreatedAt descending
             select f.SourceText).FirstOrDefaultAsync(ct);
 
@@ -428,10 +402,7 @@ public sealed class AgentReadService
 
 // ---- Shapes -----------------------------------------------------------------
 
-public sealed record AgentScopeNode(
-    string Client, Guid ProjectId, string Project, IReadOnlyList<AgentComponent> Components);
-
-public sealed record AgentComponent(Guid Id, string Name, string? Kind);
+public sealed record AgentScopeNode(string Client, Guid ProjectId, string Project);
 
 public sealed record AgentFindingsFilter(
     Severity? Severity = null, ScannerKind? Scanner = null, string? CommitSha = null,
@@ -456,13 +427,13 @@ public sealed record AgentFindingsPage(
 public sealed record AgentFindingDetail(
     Guid Id, ScannerKind Scanner, string RuleId, Severity Severity, string Title,
     string? Description, string? FilePath, int? Line, string? Snippet, string? Purl,
-    string Component, string? CommitSha, string Version,
+    string? CommitSha, string Version,
     DateTimeOffset FirstSeen, DateTimeOffset LastSeen, AgentCodeContext? Context);
 
 public sealed record AgentCodeContext(int FirstLine, string Text);
 
 public sealed record AgentDependencyGraph(
-    Guid ComponentId, string? CommitSha, string? Tool, DateTimeOffset CapturedAt,
+    Guid ProjectId, string? CommitSha, string? Tool, DateTimeOffset CapturedAt,
     IReadOnlyList<AgentPackage> Packages, IReadOnlyList<AgentDependencyEdge> Edges);
 
 public sealed record AgentPackage(

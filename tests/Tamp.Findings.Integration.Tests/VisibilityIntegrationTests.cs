@@ -280,11 +280,9 @@ public class VisibilityIntegrationTests
         var sibling = new Project { ClientId = client.Id, Name = $"vis-sibling-{suffix}" };
         var otherProject = new Project { ClientId = other.Id, Name = $"vis-foreign-{suffix}" };
 
-        var component = new Component { ProjectId = project.Id, Name = "api" };
 
         db.Clients.AddRange(client, other);
         db.Projects.AddRange(project, sibling, otherProject);
-        db.Components.Add(component);
 
         User Person(string name, bool approved = true, bool admin = false)
         {
@@ -320,7 +318,7 @@ public class VisibilityIntegrationTests
             new ProjectRoleAssignment
             {
                 UserId = atComponent.Id, ClientId = client.Id, ProjectId = project.Id,
-                ComponentId = component.Id, Role = ProjectRole.Architect,
+                Role = ProjectRole.Architect,
             });
 
         await db.SaveChangesAsync();

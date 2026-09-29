@@ -13,7 +13,6 @@ public sealed class ProjectRoleAssignment
 
     public Guid? ClientId { get; set; }
     public Guid? ProjectId { get; set; }
-    public Guid? ComponentId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

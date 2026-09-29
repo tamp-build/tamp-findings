@@ -98,9 +98,7 @@ public class ZtIntegrationTests
             db.Clients.Add(client);
             var project = new Project { ClientId = client.Id, Name = $"fpp-{s}" };
             db.Projects.Add(project);
-            var comp = new Component { ProjectId = project.Id, Name = "svc" };
-            db.Components.Add(comp);
-            var cv = new ComponentVersion { ProjectId = comp.ProjectId, ComponentId = comp.Id, VersionString = "1.0.0", CommitSha = $"fp{s}" };
+            var cv = new ComponentVersion { ProjectId = project.Id, VersionString = "1.0.0", CommitSha = $"fp{s}" };
             db.ComponentVersions.Add(cv);
             db.ConformanceFindings.Add(new ConformanceFinding
             {
@@ -161,9 +159,7 @@ public class ZtIntegrationTests
             db.Clients.Add(client);
             var project = new Project { ClientId = client.Id, Name = $"zp-{s}" };
             db.Projects.Add(project);
-            var comp = new Component { ProjectId = project.Id, Name = "svc" };
-            db.Components.Add(comp);
-            var cv = new ComponentVersion { ProjectId = comp.ProjectId, ComponentId = comp.Id, VersionString = "1.0.0", CommitSha = $"sha{s}" };
+            var cv = new ComponentVersion { ProjectId = project.Id, VersionString = "1.0.0", CommitSha = $"sha{s}" };
             db.ComponentVersions.Add(cv);
 
             // Owned maturity evidence: ztt posted a verified stage-3 Authentication.

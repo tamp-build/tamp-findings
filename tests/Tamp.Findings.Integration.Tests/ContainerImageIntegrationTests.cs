@@ -158,15 +158,14 @@ public class ContainerImageIntegrationTests
 
         var client = new Client { Name = $"img-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"img-project-{suffix}" };
-        var component = new Component { ProjectId = project.Id, Name = "api" };
+        
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "1.0.0", CommitSha = $"{suffix}aaaaaa",
+            ProjectId = project.Id, VersionString = "1.0.0", CommitSha = $"{suffix}aaaaaa",
         };
 
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
 
         if (inspect)
@@ -177,13 +176,11 @@ public class ContainerImageIntegrationTests
         Guid? secondId = null;
         if (secondBuildBaseAgeDays is { } secondAge)
         {
-            var web = new Component { ProjectId = project.Id, Name = "web" };
+            
             var secondVersion = new ComponentVersion
             {
-                ProjectId = web.ProjectId, ComponentId = web.Id, VersionString = "1.0.0", CommitSha = $"{suffix}aaaaaa",
+                ProjectId = project.Id, VersionString = "1.0.0", CommitSha = $"{suffix}aaaaaa",
             };
-
-            db.Components.Add(web);
             db.ComponentVersions.Add(secondVersion);
             db.ContainerImages.Add(Image(secondVersion.Id, secondAge, inspectedAt));
 

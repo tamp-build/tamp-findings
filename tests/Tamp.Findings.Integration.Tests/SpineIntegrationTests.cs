@@ -346,15 +346,13 @@ public class SpineIntegrationTests
         var sha = suffix + "bbbbbb";
         var client = new Client { Name = $"sp-client-{suffix}" };
         var project = new Project { ClientId = client.Id, Name = $"sp-project-{suffix}" };
-        var component = new Component { ProjectId = project.Id, Name = $"sp-component-{suffix}" };
         var version = new ComponentVersion
         {
-            ProjectId = component.ProjectId, ComponentId = component.Id, VersionString = "0.1.0", CommitSha = sha,
+            ProjectId = project.Id, VersionString = "0.1.0", CommitSha = sha,
         };
 
         db.Clients.Add(client);
         db.Projects.Add(project);
-        db.Components.Add(component);
         db.ComponentVersions.Add(version);
 
         // --- SBOM ---

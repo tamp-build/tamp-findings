@@ -51,7 +51,7 @@ public sealed class PoamCompletionEffect : IApprovalEffect
         item.ActualCompletionDate ??= now;
 
         _audit.Record(decider, AuditActions.PoamCompleted, AuditClass.Risk,
-            new ScopeTarget(approval.ClientId, approval.ProjectId, null),
+            new ScopeTarget(approval.ClientId, approval.ProjectId),
             subjectId: item.Id, subjectKind: nameof(PoamItem),
             detail: $"{item.Title}: {previous} → Completed — approved completion request "
                   + $"from {approval.RequestedByLogin}"

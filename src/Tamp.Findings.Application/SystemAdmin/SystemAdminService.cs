@@ -90,8 +90,7 @@ public sealed class SystemAdminService
         return assignments
             .Select(a => new AssignmentRow(
                 a.Id, a.Role,
-                a.ComponentId is not null ? "Component"
-                    : a.ProjectId is not null ? "Project"
+                a.ProjectId is not null ? "Project"
                     : a.ClientId is not null ? "Client" : "Instance",
                 a.ProjectId is { } pid ? projects.FirstOrDefault(p => p.Id == pid)?.Name ?? "(removed)"
                     : a.ClientId is { } cid ? clients.FirstOrDefault(c => c.Id == cid)?.Name ?? "(removed)"
@@ -186,7 +185,7 @@ public sealed class SystemAdminService
 
         if (scope.Depth == 0)
             return Result<Guid>.Invalid(
-                "A role has to be granted at a client, project or component. Instance-wide access is "
+                "A role has to be granted at a client or project. Instance-wide access is "
                 + "the admin flag, not a role.");
 
         var user = await _db.Users.SingleOrDefaultAsync(u => u.Id == userId, ct);
@@ -195,8 +194,7 @@ public sealed class SystemAdminService
         var duplicate = await _db.ProjectRoleAssignments.AnyAsync(
             a => a.UserId == userId && a.Role == role
               && a.ClientId == scope.ClientId
-              && a.ProjectId == scope.ProjectId
-              && a.ComponentId == scope.ComponentId, ct);
+              && a.ProjectId == scope.ProjectId, ct);
         if (duplicate) return Result<Guid>.Invalid("That role is already granted at this scope.");
 
         // Existing roles at the SAME tier, because that is what scope
@@ -205,8 +203,7 @@ public sealed class SystemAdminService
         var existing = await _db.ProjectRoleAssignments.AsNoTracking()
             .Where(a => a.UserId == userId
                      && a.ClientId == scope.ClientId
-                     && a.ProjectId == scope.ProjectId
-                     && a.ComponentId == scope.ComponentId)
+                     && a.ProjectId == scope.ProjectId)
             .Select(a => a.Role)
             .ToArrayAsync(ct);
 
@@ -222,7 +219,6 @@ public sealed class SystemAdminService
             Role = role,
             ClientId = scope.ClientId,
             ProjectId = scope.ProjectId,
-            ComponentId = scope.ComponentId,
             GrantedByUserId = actor.UserId,
             SodConflict = conflicts.Count == 0 ? null : string.Join("; ", conflicts),
         };
@@ -255,7 +251,7 @@ public sealed class SystemAdminService
         _db.ProjectRoleAssignments.Remove(assignment);
 
         _audit.Record(actor, AuditActions.RoleRevoked, AuditClass.Access,
-            new ScopeTarget(assignment.ClientId, assignment.ProjectId, assignment.ComponentId),
+            new ScopeTarget(assignment.ClientId, assignment.ProjectId),
             subjectId: assignment.UserId, subjectKind: nameof(User),
             detail: $"{login} lost {assignment.Role}");
 

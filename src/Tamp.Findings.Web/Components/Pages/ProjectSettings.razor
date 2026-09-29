@@ -15,7 +15,6 @@
 @inject ProjectHubQuery Hub
 @inject ProjectSettingsService Settings
 @inject McpTokenService AgentTokens
-@inject ComponentService Components
 @inject CurrentUser Me
 @inject AuthenticationStateProvider Auth
 
@@ -503,21 +502,6 @@ else
                    Help="Which agent this is for — &quot;claude · remediation&quot;, &quot;codex · triage&quot;. It is what makes a revoke decision possible six months from now." />
 
         <label class="field">
-            <span class="field__label">Sees</span>
-            <select class="field__input" @bind="_agentComponent">
-                <option value="">This project — every component under it</option>
-                @foreach (var component in _components)
-                {
-                    <option value="@component.Id">@component.Name — that component alone</option>
-                }
-            </select>
-            <span class="field__help">
-                Scoped DOWN, never up. A component token cannot see its siblings, however close they
-                sit in the tree. Pick the narrowest scope the agent actually needs.
-            </span>
-        </label>
-
-        <label class="field">
             <span class="field__label">Acts as</span>
             <select class="field__input" @bind="_agentRole">
                 <option value="">Viewer — read the evidence, nothing else</option>
@@ -631,8 +615,6 @@ else
     private bool _mintingAgent;
     private string? _agentName, _agentError, _mintedAgent;
     private string _agentRole = "";
-    private string _agentComponent = "";
-    private IReadOnlyList<ComponentRow> _components = [];
     private int _agentDays = 90;
     private McpTokenRow? _revokingAgent;
     private AuthorizationDecision _canMintAgent = AuthorizationDecision.Deny("Checking…");
@@ -679,7 +661,6 @@ else
             var arc = await Settings.ArchetypeAsync(_project.ProjectId);
             _archetypeSel = arc is null ? "" : ((int)arc.Value).ToString();
 
-            _components = await Components.ListAsync(_project.ProjectId);
             _agentTokens = await AgentTokens.ListAsync(Here, DateTimeOffset.UtcNow);
             _canMintAgent = await Me.CanAsync(Capability.AssignRoles, Here);
             _mcpEnabled = await Settings.McpEnabledAsync();
@@ -740,7 +721,6 @@ else
         _mintingAgent = true;
         _agentName = null;
         _agentRole = "";
-        _agentComponent = "";
         _agentDays = 90;
         _agentError = null;
     }
@@ -756,14 +736,9 @@ else
         var role = Enum.TryParse<ProjectRole>(_agentRole, out var parsed) ? parsed : (ProjectRole?)null;
 
         // The token's scope, which is NOT the scope the capability check runs
-        // at. Authority to mint comes from this project; what the token sees can
-        // only be this project or narrower.
-        var granted = Guid.TryParse(_agentComponent, out var componentId)
-            ? ScopeTarget.Component(_project.ClientId, _project.ProjectId, componentId)
-            : Here;
-
+        // at. Authority to mint comes from this project; the token sees this project.
         var result = await AgentTokens.MintAsync(
-            actor, granted, _agentName ?? "", role, _agentDays);
+            actor, Here, _agentName ?? "", role, _agentDays);
 
         if (!result.Success) { _agentError = result.Error; return; }
 

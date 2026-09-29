@@ -58,16 +58,8 @@ public sealed class ClientQuery
             .Select(p => new { p.Id, p.Name, p.RiskPolicyId })
             .ToArrayAsync(ct);
 
-        var reachableByComponent = visible.Unrestricted || visible.Components.Count == 0
-            ? new HashSet<Guid>()
-            : (await _db.Components.AsNoTracking()
-                .Where(c => visible.Components.Contains(c.Id))
-                .Select(c => c.ProjectId)
-                .Distinct()
-                .ToArrayAsync(ct)).ToHashSet();
-
         var projects = allProjects
-            .Where(p => visible.CanSeeProject(client.Id, p.Id) || reachableByComponent.Contains(p.Id))
+            .Where(p => visible.CanSeeProject(client.Id, p.Id))
             .ToArray();
 
         // Reaching nothing under this client is the same as the client not
@@ -76,9 +68,9 @@ public sealed class ClientQuery
 
         var projectIds = projects.Select(p => p.Id).ToArray();
 
-        var componentCounts = await _db.Components.AsNoTracking()
-            .Where(c => projectIds.Contains(c.ProjectId))
-            .GroupBy(c => c.ProjectId)
+        var buildCounts = await _db.ComponentVersions.AsNoTracking()
+            .Where(v => projectIds.Contains(v.ProjectId))
+            .GroupBy(v => v.ProjectId)
             .Select(g => new { ProjectId = g.Key, Count = g.Count() })
             .ToArrayAsync(ct);
 
@@ -107,7 +99,7 @@ public sealed class ClientQuery
             .Select(p => new ClientProjectRow(
                 p.Id,
                 p.Name,
-                componentCounts.FirstOrDefault(c => c.ProjectId == p.Id)?.Count ?? 0,
+                buildCounts.FirstOrDefault(c => c.ProjectId == p.Id)?.Count ?? 0,
                 lastBuilds.FirstOrDefault(b => b.ProjectId == p.Id)?.Last,
                 p.RiskPolicyId is { } ppid
                     ? policies.FirstOrDefault(x => x.Id == ppid)?.Name
@@ -188,7 +180,7 @@ public sealed record ClientDetail(
 public sealed record ClientProjectRow(
     Guid Id,
     string Name,
-    int Components,
+    int Builds,
     DateTimeOffset? LastBuild,
     string? RiskPolicyName,
     bool InheritsPolicy);

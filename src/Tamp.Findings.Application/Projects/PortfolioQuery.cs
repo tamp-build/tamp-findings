@@ -56,21 +56,8 @@ public sealed class PortfolioQuery
             })
             .ToArrayAsync(ct);
 
-        // Component-tier grants make their project visible as a container, so
-        // the filter cannot be answered from the project row alone. Loaded once
-        // rather than per project.
-        var componentsByProject = visible.Unrestricted || visible.Components.Count == 0
-            ? []
-            : await _db.Components.AsNoTracking()
-                .Where(c => visible.Components.Contains(c.Id))
-                .Select(c => c.ProjectId)
-                .Distinct()
-                .ToArrayAsync(ct);
-
-        var reachableByComponent = componentsByProject.ToHashSet();
-
         var projects = candidates
-            .Where(p => visible.CanSeeProject(p.ClientId, p.Id) || reachableByComponent.Contains(p.Id))
+            .Where(p => visible.CanSeeProject(p.ClientId, p.Id))
             .ToArray();
 
         var defaultPolicy = await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
