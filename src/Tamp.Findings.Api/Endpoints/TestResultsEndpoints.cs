@@ -50,32 +50,41 @@ public static class TestResultsEndpoints
         if (scopeErr is not null) return scopeErr;
         var version = resolved!;
 
-        // Replace-on-ingest, same shape as CoverageReport.
-        var existing = await db.TestRunReports
+        // One TestRunReport per build, but ingest is replace-BY-ASSEMBLY, not replace-all. A .NET
+        // solution emits one .trx per test project × TFM, so an adopter POSTs many files for one build.
+        // The old replace-all (delete every prior report, insert one) meant each POST clobbered the last
+        // — a silent undercount when a build has many test projects. Instead we keep the build's single
+        // report and replace only the suites for the assemblies in THIS payload; suites from other files
+        // stay, and the roll-up is recomputed from all of them below. The read + score paths already sum
+        // across suites, so this is the only place that needed to change.
+        var report = await db.TestRunReports
             .Where(r => r.ComponentVersionId == version.Id)
-            .ToListAsync(ct);
-        if (existing.Count > 0)
+            .OrderBy(r => r.IngestedAt)
+            .FirstOrDefaultAsync(ct);
+        if (report is null)
         {
-            db.TestRunReports.RemoveRange(existing);
-            await db.SaveChangesAsync(ct);
+            report = new TestRunReport { ComponentVersionId = version.Id };
+            db.TestRunReports.Add(report);
         }
-
-        var report = new TestRunReport
-        {
-            ComponentVersionId = version.Id,
-            ToolName = req.ToolName,
-            ToolVersion = req.ToolVersion,
-            TotalCount = req.TotalCount,
-            PassedCount = req.PassedCount,
-            FailedCount = req.FailedCount,
-            SkippedCount = req.SkippedCount,
-            InconclusiveCount = req.InconclusiveCount,
-            DurationMs = req.DurationMs,
-            StartedAt = req.StartedAt,
-            CompletedAt = req.CompletedAt,
-        };
-        db.TestRunReports.Add(report);
+        // Run-level metadata reflects the most recent ingest into this build.
+        report.ToolName = req.ToolName;
+        report.ToolVersion = req.ToolVersion;
+        report.StartedAt = req.StartedAt;
+        report.CompletedAt = req.CompletedAt;
+        report.IngestedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
+
+        // Defensive: the old replace-all path always left ≤1 report per CV, but a mixed history could
+        // have more. Collapse any extras into the one we keep so a build's suites live under one report.
+        var extraIds = await db.TestRunReports
+            .Where(r => r.ComponentVersionId == version.Id && r.Id != report.Id)
+            .Select(r => r.Id).ToListAsync(ct);
+        if (extraIds.Count > 0)
+        {
+            await db.TestSuiteResults.Where(s => extraIds.Contains(s.TestRunReportId))
+                .ExecuteUpdateAsync(u => u.SetProperty(s => s.TestRunReportId, report.Id), ct);
+            await db.TestRunReports.Where(r => extraIds.Contains(r.Id)).ExecuteDeleteAsync(ct);
+        }
 
         // Merge suites that share an (assembly, class): a .trx can split one class across several
         // result groups, and a producer's mapper may chunk them however it likes. The sink stores
@@ -83,7 +92,17 @@ public static class TestResultsEndpoints
         // ingest must be tolerant of well-formed evidence, not brittle to how it was serialised.
         var groups = req.Suites
             .Where(s => !string.IsNullOrWhiteSpace(s.ClassName))
-            .GroupBy(s => (Assembly: s.AssemblyName ?? "", s.ClassName));
+            .GroupBy(s => (Assembly: s.AssemblyName ?? "", s.ClassName))
+            .ToList();
+
+        // Replace only the assemblies this payload carries; leave suites from other files intact.
+        var incomingAssemblies = groups.Select(g => g.Key.Assembly).Distinct().ToList();
+        if (incomingAssemblies.Count > 0)
+        {
+            await db.TestSuiteResults
+                .Where(s => s.TestRunReportId == report.Id && incomingAssemblies.Contains(s.AssemblyName))
+                .ExecuteDeleteAsync(ct);   // cascades to the suites' cases
+        }
 
         var suitesCount = 0;
         var casesCount = 0;
@@ -113,6 +132,19 @@ public static class TestResultsEndpoints
             suitesCount++;
             casesCount += suite.Cases.Count;
         }
+        await db.SaveChangesAsync(ct);
+
+        // Recompute the build's roll-up from ALL suites now under the report — this file plus any
+        // sibling files already ingested — so the report totals and the gate reconcile with the tree.
+        var all = await db.TestSuiteResults.AsNoTracking()
+            .Where(s => s.TestRunReportId == report.Id)
+            .ToListAsync(ct);
+        report.TotalCount = all.Sum(s => s.TotalCount);
+        report.PassedCount = all.Sum(s => s.PassedCount);
+        report.FailedCount = all.Sum(s => s.FailedCount);
+        report.SkippedCount = all.Sum(s => s.SkippedCount);
+        report.InconclusiveCount = all.Sum(s => s.InconclusiveCount);
+        report.DurationMs = all.Sum(s => s.DurationMs);
         await db.SaveChangesAsync(ct);
 
         await IngestAudit.RecordAsync(audit, db, token, version.Id,

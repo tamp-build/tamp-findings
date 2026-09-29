@@ -93,6 +93,53 @@ public class TestResultsIngestIntegrationTests
     }
 
     [SkippableFact]
+    public async Task Multiple_files_for_one_build_accumulate_and_replace_per_assembly()
+    {
+        Skip.IfNot(_fx.Available);
+        var s = Guid.NewGuid().ToString("N")[..8];
+        var (client, project, token) = await SeedProjectTokenAsync(s);
+        var http = _fx.Factory!.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var sha = $"{s}multi";
+
+        async Task<TestResultsIngestResponse> Post(params TestSuiteRequestDto[] suites)
+        {
+            var req = new TestResultsIngestRequest(client, project, null, null, null, "1.0.0", sha, "main", null, null,
+                "dotnet test (trx)", null, 0, 0, 0, 0, 0, 0,
+                DateTimeOffset.UtcNow.AddSeconds(-1), DateTimeOffset.UtcNow, suites);
+            var resp = await http.PostAsJsonAsync("/ingest/test-results", req);
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            return (await resp.Content.ReadFromJsonAsync<TestResultsIngestResponse>())!;
+        }
+
+        // Producer posts one file per test project — the shape that used to undercount (last-wins).
+        await Post(Suite("Core.dll", "Core.T", passed: 10, failed: 0));
+        await Post(Suite("Cli.dll", "Cli.T", passed: 5, failed: 1));
+
+        async Task<(int total, int failed, int reports)> Rollup()
+        {
+            using var scope = _fx.Scope();
+            var db = _fx.Db(scope);
+            var report = await db.TestRunReports.SingleAsync(r => r.ComponentVersion!.CommitSha == sha);
+            var suiteTotal = await db.TestSuiteResults.Where(x => x.TestRunReportId == report.Id).SumAsync(x => x.TotalCount);
+            var reports = await db.TestRunReports.CountAsync(r => r.ComponentVersion!.CommitSha == sha);
+            return (report.TotalCount, report.FailedCount, reports);
+        }
+
+        var after2 = await Rollup();
+        Assert.Equal(1, after2.reports);          // one report per build, not two
+        Assert.Equal(16, after2.total);            // 10 + 6 accumulated, not clobbered
+        Assert.Equal(1, after2.failed);
+
+        // Re-post ONLY Core with new numbers → replaces Core's suites, leaves Cli intact.
+        await Post(Suite("Core.dll", "Core.T", passed: 20, failed: 0));
+        var after3 = await Rollup();
+        Assert.Equal(1, after3.reports);
+        Assert.Equal(26, after3.total);            // 20 (new Core) + 6 (untouched Cli)
+        Assert.Equal(1, after3.failed);            // Cli's failure survived
+    }
+
+    [SkippableFact]
     public async Task Raw_trx_posts_the_file_and_lands_suites()
     {
         Skip.IfNot(_fx.Available);

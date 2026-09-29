@@ -32,7 +32,12 @@ public static class RawReportXml
 
         var settings = new XmlReaderSettings
         {
-            DtdProcessing = DtdProcessing.Prohibit,   // no DOCTYPE → no entity-expansion / billion-laughs
+            // Ignore, not Prohibit: a DOCTYPE may be PRESENT (reportgenerator's Cobertura ships
+            // `<!DOCTYPE coverage SYSTEM "coverage-04.dtd">` by default) but is never processed — the
+            // DTD is skipped, no entity is defined, and with the resolver nulled nothing external is
+            // fetched. So a well-known benign DOCTYPE parses, while XXE and billion-laughs stay closed:
+            // any `&entity;` reference is undeclared and errors out rather than expanding.
+            DtdProcessing = DtdProcessing.Ignore,
             XmlResolver = null,                         // no external entity or schema fetch
             MaxCharactersFromEntities = 0,
             IgnoreComments = true,

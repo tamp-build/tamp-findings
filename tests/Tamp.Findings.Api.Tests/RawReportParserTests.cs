@@ -139,6 +139,23 @@ public class RawReportParserTests
     }
 
     [Fact]
+    public async Task Loader_tolerates_a_benign_cobertura_doctype()
+    {
+        // reportgenerator emits this by default; the loader must parse it, not 400, while still not
+        // fetching the external DTD.
+        const string withDoctype = """
+        <?xml version="1.0"?>
+        <!DOCTYPE coverage SYSTEM "http://cobertura.sourceforge.net/xml/coverage-04.dtd">
+        <coverage line-rate="0.5" lines-covered="1" lines-valid="2"><packages/></coverage>
+        """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(withDoctype));
+        var doc = await RawReportXml.LoadAsync(stream, default);
+        Assert.Equal(RawCoverageFormat.Cobertura, RawReportFormat.DetectCoverage(doc));
+        var r = CoberturaCoverageParser.Parse(doc);
+        Assert.Equal(50, r.SequenceCoverage);
+    }
+
+    [Fact]
     public void Sniffers_return_null_for_an_unrecognised_root()
     {
         var doc = XDocument.Parse("<somethingElse/>");
