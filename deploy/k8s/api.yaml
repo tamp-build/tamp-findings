@@ -22,6 +22,10 @@ metadata:
     component: api
 spec:
   replicas: 1
+  # Heavy dev/test deploy churn otherwise leaves 10 old ReplicaSets (the default)
+  # cluttering `kubectl get rs`. Node image-cache GC handles the disk side on its
+  # own; this is purely to keep the RS list readable while iterating.
+  revisionHistoryLimit: 3
   selector:
     matchLabels:
       app: tamp-findings
