@@ -185,8 +185,15 @@ public sealed class ProjectHubQuery
 
         var history = await BuildHistoryAsync(project, policy.Config, gateConfig, builds, coverage, conformanceEnabled, capability, ct);
 
+        // Coverage banding anchors (shared by the header strip and the public badge): the score's
+        // target and the gate's floor. Fall back to sensible defaults when a policy omits them.
+        var coverageTarget = policy.Config.Categories.TryGetValue(RiskCategoryNames.Coverage, out var covCat)
+            && covCat.Weights.TryGetValue("targetPercent", out var tgt) ? tgt : 80;
+        var coverageFloor = gateConfig.Gates.TryGetValue(GateKeys.CoverageFloor, out var cf)
+            && cf.Enabled && cf.Threshold is { } thr ? thr : Math.Max(0, coverageTarget - 10);
+
         return new ProjectHubData(project, head.CommitSha, head.VersionString, head.CreatedAt,
-            policy.Name, baseline, result, gates, inputs, history, images);
+            policy.Name, baseline, coverageTarget, coverageFloor, result, gates, inputs, history, images);
     }
 
     /// <summary>
@@ -272,6 +279,9 @@ public sealed record ProjectHubData(
     string PolicyName,
     /// <summary>The client's compliance template (e.g. "FedRAMP High"), or null if none is set.</summary>
     string? ComplianceBaseline,
+    /// <summary>Coverage % the score wants (green at/above); the gate floor (yellow down to it).</summary>
+    double CoverageTarget,
+    double CoverageFloor,
     RiskResult Risk,
     GateEvaluation Gates,
     RiskInputs Inputs,

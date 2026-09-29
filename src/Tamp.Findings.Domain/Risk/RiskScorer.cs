@@ -407,13 +407,10 @@ public static class RiskScorer
         return expected <= 0 ? 0 : missing / expected;
     }
 
-    private static string BandFor(double score, RiskBands b)
-    {
-        if (score <= b.GreenMax) return "green";
-        if (score <= b.YellowMax) return "yellow";
-        if (score <= b.OrangeMax) return "orange";
-        return "red";
-    }
+    // The overall risk score is just another banded metric — classify it through the shared
+    // BandScale so the score, coverage, tests and the badge all agree on what green means.
+    private static string BandFor(double score, RiskBands b) =>
+        BandScale.RiskScore(b).SlugFor(score);
 }
 
 // Weight keys understood by the missingScanners category. Each names a

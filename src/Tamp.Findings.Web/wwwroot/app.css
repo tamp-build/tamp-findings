@@ -568,8 +568,33 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
 
 /* ── Project hub ────────────────────────────────────────────────────── */
 
-.hubhead { padding-left: var(--space-3); }
+.hubhead {
+  padding-left: var(--space-3);
+  display: flex; align-items: stretch; justify-content: space-between;
+  gap: var(--space-5); flex-wrap: wrap;
+}
 .hubhead__back { display: inline-block; font-size: var(--text-kicker); color: var(--color-accent-700); margin-bottom: 4px; }
+.hubhead__id { min-width: 260px; }
+.hubhead__build { margin-top: 2px; font-size: var(--text-kicker); }
+
+/* The status strip: one bordered card per headline metric, coloured by its band. */
+.hubhead__stats { display: flex; gap: var(--space-3); align-items: stretch; flex-wrap: wrap; }
+.statcard {
+  border: 1px solid var(--band, var(--color-neutral-600));
+  border-top: 3px solid var(--band, var(--color-neutral-600));
+  border-radius: var(--radius);
+  padding: 8px 14px 10px; min-width: 112px;
+  display: flex; flex-direction: column; gap: 3px; justify-content: center;
+  background: color-mix(in srgb, var(--band, transparent) 7%, transparent);
+}
+.statcard--wide { min-width: 178px; max-width: 240px; }
+.statcard__label {
+  font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--band, var(--color-text-muted)); opacity: .9;
+}
+.statcard__value { font-size: 26px; font-weight: 700; line-height: 1.05; color: var(--band, var(--color-text)); }
+.statcard__den { color: var(--color-neutral-500); font-weight: 500; font-size: 20px; }
+.statcard__sub { font-size: 11px; line-height: 1.25; color: var(--band, var(--color-text-muted)); opacity: .95; }
 
 /* Category detail page (v3 §3). */
 .crumbs { font-size: 11px; color: var(--color-neutral-600); display: flex; gap: 6px; align-items: center; }

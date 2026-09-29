@@ -6,6 +6,7 @@
 @inject Tamp.Findings.Application.Poam.PoamQuery Poam
 @inject Tamp.Findings.Application.Attestation.SsdfAttestationBuilder Ssdf
 @inject CurrentUser Me
+@using Tamp.Findings.Domain.Risk
 
 <PageTitle>@Project — tamp.findings</PageTitle>
 
@@ -68,20 +69,41 @@ else
 {
     <div class="stack">
         <div class="hubhead" style="border-left: 4px solid @BandColour">
-            <div>
+            <div class="hubhead__id">
                 <a class="hubhead__back" href="@Routes.Portfolio">← Portfolio</a>
                 <h1>@_data.Project.ProjectName</h1>
                 <p class="muted">
-                    @_data.Project.ClientName
-                    @if (_data.ComplianceBaseline is { Length: > 0 } baseline)
-                    {
-                        <text> · @baseline · scored by @_data.PolicyName</text>
-                    }
-                    else
-                    {
-                        <text> · policy @_data.PolicyName</text>
-                    }
+                    @_data.Project.ClientName@(_data.ComplianceBaseline is { Length: > 0 } bl ? $" · {bl}" : "") · policy @_data.PolicyName
                 </p>
+                <p class="muted hubhead__build">Latest build: <span class="mono">@ShortSha</span> · @_data.BuiltAt.ToString("yyyy-MM-dd HH:mm")</p>
+            </div>
+            <div class="hubhead__stats">
+                <div class="statcard" style="--band: @BandColour">
+                    <div class="statcard__label">Risk · @_data.Risk.Band</div>
+                    <div class="statcard__value">@_data.Risk.Score.ToString("F1")%</div>
+                </div>
+                <div class="statcard" style="--band: @CoverageColour">
+                    <div class="statcard__label">Coverage</div>
+                    <div class="statcard__value">@CoverageValue</div>
+                </div>
+                <div class="statcard" style="--band: @TestsColour">
+                    <div class="statcard__label">Tests passing</div>
+                    <div class="statcard__value">
+                        @if (_data.Inputs.TestsMeasured)
+                        {
+                            <text>@TestsPassed.ToString("N0")<span class="statcard__den"> / @TestsTotal.ToString("N0")</span></text>
+                        }
+                        else { <text>—</text> }
+                    </div>
+                </div>
+                <div class="statcard statcard--wide" style="--band: @ShipColour">
+                    <div class="statcard__label">Ship gate</div>
+                    <div class="statcard__value">@(_data.Gates.ClearToShip ? "✓ Clear" : "✕ Blocked")</div>
+                    @if (ShipReason is { } reason)
+                    {
+                        <div class="statcard__sub">@reason</div>
+                    }
+                </div>
             </div>
         </div>
 
@@ -138,6 +160,36 @@ else
         "orange" => "var(--color-band-orange)",
         _ => "var(--color-band-red)",
     };
+
+    private const string Neutral = "var(--color-neutral-500)";
+    private static string Colour(string slug) => $"var(--color-band-{slug})";
+
+    // Coverage: banded off the project's own target/floor (higher is better).
+    private string CoverageColour => _data!.Inputs.CoverageMeasured
+        ? Colour(BandScale.Coverage(_data.CoverageTarget, _data.CoverageFloor).SlugFor(_data.Inputs.SequenceCoveragePercent))
+        : Neutral;
+    private string CoverageValue => _data!.Inputs.CoverageMeasured
+        ? _data.Inputs.SequenceCoveragePercent.ToString("F1") + "%"
+        : "—";
+
+    // Tests: green only when every test passes; otherwise banded on the pass rate.
+    private int TestsTotal => _data!.Inputs.TestsTotal;
+    private int TestsPassed => _data!.Inputs.TestsTotal - _data.Inputs.TestsFailed;
+    private string TestsColour => !_data!.Inputs.TestsMeasured ? Neutral
+        : _data.Inputs.TestsFailed == 0 ? Colour("green")
+        : Colour(BandScale.Percent(100, 90, 75).SlugFor(TestsTotal > 0 ? 100.0 * TestsPassed / TestsTotal : 0));
+
+    // Ship gate: green when clear, red with the first blocking gate's reason otherwise.
+    private string ShipColour => Colour(_data!.Gates.ClearToShip ? "green" : "red");
+    private string? ShipReason
+    {
+        get
+        {
+            if (_data!.Gates.ClearToShip) return null;
+            var g = _data.Gates.Results.FirstOrDefault(r => r.Blocks);
+            return g is null ? null : $"{GateEvaluator.Label(g.Key)} · {g.Observed}";
+        }
+    }
 
     protected override async Task OnParametersSetAsync()
     {
