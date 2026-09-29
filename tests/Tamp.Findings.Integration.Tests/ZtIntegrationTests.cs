@@ -82,6 +82,68 @@ public class ZtIntegrationTests
         Assert.Null(await q.ForProjectAsync(project.Id));
     }
 
+    // TFND-199: the dashboard entry point resolves the project's repo-backed ZtSystem and scores it.
+    [SkippableFact]
+    public async Task ForProject_resolves_the_linked_system_and_scores_it()
+    {
+        Skip.IfNot(_fx.Available);
+        var s = Guid.NewGuid().ToString("N")[..8];
+        Guid projectId; var sysName = $"sys-{s}";
+
+        using (var scope = _fx.Scope())
+        {
+            var db = _fx.Db(scope);
+            var modelId = await db.MaturityModelCatalogs.Where(m => m.IsCurrent).Select(m => m.Id).FirstAsync();
+            var client = new Client { Name = $"fpc-{s}", MaturityModelId = modelId };
+            db.Clients.Add(client);
+            var project = new Project { ClientId = client.Id, Name = $"fpp-{s}" };
+            db.Projects.Add(project);
+            var comp = new Component { ProjectId = project.Id, Name = "svc" };
+            db.Components.Add(comp);
+            var cv = new ComponentVersion { ComponentId = comp.Id, VersionString = "1.0.0", CommitSha = $"fp{s}" };
+            db.ComponentVersions.Add(cv);
+            db.ConformanceFindings.Add(new ConformanceFinding
+            {
+                ComponentVersionId = cv.Id, AdrRef = "ADR 1", RuleId = "auth", Claim = "auth",
+                Verdict = ConformanceVerdict.Pass, Method = ConformanceMethod.Deterministic,
+                ZtPillar = "Identity", ZtFunction = "Authentication", ZtStage = 3,
+            });
+            db.ZtSystems.Add(new ZtSystem { ClientId = client.Id, ProjectId = project.Id, Name = sysName, SystemKind = "app" });
+            await db.SaveChangesAsync();
+            projectId = project.Id;
+        }
+
+        using (var scope = _fx.Scope())
+        {
+            var q = scope.ServiceProvider.GetRequiredService<ZtScoreQuery>();
+            var cov = await q.ForProjectAsync(projectId);
+            Assert.NotNull(cov);
+            Assert.Equal(sysName, cov!.SystemName);
+            Assert.Equal("app", cov.SystemKind);
+            Assert.NotNull(cov.Coverage.SystemScore);
+            var auth = cov.Coverage.Functions.Single(f => f.Pillar == "Identity" && f.Function == "Authentication");
+            Assert.Equal(ZtDisposition.OwnedVerified, auth.Disposition);
+        }
+    }
+
+    [SkippableFact]
+    public async Task ForProject_is_null_when_no_system_is_linked()
+    {
+        Skip.IfNot(_fx.Available);
+        var s = Guid.NewGuid().ToString("N")[..8];
+        using var scope = _fx.Scope();
+        var db = _fx.Db(scope);
+        var modelId = await db.MaturityModelCatalogs.Where(m => m.IsCurrent).Select(m => m.Id).FirstAsync();
+        var client = new Client { Name = $"nsc-{s}", MaturityModelId = modelId };
+        db.Clients.Add(client);
+        var project = new Project { ClientId = client.Id, Name = $"nsp-{s}" };  // no ZtSystem
+        db.Projects.Add(project);
+        await db.SaveChangesAsync();
+
+        var q = scope.ServiceProvider.GetRequiredService<ZtScoreQuery>();
+        Assert.Null(await q.ForProjectAsync(project.Id));
+    }
+
     [SkippableFact]
     public async Task Score_derives_owned_evidence_honours_na_and_caps_inheritance()
     {
