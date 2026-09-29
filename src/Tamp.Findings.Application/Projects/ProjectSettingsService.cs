@@ -127,6 +127,50 @@ public sealed class ProjectSettingsService
         return Result<bool>.Ok(true);
     }
 
+    // ---- Archetype (TFND-203) --------------------------------------------
+
+    public async Task<ProjectArchetype?> ArchetypeAsync(Guid projectId, CancellationToken ct = default) =>
+        await _db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId).Select(p => p.Archetype).SingleOrDefaultAsync(ct);
+
+    /// <summary>
+    /// Classify the project's archetype (Library / Container-Action / Service-App) — the additive
+    /// obligation layer for what this project IS. This is the trust boundary: the obligation is set
+    /// HERE, by a human with EditGates, and NEVER asserted by the ingesting caller. Null clears the
+    /// classification, and an unclassified project fails UPWARD to Service (the strictest posture),
+    /// so a project only ever gets a lighter set of obligations by a deliberate human act.
+    /// </summary>
+    public async Task<Result<bool>> SaveArchetypeAsync(
+        Principal actor, ScopeTarget scope, Guid projectId, ProjectArchetype? archetype,
+        CancellationToken ct = default)
+    {
+        var decision = _capabilities.Evaluate(actor, Capability.EditGates);
+        if (!decision.Allowed) return Result<bool>.Denied(decision.Reason!);
+
+        var project = await _db.Projects.SingleOrDefaultAsync(p => p.Id == projectId, ct);
+        if (project is null) return Result<bool>.Invalid("That project no longer exists.");
+        if (project.Archetype == archetype) return Result<bool>.Ok(false);
+
+        var before = project.Archetype;
+        project.Archetype = archetype;
+
+        // Risk class: it changes which gates a build must clear.
+        _audit.Record(actor, "project.archetype_changed", AuditClass.Risk, scope,
+            subjectId: project.Id, subjectKind: nameof(Project),
+            detail: $"{ArchetypeName(before)} → {ArchetypeName(archetype)}");
+
+        await _db.SaveChangesAsync(ct);
+        return Result<bool>.Ok(true);
+    }
+
+    public static string ArchetypeName(ProjectArchetype? a) => a switch
+    {
+        ProjectArchetype.Library => "library",
+        ProjectArchetype.ContainerAction => "container / action",
+        ProjectArchetype.ServiceApp => "service / app",
+        _ => "unclassified (fail-upward → service)",
+    };
+
     // ---- Disclosure policy ------------------------------------------------
 
     /// <summary>
