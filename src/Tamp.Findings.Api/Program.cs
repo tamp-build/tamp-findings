@@ -374,6 +374,11 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
             (Tpl.FedRampModerateName, Tpl.BuildFedRampModerate, federalPolicyId),
             (Tpl.FedRampHighName,     Tpl.BuildFedRampHigh,    federalPolicyId),
             (Tpl.GovRampCoreName,     Tpl.BuildGovRampCore,    federalPolicyId),
+            // The tamp-ecosystem module archetypes (non-federal): scored by the
+            // default policy like Tamp Standard, but enforcing per their layer.
+            (Tpl.TampModuleLibraryName,   Tpl.BuildTampModuleLibrary,   defaultPolicyId),
+            (Tpl.TampModuleContainerName, Tpl.BuildTampModuleContainer, defaultPolicyId),
+            (Tpl.TampModuleServiceName,   Tpl.BuildTampModuleService,   defaultPolicyId),
         };
 
         var changed = false;
