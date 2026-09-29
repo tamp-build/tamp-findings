@@ -93,7 +93,7 @@ else
                         {
                             <text>@TestsPassed.ToString("N0")<span class="statcard__den"> / @TestsTotal.ToString("N0")</span></text>
                         }
-                        else { <text>—</text> }
+                        else { <text>✕ No data</text> }
                     </div>
                 </div>
                 <div class="statcard statcard--wide" style="--band: @ShipColour">
@@ -161,21 +161,23 @@ else
         _ => "var(--color-band-red)",
     };
 
-    private const string Neutral = "var(--color-neutral-500)";
     private static string Colour(string slug) => $"var(--color-band-{slug})";
 
-    // Coverage: banded off the project's own target/floor (higher is better).
+    // Coverage: banded off the project's own target/floor (higher is better). No report ingested
+    // is a FAILURE, not a benign blank — a missing measurement is the "unscanned gate passes"
+    // defect this product exists to kill, so it reads red, not grey.
     private string CoverageColour => _data!.Inputs.CoverageMeasured
         ? Colour(BandScale.Coverage(_data.CoverageTarget, _data.CoverageFloor).SlugFor(_data.Inputs.SequenceCoveragePercent))
-        : Neutral;
+        : Colour("red");
     private string CoverageValue => _data!.Inputs.CoverageMeasured
         ? _data.Inputs.SequenceCoveragePercent.ToString("F1") + "%"
-        : "—";
+        : "✕ No data";
 
-    // Tests: green only when every test passes; otherwise banded on the pass rate.
+    // Tests: green only when every test passes; banded on the pass rate when some fail; and RED
+    // when nothing was ingested — no test evidence is a failing state, never a pass.
     private int TestsTotal => _data!.Inputs.TestsTotal;
     private int TestsPassed => _data!.Inputs.TestsTotal - _data.Inputs.TestsFailed;
-    private string TestsColour => !_data!.Inputs.TestsMeasured ? Neutral
+    private string TestsColour => !_data!.Inputs.TestsMeasured ? Colour("red")
         : _data.Inputs.TestsFailed == 0 ? Colour("green")
         : Colour(BandScale.Percent(100, 90, 75).SlugFor(TestsTotal > 0 ? 100.0 * TestsPassed / TestsTotal : 0));
 
