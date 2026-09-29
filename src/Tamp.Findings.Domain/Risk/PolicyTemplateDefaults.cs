@@ -23,6 +23,15 @@ public static class PolicyTemplateDefaults
     public const string FedRampHighName = "FedRAMP High";
     public const string GovRampCoreName = "GovRAMP Core";
 
+    // The tamp-ecosystem module archetypes (not federal systems, so no control
+    // baseline / no-unmapped meta-gate / ZT). One per ComponentProfile: a code
+    // MODULE is a component, not an authorized system, so it carries a supply-chain
+    // posture, not a compliance baseline. Enforcing — the ecosystem holds its own
+    // supply chain to the standard the product sells.
+    public const string TampModuleLibraryName = "Tamp Module — Library";
+    public const string TampModuleContainerName = "Tamp Module — Container/Action";
+    public const string TampModuleServiceName = "Tamp Module — Service";
+
     // Scanner-class identifiers (match the v3 handoff SCANNER_CLASSES / the six).
     public static class ScannerClasses
     {
@@ -208,4 +217,66 @@ public static class PolicyTemplateDefaults
             [GateKeys.CoverageFloor] = On(70),
         },
     });
+
+    // The shared non-federal supply-chain floor for a tamp-ecosystem CODE MODULE.
+    // Enforcing; deny strong-copyleft / SSPL; block on the things that mean "don't
+    // ship" — a known-exploited or critical CVE, a critical SAST finding, a live
+    // (verified) secret, a stale SBOM. Coverage is collected and scored but NOT a
+    // release blocker: the satellites range from thin scanner-wrappers to real
+    // libraries and a single floor would either be meaningless or block half of
+    // them (a project can add a coverage floor by hardening). No control
+    // assertions and no no-unmapped meta-gate — a module is a component, not an
+    // authorized system, so it carries no 800-53 baseline. The conditional gates
+    // (DAST / IaC / base-image) are capability-filtered by the evaluator (ADR
+    // 0009), so an archetype only needs to DECLARE what it requires and gate.
+    private static PolicyLayer ModuleBase() => new()
+    {
+        Mode = EnforcementMode.Enforcing,
+        DeniedLicenses = { "AGPL-*", "SSPL-1.0" },
+        PoamDeadlineDays = { ["Critical"] = 30, ["High"] = 90, ["Medium"] = 180, ["Low"] = 365 },
+        RequiredScanners =
+        {
+            ScannerClasses.StaticAnalysis, ScannerClasses.Secrets,
+            ScannerClasses.Sbom, ScannerClasses.Coverage,
+        },
+        Gates =
+        {
+            [GateKeys.KevExposure] = On(0),
+            [GateKeys.CriticalCves] = On(0),
+            [GateKeys.CriticalSast] = On(0),
+            [GateKeys.VerifiedSecrets] = On(0),
+            [GateKeys.SbomAge] = On(14),
+        },
+    };
+
+    /// <summary>Tamp-ecosystem LIBRARY / tool / task — the CodePackage majority
+    /// (Tamp.Core, the ~60 satellites, the CLI, tamp-conformance). Source + deps:
+    /// the shared module floor, nothing web- or image-specific.</summary>
+    public static PolicyLayer BuildTampModuleLibrary() => ModuleBase();
+
+    /// <summary>Tamp-ecosystem CONTAINER / GitHub Action — shipped as an image but
+    /// not web-facing (jobs, Docker actions). The library floor + base-image
+    /// freshness (which only bites a component whose profile is a container).</summary>
+    public static PolicyLayer BuildTampModuleContainer()
+    {
+        var layer = ModuleBase();
+        layer.Gates[GateKeys.BaseImageAge] = On(90);
+        return layer;
+    }
+
+    /// <summary>Tamp-ecosystem SERVICE — hosted, web-facing (tamp.findings itself).
+    /// The library floor + DAST and IaC required AND gated, plus base-image
+    /// freshness. The web/iac gates are no-ops on a non-web component, so this is
+    /// safe to apply broadly, but the required-scanner floor is what makes a
+    /// service actually accountable for running a dynamic scan.</summary>
+    public static PolicyLayer BuildTampModuleService()
+    {
+        var layer = ModuleBase();
+        layer.RequiredScanners.Add(ScannerClasses.DynamicScan);
+        layer.RequiredScanners.Add(ScannerClasses.Iac);
+        layer.Gates[GateKeys.CriticalDast] = On(0);
+        layer.Gates[GateKeys.CriticalIac] = On(0);
+        layer.Gates[GateKeys.BaseImageAge] = On(90);
+        return layer;
+    }
 }
