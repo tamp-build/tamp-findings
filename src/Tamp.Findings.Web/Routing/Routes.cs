@@ -120,6 +120,10 @@ public static class Routes
     /// a SystemAdmin panel — the catalog and statement panel are substantial.</summary>
     public static string Frameworks() => "/system/frameworks";
 
+    /// <summary>System → EO mandate registry (TFND-200 / ADR 0011). The point-in-time registry
+    /// of EO/memo directives: what was mandated, by what authority, and in force as of any date.</summary>
+    public static string EoRegistry() => "/system/eo-registry";
+
     /// <summary>Manage → Policy templates (ADR 0007). The list, or one template's editor.</summary>
     public static string PolicyTemplates(Guid? id = null) =>
         id is { } g ? $"/manage/policy-templates/{g}" : "/manage/policy-templates";

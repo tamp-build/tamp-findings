@@ -1,0 +1,164 @@
+@* EO mandate registry (TFND-200 / ADR 0011). The point-in-time registry: what was mandated,
+   by what authority, and in force AS OF any date. A compliance claim is only meaningful against
+   the directive set in force *then* — so the date control is the point of the page. Status math
+   is derived (DirectiveStatusResolver); this is read-only. Instance-level reference data. *@
+@page "/system/eo-registry"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using Tamp.Findings.Application.Eo
+@using Tamp.Findings.Domain.Entities
+@inject EoRegistryQuery Eo
+
+<PageTitle>EO mandate registry — tamp.findings</PageTitle>
+
+<div class="stack">
+    <div>
+        <div class="kicker">executive mandates · point-in-time (ADR 0011)</div>
+        <h1>EO mandate registry</h1>
+    </div>
+
+    @if (_error is not null)
+    {
+        <Card><div class="row"><Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" /><span>Could not load the registry. @_error</span></div></Card>
+    }
+    else
+    {
+        <Card>
+            <div class="row row--between" style="flex-wrap: wrap; gap: var(--space-3)">
+                <div class="row" style="gap: var(--space-2); align-items: flex-end">
+                    <TextField Label="As of" Type="date" @bind-Value="_asOfInput" Mono Help="What was in force on this date." />
+                    <Button Variant="Button.ButtonVariant.Secondary" Disabled="_busy" OnClick="ApplyAsOf">Apply</Button>
+                    @if (!_isToday)
+                    {
+                        <Button Variant="Button.ButtonVariant.Text" Disabled="_busy" OnClick="ResetToToday">Today</Button>
+                    }
+                </div>
+                <div class="row" style="gap: var(--space-2)">
+                    @foreach (var f in _filters)
+                    {
+                        <button class="filterchip @(_filter == f ? "filterchip--on" : "")" @onclick="@(() => _filter = f)">@f</button>
+                    }
+                </div>
+            </div>
+            <div class="row" style="gap: var(--space-4); margin-top: var(--space-2)">
+                <Stat Label="Directives" Value="@_all.Count" />
+                <Stat Label="In force" Value="@_all.Count(d => d.Status == DirectiveStatus.Active)" Tone="var(--color-pass)" />
+                <Stat Label="Rescinded" Value="@_all.Count(d => d.Status == DirectiveStatus.Rescinded)" Tone="var(--color-neutral-500)" />
+                <Stat Label="Pending" Value="@_all.Count(d => d.ByWhenKind == ByWhenKind.Pending)" Tone="@(_all.Any(d => d.ByWhenKind == ByWhenKind.Pending) ? "var(--color-medium)" : null)" />
+            </div>
+            <p class="field__help">Showing the registry as of <strong>@_asOf.ToString("yyyy-MM-dd")</strong>. A directive that didn't exist yet on that date is omitted; a rescinded one is shown greyed so history stays legible.</p>
+        </Card>
+
+        @if (Filtered().Count == 0)
+        {
+            <NothingFound Message="@($"No {_filter.ToLowerInvariant()} directives as of {_asOf:yyyy-MM-dd}.")" />
+        }
+        else
+        {
+            @foreach (var group in Filtered().GroupBy(d => (d.InstrumentIdentifier, d.InstrumentTitle)).OrderBy(g => g.Key.InstrumentIdentifier, StringComparer.Ordinal))
+            {
+                <Card>
+                    <h2 class="h3">@group.Key.InstrumentIdentifier <span class="muted">· @group.Key.InstrumentTitle</span></h2>
+                    <div class="ruletable">
+                        @foreach (var d in group.OrderBy(x => x.Ref, StringComparer.Ordinal))
+                        {
+                            <div class="rulerow @(d.Status == DirectiveStatus.Active ? null : "rulerow--muted")">
+                                <div class="rulerow__main">
+                                    <div class="row" style="gap: var(--space-2)">
+                                        <Chip Label="@StatusLabel(d.Status)" Tone="@StatusTone(d.Status)" Style="@StatusStyle(d.Status)" Glyph="@StatusGlyph(d.Status)" />
+                                        <code class="mono">@d.Ref</code>
+                                        <Chip Label="@TypeLabel(d.Type)" Tone="var(--color-neutral-500)" Style="Chip.ChipStyle.Outlined" />
+                                        <Chip Label="@ApplicabilityLabel(d.Applicability)" Tone="var(--color-neutral-600)" Style="Chip.ChipStyle.Outlined" />
+                                        <span class="mono muted">@Deadline(d)</span>
+                                        @if (d.CrosswalkRef is { Length: > 0 })
+                                        {
+                                            <Chip Label="@($"{d.CrosswalkTarget} · {d.CrosswalkRef}")" Tone="var(--color-accent)" Style="Chip.ChipStyle.Outlined" Glyph="⤳" />
+                                        }
+                                    </div>
+                                    <div class="rulerow__intent"><strong>@d.Who</strong> — @d.MustDo</div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </Card>
+            }
+        }
+    }
+</div>
+
+@code {
+    private string? _error;
+    private bool _busy;
+    private IReadOnlyList<EoDirectiveView> _all = [];
+    private DateTimeOffset _asOf = DateTimeOffset.UtcNow;
+    private string _asOfInput = DateTimeOffset.UtcNow.ToString("yyyy-MM-dd");
+    private static readonly string[] _filters = ["All", "In force", "Pending"];
+    private string _filter = "All";
+
+    private bool _isToday => _asOf.UtcDateTime.Date == DateTimeOffset.UtcNow.UtcDateTime.Date;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _busy = true; _error = null;
+        try
+        {
+            _all = await Eo.AsOfAsync(_asOf);
+        }
+        catch (Exception ex) { _error = ex.GetType().Name; }
+        finally { _busy = false; }
+    }
+
+    private async Task ApplyAsOf()
+    {
+        // Interpret the picked date as end-of-day UTC — "what was in force on that day".
+        if (DateTime.TryParse(_asOfInput, out var d))
+            _asOf = new DateTimeOffset(d.Date, TimeSpan.Zero).AddDays(1).AddSeconds(-1);
+        await LoadAsync();
+    }
+
+    private async Task ResetToToday()
+    {
+        _asOf = DateTimeOffset.UtcNow;
+        _asOfInput = _asOf.ToString("yyyy-MM-dd");
+        await LoadAsync();
+    }
+
+    private List<EoDirectiveView> Filtered() => _filter switch
+    {
+        "In force" => _all.Where(d => d.Status == DirectiveStatus.Active).ToList(),
+        "Pending" => _all.Where(d => d.ByWhenKind == ByWhenKind.Pending).ToList(),
+        _ => _all.ToList(),
+    };
+
+    private string Deadline(EoDirectiveView d) =>
+        d.ByWhenKind == ByWhenKind.Pending ? "deadline pending (memo not issued)"
+        : d.ResolvedDate is { } dt ? $"by {dt:yyyy-MM-dd}"
+        : "no dated deadline";
+
+    private static string StatusLabel(DirectiveStatus s) => s switch
+    {
+        DirectiveStatus.Active => "in force", DirectiveStatus.Rescinded => "rescinded", _ => "superseded",
+    };
+    private static string StatusTone(DirectiveStatus s) => s switch
+    {
+        DirectiveStatus.Active => "var(--color-pass)", _ => "var(--color-neutral-500)",
+    };
+    private static Chip.ChipStyle StatusStyle(DirectiveStatus s) =>
+        s == DirectiveStatus.Active ? Chip.ChipStyle.Solid : Chip.ChipStyle.Dashed;
+    private static string StatusGlyph(DirectiveStatus s) => s switch
+    {
+        DirectiveStatus.Active => "●", DirectiveStatus.Rescinded => "○", _ => "⊘",
+    };
+
+    private static string TypeLabel(DirectiveType t) =>
+        t == DirectiveType.SelfExecutingDated ? "self-executing" : "delegation";
+
+    private static string ApplicabilityLabel(DirectiveApplicability a) => a switch
+    {
+        DirectiveApplicability.AllSystems => "all systems",
+        DirectiveApplicability.NationalSecuritySystems => "NSS",
+        _ => "where applicable",
+    };
+}
