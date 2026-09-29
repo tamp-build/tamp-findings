@@ -72,6 +72,11 @@ public static class Routes
 
     public static string Vex(string client, string project) => $"/c/{E(client)}/p/{E(project)}/vex";
 
+    /// <summary>Conformance rule review (TFND-194): promote ADR-conformance rules
+    /// Draft→Reviewed — the human-review gate that lets a verdict block a build.</summary>
+    public static string ConformanceRules(string client, string project) =>
+        $"/c/{E(client)}/p/{E(project)}/conformance-rules";
+
     /// <summary>
     /// Deep link to one statement, or to writing the one that is missing.
     ///

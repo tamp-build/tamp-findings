@@ -1,0 +1,209 @@
+@* Conformance rule review (TFND-194 / ADR 0006, ADR 0012 §4). The human-review gate:
+   an ADR-conformance rule blocks a build (TFND-191) or raises a mandate POA&M (TFND-192)
+   ONLY once a human has reviewed it (Draft → Reviewed). This is where that review happens —
+   without it the rules sit advisory forever. Gated on EditGates (the conformance contract,
+   same class as the release gates). *@
+@page "/c/{Client}/p/{Project}/conformance-rules"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using Tamp.Findings.Application.Compliance
+@using Tamp.Findings.Domain.Entities
+@inject RouteScope Scope
+@inject ProjectHubQuery Hub
+@inject ConformanceRulesQuery Rules
+@inject ConformanceRulesService RulesSvc
+@inject CurrentUser Me
+
+<PageTitle>Conformance rules — @Project</PageTitle>
+
+@if (_error is not null)
+{
+    <div class="stack">
+        <h1>Conformance rules</h1>
+        <Card>
+            <div class="row">
+                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <span>Could not load the conformance rules. @_error</span>
+            </div>
+        </Card>
+    </div>
+}
+else if (_project is null)
+{
+    <div class="stack">
+        <h1>Project not found</h1>
+        <Card><p>No project matches <code class="mono">@Client / @Project</code>.</p></Card>
+    </div>
+}
+else
+{
+    <div class="stack">
+        <div class="row row--between">
+            <div>
+                <div class="kicker">ADR-conformance · rule review (ADR 0006 / 0012)</div>
+                <h1>@_project.ProjectName</h1>
+            </div>
+            <Button Variant="Button.ButtonVariant.Primary"
+                    Disabled="@(!_can.Allowed || _draftTotal == 0 || _busy)"
+                    DisabledReason="@ReviewAllReason()"
+                    OnClick="@(() => Promote(null))">Review all @_draftTotal draft</Button>
+        </div>
+
+        <Card>
+            <div class="row" style="gap: var(--space-4)">
+                <Stat Label="Rules" Value="@_ruleset.Rules.Count" />
+                <Stat Label="Reviewed" Value="@_reviewedTotal" Tone="var(--color-pass)" />
+                <Stat Label="Draft" Value="@_draftTotal" Tone="@(_draftTotal > 0 ? "var(--color-medium)" : null)" />
+            </div>
+            <p class="field__help">
+                A rule is <strong>advisory</strong> until reviewed. Only a <strong>Reviewed</strong> rule can block a
+                build (in enforcing) or raise a mandate POA&amp;M — Draft rules never do. Review is the human check
+                that a model-extracted rule faithfully reflects the ADR before it can gate.
+            </p>
+        </Card>
+
+        @if (_actionError is not null)
+        {
+            <Card Surface><div class="row"><Chip Label="Action failed" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" /><span>@_actionError</span></div></Card>
+        }
+
+        @if (_ruleset.Rules.Count == 0)
+        {
+            <NothingFound Message="No conformance rules have been pushed for this project yet." />
+        }
+        else
+        {
+            @foreach (var group in _ruleset.Rules.GroupBy(r => r.AdrRef).OrderBy(g => g.Key, StringComparer.Ordinal))
+            {
+                var draftInAdr = group.Count(r => r.ReviewStatus == "Draft");
+                <Card>
+                    <div class="row row--between">
+                        <h2 class="h3">@group.Key <span class="muted">· @group.Count() rule(s)</span></h2>
+                        <Button Variant="Button.ButtonVariant.Secondary"
+                                Disabled="@(!_can.Allowed || draftInAdr == 0 || _busy)"
+                                DisabledReason="@(_can.Allowed ? null : _can.Reason)"
+                                OnClick="@(() => Promote(group.Key))">Review @draftInAdr draft</Button>
+                    </div>
+                    <div class="ruletable">
+                        @foreach (var r in group.OrderBy(x => x.RuleId, StringComparer.Ordinal))
+                        {
+                            var reviewed = r.ReviewStatus == "Reviewed";
+                            <div class="rulerow">
+                                <div class="rulerow__main">
+                                    <div class="row" style="gap: var(--space-2)">
+                                        <code class="mono">@r.RuleId</code>
+                                        <Chip Label="@r.Method" Tone="var(--color-neutral-500)" Style="Chip.ChipStyle.Outlined" />
+                                        <Chip Label="@r.ReviewStatus"
+                                              Tone="@(reviewed ? "var(--color-pass)" : "var(--color-medium)")"
+                                              Style="@(reviewed ? Chip.ChipStyle.Solid : Chip.ChipStyle.Dashed)"
+                                              Glyph="@(reviewed ? "✓" : "○")" />
+                                        @if (r.ZtPillar is { Length: > 0 })
+                                        {
+                                            <Chip Label="@($"{r.ZtPillar}/{r.ZtFunction} · stage {r.ZtStage}")" Tone="var(--color-accent)" Style="Chip.ChipStyle.Outlined" />
+                                        }
+                                        @if (r.MandateId is { Length: > 0 })
+                                        {
+                                            <Chip Label="@($"mandate: {r.MandateId}")" Tone="var(--color-accent)" Style="Chip.ChipStyle.Outlined" />
+                                        }
+                                        @foreach (var cr in r.ControlRefs)
+                                        {
+                                            <Chip Label="@cr" Tone="var(--color-neutral-600)" Style="Chip.ChipStyle.Outlined" />
+                                        }
+                                    </div>
+                                    @if (r.Intent is { Length: > 0 })
+                                    {
+                                        <div class="rulerow__intent muted">@r.Intent</div>
+                                    }
+                                </div>
+                                <div class="rulerow__action">
+                                    @if (reviewed)
+                                    {
+                                        <Button Variant="Button.ButtonVariant.Text"
+                                                Disabled="@(!_can.Allowed || _busy)" DisabledReason="@(_can.Allowed ? null : _can.Reason)"
+                                                OnClick="@(() => SetStatus(r.AdrRef, r.RuleId, ReviewStatus.Draft))">Revert to draft</Button>
+                                    }
+                                    else
+                                    {
+                                        <Button Variant="Button.ButtonVariant.Primary"
+                                                Disabled="@(!_can.Allowed || _busy)" DisabledReason="@(_can.Allowed ? null : _can.Reason)"
+                                                OnClick="@(() => SetStatus(r.AdrRef, r.RuleId, ReviewStatus.Reviewed))">Mark reviewed</Button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </Card>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string Client { get; set; } = "";
+    [Parameter] public string Project { get; set; } = "";
+
+    private string? _error;
+    private string? _actionError;
+    private bool _busy;
+    private Application.Projects.ProjectRef? _project;
+    private AdrRuleset _ruleset = new("1.0", Guid.Empty, [], DateTimeOffset.UtcNow);
+    private AuthorizationDecision _can = AuthorizationDecision.Deny("loading");
+    private int _reviewedTotal;
+    private int _draftTotal;
+
+    private ScopeTarget Here =>
+        _project is null ? ScopeTarget.Instance : ScopeTarget.Project(_project.ClientId, _project.ProjectId);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Scope.SetProject(Client, Project);
+        _error = null;
+        try
+        {
+            _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
+            if (_project is null) return;
+
+            _ruleset = await Rules.ForProjectAsync(_project.ProjectId);
+            _reviewedTotal = _ruleset.Rules.Count(r => r.ReviewStatus == "Reviewed");
+            _draftTotal = _ruleset.Rules.Count(r => r.ReviewStatus == "Draft");
+            _can = await Me.CanAsync(Capability.EditGates, Here);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.GetType().Name;
+        }
+    }
+
+    private string? ReviewAllReason() =>
+        !_can.Allowed ? _can.Reason : _draftTotal == 0 ? "No draft rules to review." : null;
+
+    private async Task SetStatus(string adrRef, string ruleId, ReviewStatus status)
+    {
+        if (_project is null || _busy) return;
+        _busy = true; _actionError = null;
+        try
+        {
+            var actor = await Me.AtAsync(Here);
+            if (actor is null) { _actionError = "You must be signed in to review rules."; return; }
+            var result = await RulesSvc.SetReviewStatusAsync(actor, Here, _project.ProjectId, adrRef, ruleId, status);
+            if (!result.Success) { _actionError = result.Error; return; }
+            await OnParametersSetAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task Promote(string? adrRef)
+    {
+        if (_project is null || _busy) return;
+        _busy = true; _actionError = null;
+        try
+        {
+            var actor = await Me.AtAsync(Here);
+            if (actor is null) { _actionError = "You must be signed in to review rules."; return; }
+            var result = await RulesSvc.PromoteDraftAsync(actor, Here, _project.ProjectId, adrRef);
+            if (!result.Success) { _actionError = result.Error; return; }
+            await OnParametersSetAsync();
+        }
+        finally { _busy = false; }
+    }
+}
