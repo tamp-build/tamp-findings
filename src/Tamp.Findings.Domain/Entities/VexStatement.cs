@@ -17,6 +17,9 @@ namespace Tamp.Findings.Domain.Entities;
 // questions years later.
 public sealed class VexStatement
 {
+    // Reserved pseudo-advisory: a NotAffected statement on it exempts the component from sbomStaleness.
+    public const string StalenessAdvisoryId = "STALENESS";
+
     public Guid Id { get; set; } = Guid.NewGuid();
 
     // Project scope. Statements never cross projects today. A future
@@ -95,4 +98,10 @@ public enum VexJustification
     VulnerableCodeNotInExecutePath = 3,
     VulnerableCodeCannotBeControlledByAdversary = 4,
     InlineMitigationsAlreadyExist = 5,
+    // SBOM-staleness exemptions (TFND-226): why an outdated component does not
+    // count against sbomStaleness. Only meaningful on a StalenessAdvisoryId statement.
+    BuildTimeOnly = 6,
+    DoesNotShip = 7,
+    FrozenContract = 8,
+    AcceptedRisk = 9,
 }

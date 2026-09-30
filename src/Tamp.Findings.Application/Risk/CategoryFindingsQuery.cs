@@ -421,19 +421,97 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
             .Where(c => snapIds.Contains(c.SbomSnapshotId)
                 && c.Vulnerabilities.Count == 0
                 && c.LatestVersion != null && c.LatestVersion != "" && c.LatestVersion != c.Version)
-            .Select(c => new { c.Name, c.Version, c.LatestVersion, c.LatestReleasedAt })
+            .Select(c => new { c.Name, c.Version, c.Purl, c.LatestVersion, c.LatestReleasedAt })
             .ToListAsync(ct);
 
+        var exemptions = await StalenessExemptions.LoadAsync(db, projectId, ct);
         var now = DateTimeOffset.UtcNow;
         return rows
-            .Select(c => new StaleComponent(
-                c.Name, c.Version, c.LatestVersion,
-                c.LatestReleasedAt is { } at ? (int)(now - at).TotalDays : null,
-                c.LatestReleasedAt is { } s && s < cutoff))
-            .OrderByDescending(c => c.Stale)
+            .Select(c =>
+            {
+                var ex = StalenessExemptions.Match(exemptions, c.Purl, c.Version);
+                return new StaleComponent(
+                    c.Name, c.Version, c.LatestVersion,
+                    c.LatestReleasedAt is { } at ? (int)(now - at).TotalDays : null,
+                    c.LatestReleasedAt is { } s && s < cutoff,
+                    c.Purl, ex?.VexId, ex?.Justification.ToString());
+            })
+            .OrderBy(c => c.ExemptVexId is not null)
+            .ThenByDescending(c => c.Stale)
             .ThenByDescending(c => c.DaysBehind ?? -1)
             .ThenBy(c => c.Name)
             .Take(100).ToArray();
+    }
+
+    private async Task<int> ExemptCountAsync(Guid projectId, IQueryable<SbomComponent> comps, CancellationToken ct)
+    {
+        var ex = await StalenessExemptions.LoadAsync(db, projectId, ct);
+        if (ex.Count == 0) return 0;
+        var outdated = await comps
+            .Where(c => c.Vulnerabilities.Count == 0 && c.LatestVersion != null && c.LatestVersion != "" && c.LatestVersion != c.Version)
+            .Select(c => new { c.Purl, c.Version }).ToListAsync(ct);
+        return outdated.Count(c => StalenessExemptions.Match(ex, c.Purl, c.Version) is not null);
+    }
+
+    /// <summary>TFND-226. Components that plausibly share the clicked component's fate: outdated
+    /// components reachable only through the same top-level dependencies (graph roots). If the roots
+    /// are build-time-only, everything hanging only off them is too. Flat SBOMs (no edges) degrade
+    /// to just the clicked component.</summary>
+    public async Task<IReadOnlyList<ClosureSuggestion>> StalenessClosureAsync(
+        Guid projectId, string? commitSha, string purl, CancellationToken ct = default)
+    {
+        var snapIds = await SnapshotIdsAsync(projectId, commitSha, ct);
+        if (snapIds.Length == 0) return [];
+
+        var comps = await db.SbomComponents.AsNoTracking()
+            .Where(c => snapIds.Contains(c.SbomSnapshotId))
+            .Select(c => new { c.Id, c.Name, c.Version, c.Purl, c.LatestVersion, VulnCount = c.Vulnerabilities.Count })
+            .ToListAsync(ct);
+        var edges = await db.SbomDependencies.AsNoTracking()
+            .Where(d => snapIds.Contains(d.SbomSnapshotId))
+            .Select(d => new { d.ParentComponentId, d.ChildComponentId })
+            .ToListAsync(ct);
+        var byId = comps.ToDictionary(c => c.Id);
+        var parents = edges.GroupBy(e => e.ChildComponentId).ToDictionary(g => g.Key, g => g.Select(e => e.ParentComponentId).ToArray());
+
+        // Top-level (root) ancestors of a component: walk parents up until none. A component with
+        // no parents is its own root.
+        HashSet<Guid> Roots(Guid id)
+        {
+            var roots = new HashSet<Guid>(); var seen = new HashSet<Guid>(); var stack = new Stack<Guid>();
+            stack.Push(id);
+            while (stack.Count > 0)
+            {
+                var cur = stack.Pop();
+                if (!seen.Add(cur)) continue;
+                if (parents.TryGetValue(cur, out var ps) && ps.Length > 0) foreach (var p in ps) stack.Push(p);
+                else roots.Add(cur);
+            }
+            return roots;
+        }
+
+        var bare = VexResolver.StripPurlVersion(purl);
+        var originIds = comps.Where(c => VexResolver.StripPurlVersion(c.Purl) == bare).Select(c => c.Id).ToArray();
+        if (originIds.Length == 0) return [];
+        var originRoots = new HashSet<Guid>();
+        foreach (var o in originIds) originRoots.UnionWith(Roots(o));
+
+        var exemptions = await StalenessExemptions.LoadAsync(db, projectId, ct);
+        var result = new Dictionary<string, ClosureSuggestion>();
+        foreach (var c in comps)
+        {
+            var key = VexResolver.StripPurlVersion(c.Purl);
+            if (result.ContainsKey(key)) continue;
+            var isOrigin = key == bare;
+            var roots = Roots(c.Id);
+            if (!isOrigin && !roots.IsSubsetOf(originRoots)) continue;
+            var outdated = c.VulnCount == 0 && !string.IsNullOrEmpty(c.LatestVersion) && c.LatestVersion != c.Version;
+            if (!isOrigin && !outdated) continue;
+            var via = string.Join(", ", roots.Select(r => byId[r].Name).OrderBy(n => n).Take(3));
+            result[key] = new ClosureSuggestion(c.Name, c.Version, c.Purl, isOrigin, outdated,
+                StalenessExemptions.Match(exemptions, c.Purl, c.Version) is not null, via);
+        }
+        return result.Values.OrderByDescending(r => r.Clicked).ThenBy(r => r.Name).ToArray();
     }
 
     /// <summary>Provenance + enrichment coverage for the SBOM behind `sbomStaleness`, so "fresh" is
@@ -450,7 +528,7 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
         var outdated = await comps.CountAsync(c => c.LatestVersion != null && c.LatestVersion != "" && c.LatestVersion != c.Version, ct);
         var vulnerable = await comps.CountAsync(c => c.Vulnerabilities.Count > 0, ct);
         var head = snaps.OrderByDescending(s => s.IngestedAt).First();
-        return new SbomSummary(head.ToolName, head.ToolVersion, head.SpecVersion, head.IngestedAt, total, checkedCount, outdated, vulnerable);
+        return new SbomSummary(head.ToolName, head.ToolVersion, head.SpecVersion, head.IngestedAt, total, checkedCount, outdated, vulnerable, await ExemptCountAsync(projectId, comps, ct));
     }
 
     /// <summary>Scan-run receipts for the `missingScanners` category — which scanners ran.</summary>
@@ -687,8 +765,14 @@ public sealed record LicenseOverview(
     IReadOnlyList<string> PolicyDeny, IReadOnlyList<string> PolicyAllow, bool DenyUnknown,
     int ResolvedApplied);
 
-public sealed record SbomSummary(string? ToolName, string? ToolVersion, string? SpecVersion, DateTimeOffset IngestedAt, int Components, int Checked, int Outdated, int Vulnerable);
-public sealed record StaleComponent(string Name, string Version, string? LatestVersion, int? DaysBehind, bool Stale);
+public sealed record SbomSummary(string? ToolName, string? ToolVersion, string? SpecVersion, DateTimeOffset IngestedAt, int Components, int Checked, int Outdated, int Vulnerable, int Exempt = 0);
+public sealed record StaleComponent(
+    string Name, string Version, string? LatestVersion, int? DaysBehind, bool Stale,
+    string Purl = "", Guid? ExemptVexId = null, string? ExemptReason = null);
+
+/// <summary>A component suggested for the same staleness VEX as the one the user clicked.
+/// <c>Clicked</c> is the origin; <c>Outdated</c> false means it is in the closure but not itself stale.</summary>
+public sealed record ClosureSuggestion(string Name, string Version, string Purl, bool Clicked, bool Outdated, bool AlreadyExempt, string Via);
 
 public sealed record ReceiptRow(
     ScannerKind Scanner, string Status, int FindingsCount, DateTimeOffset? CompletedAt, string? ToolName,

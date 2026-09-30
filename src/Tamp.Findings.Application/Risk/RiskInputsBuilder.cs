@@ -157,6 +157,9 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         // classifies by its real license and stops costing "unknown" points.
         var licenseMap = await licenses.MapAsync(ct);
 
+        var stalenessExempt = projectId is { } exPid
+            ? await StalenessExemptions.LoadAsync(db, exPid, ct)
+            : [];
         var compsCount = sbomComponents.Count;
         var staleCutoff = DateTimeOffset.UtcNow.AddDays(-180);
         int outdated = 0, stale = 0;
@@ -170,6 +173,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             var hasNewer = !string.IsNullOrEmpty(c.LatestVersion) && c.LatestVersion != c.Version;
             if (hasNewer)
             {
+                // TFND-226: a filed staleness VEX takes the component out of the score.
+                if (StalenessExemptions.Match(stalenessExempt, c.Purl, c.Version) is not null) continue;
                 outdated++;
                 // TODO(TFND-178): LatestReleasedAt is never populated by the SBOM
                 // ingest today, so this branch never fires and the scorer's `stale`
