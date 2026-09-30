@@ -699,7 +699,7 @@ else
                             else
                             {
                                 <Chip Label="Scanned · clean" Tone="var(--color-pass)" Glyph="✓" />
-                                <span>No findings in this category for this build — @ran.Count scan@(ran.Count == 1 ? "" : "s") ran (below).</span>
+                                <span>No findings in this category for this build — @ran.Count scan@(ran.Count == 1 ? "" : "s") ran (below). Scan totals count every severity; only the High/Critical ones score here (Medium/Low are under SAST low, quality-typed under Quality).</span>
                             }
                         }
                     </div>
@@ -754,7 +754,7 @@ else
                     <div class="card-body">
                         <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">Scan provenance</h2>
                         <table class="table table--rows">
-                            <thead><tr><th>Scanner</th><th>Tool</th><th>Status</th><th class="align-end">Findings</th><th>Completed</th></tr></thead>
+                            <thead><tr><th>Scanner</th><th>Tool</th><th>Status</th><th class="align-end">Total findings (all severities)</th><th>Completed</th></tr></thead>
                             <tbody>
                                 @foreach (var r in prov)
                                 {
