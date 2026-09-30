@@ -28,8 +28,9 @@ public class BadgeSvgTests
         Assert.EndsWith("</svg>", svg);
         Assert.Contains("tamp-core", svg);
         Assert.Contains("Tamp · FedRAMP High", svg);
-        Assert.Contains("83.5%", svg);
-        Assert.Contains("1,405 / 1,405", svg);
+        Assert.Contains("83.5", svg);          // value; the % is a smaller tspan suffix
+        Assert.Contains("1,405", svg);          // passed
+        Assert.Contains("/ 1,405", svg);        // total, smaller tspan
         Assert.Contains("✕ Blocked", svg);
         Assert.Contains(Band.Green.Hex(), svg);   // green cells
         Assert.Contains(Band.Red.Hex(), svg);      // blocked ship

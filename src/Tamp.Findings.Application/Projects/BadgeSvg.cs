@@ -23,11 +23,6 @@ public static class BadgeSvg
         string Hex(string slug) => BandExtensions.FromSlug(slug).Hex();
 
         var subtitle = string.IsNullOrWhiteSpace(s.Baseline) ? s.ClientName : $"{s.ClientName} · {s.Baseline}";
-        var riskValue = Num(s.RiskScore) + "%";
-        var coverageValue = s.CoverageMeasured ? Num(s.CoveragePercent) + "%" : "no data";
-        var testsValue = s.TestsMeasured
-            ? $"{s.TestsPassed.ToString("N0", CultureInfo.InvariantCulture)} / {s.TestsTotal.ToString("N0", CultureInfo.InvariantCulture)}"
-            : "no data";
         var shipValue = s.ClearToShip ? "✓ Clear" : "✕ Blocked";
         var shipHex = Hex(s.ShipBand);
         var (sub1, sub2) = ShipSub(s.ShipReasons);
@@ -45,10 +40,13 @@ public static class BadgeSvg
         sb.Append($"""<text x="24" y="36" fill="{Ink}" font-size="20" font-weight="700">{Esc(s.ProjectName)}</text>""");
         sb.Append($"""<text x="24" y="56" fill="{Muted}" font-size="12.5">{Esc(subtitle)}</text>""");
 
-        // stat cells
-        Cell(sb, 24, 118, Hex(s.RiskBand), $"Risk · {s.RiskBand}", riskValue, 26);
-        Cell(sb, 148, 118, Hex(s.CoverageBand), "Coverage", coverageValue, s.CoverageMeasured ? 26 : 20);
-        Cell(sb, 272, 132, Hex(s.TestsBand), "Tests passing", testsValue, s.TestsMeasured ? 22 : 20);
+        // stat cells — the suffix (%, or " / total") renders smaller so wide values stay in the box.
+        var inv = CultureInfo.InvariantCulture;
+        Cell(sb, 24, 118, Hex(s.RiskBand), $"Risk · {s.RiskBand}", Num(s.RiskScore), "%", 26);
+        if (s.CoverageMeasured) Cell(sb, 148, 118, Hex(s.CoverageBand), "Coverage", Num(s.CoveragePercent), "%", 26);
+        else Cell(sb, 148, 118, Hex(s.CoverageBand), "Coverage", "no data", "", 20);
+        if (s.TestsMeasured) Cell(sb, 272, 132, Hex(s.TestsBand), "Tests passing", s.TestsPassed.ToString("N0", inv), $" / {s.TestsTotal.ToString("N0", inv)}", 22);
+        else Cell(sb, 272, 132, Hex(s.TestsBand), "Tests passing", "no data", "", 20);
 
         // ship cell (its own layout: verdict in band colour + up to two wrapped reason lines)
         sb.Append($"""<g transform="translate(410,74)">""");
@@ -82,14 +80,17 @@ public static class BadgeSvg
         return sb.ToString();
     }
 
-    private static void Cell(StringBuilder sb, int x, int w, string hex, string label, string value, int valueSize)
+    private static void Cell(StringBuilder sb, int x, int w, string hex, string label, string value, string suffix, int valueSize)
     {
+        var v = valueSize.ToString(CultureInfo.InvariantCulture);
+        var suffixSize = Math.Round(valueSize * 0.55).ToString(CultureInfo.InvariantCulture);
         sb.Append($"""<g transform="translate({x},74)">""");
         sb.Append($"""<rect width="{w}" height="82" rx="8" fill="{hex}" fill-opacity="0.10"/>""");
         sb.Append($"""<rect width="{w}" height="3" rx="1.5" fill="{hex}"/>""");
         sb.Append($"""<text x="12" y="26" fill="{Muted}" font-size="11" letter-spacing="0.3">{Esc(label)}</text>""");
-        sb.Append($"""<text x="12" y="56" fill="{Ink}" font-size="{valueSize.ToString(CultureInfo.InvariantCulture)}" font-weight="700">{Esc(value)}</text>""");
-        sb.Append("</g>");
+        sb.Append($"""<text x="12" y="56" fill="{Ink}" font-size="{v}" font-weight="700">{Esc(value)}""");
+        if (suffix.Length > 0) sb.Append($"""<tspan font-size="{suffixSize}" fill="#b7c2d4">{Esc(suffix)}</tspan>""");
+        sb.Append("</text></g>");
     }
 
     private static string Num(double v) => v.ToString("0.#", CultureInfo.InvariantCulture);
