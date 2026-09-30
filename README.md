@@ -14,7 +14,7 @@ It ingests SARIF, SBOMs, coverage, and test results from any CI pipeline, scores
 > Don't build anything load-bearing on the current shapes yet. We'll move to
 > **Beta** once the entity model and project structure are solidified.
 
-![tamp.findings dashboard — Risk Rings, Code Quality, SBOM health, Licenses, Secrets, IaC, Test Coverage](docs/dashboard-overview.png)
+![tamp.findings project hub — the status strip (risk score, coverage, tests, ship gate), the score trend and per-category breakdown, and the ship-gate rail with a Pass/Fail/N-A verdict and observed value for every gate](docs/dashboard-overview.png)
 
 > Tracked internally in YouTrack project **TFND** — epic **TFND-1**, federal-readiness epic **TFND-24**. GitHub Issues is disabled on this repo (the internal tracker is canonical).
 >
