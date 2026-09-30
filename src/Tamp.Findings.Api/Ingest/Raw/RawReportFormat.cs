@@ -31,7 +31,8 @@ public sealed record ParsedCoverage(
     int TotalSequences,
     int CoveredBranches,
     int TotalBranches,
-    IReadOnlyList<CoverageModuleDto> Modules);
+    IReadOnlyList<CoverageModuleDto> Modules,
+    IReadOnlyList<CoverageSourceFileDto>? SourceFiles = null);
 
 public static class RawReportFormat
 {

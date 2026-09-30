@@ -163,7 +163,19 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
             var mcs = nss.Sum(x => x.CoveredSeq); var mts = nss.Sum(x => x.TotalSeq);
             var mcb = nss.Sum(x => x.CoveredBranch); var mtb = nss.Sum(x => x.TotalBranch);
             return new CoverageModuleRow(mg.Key, Pct(mcs, mts), mcs, mts, Pct(mcb, mtb), mcb, mtb, nss);
-        }).OrderBy(m => m.SeqPercent).ThenByDescending(m => m.TotalSeq).ToList();
+        }).ToList();
+
+        // Reports ingested before per-class persistence carry module rows only; show those as assemblies
+        // with no namespace/file detail rather than hiding the breakdown.
+        var seen = modules.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var moduleOnly = await db.CoverageModules.AsNoTracking()
+            .Where(m => reportIds.Contains(m.CoverageReportId))
+            .Select(m => new { m.Name, m.CoveredSequences, m.TotalSequences, m.SequenceCoverage, m.BranchCoverage })
+            .ToListAsync(ct);
+        foreach (var m in moduleOnly.Where(m => !seen.Contains(m.Name)))
+            modules.Add(new CoverageModuleRow(m.Name, m.TotalSequences == 0 ? m.SequenceCoverage : Pct(m.CoveredSequences, m.TotalSequences),
+                m.CoveredSequences, m.TotalSequences, m.BranchCoverage, 0, 0, []));
+        modules = modules.OrderBy(m => m.SeqPercent).ThenByDescending(m => m.TotalSeq).ToList();
 
         var cs = reports.Sum(r => r.CoveredSequences); var ts = reports.Sum(r => r.TotalSequences);
         var cb = reports.Sum(r => r.CoveredBranches); var tb = reports.Sum(r => r.TotalBranches);

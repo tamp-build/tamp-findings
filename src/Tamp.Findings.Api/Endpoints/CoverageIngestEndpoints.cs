@@ -192,7 +192,7 @@ public static class CoverageIngestEndpoints
             SequenceCoverage: parsed.SequenceCoverage, BranchCoverage: parsed.BranchCoverage,
             CoveredSequences: parsed.CoveredSequences, TotalSequences: parsed.TotalSequences,
             CoveredBranches: parsed.CoveredBranches, TotalBranches: parsed.TotalBranches,
-            Modules: parsed.Modules, SourceFiles: null);
+            Modules: parsed.Modules, SourceFiles: parsed.SourceFiles);
 
         var format = fmt == RawCoverageFormat.Cobertura ? "cobertura" : "opencover";
         return await IngestCoreAsync(req, ctx, db, audit, snapshots, loaded.Raw, format, filename, ct);
