@@ -93,11 +93,23 @@ public static class ArchetypeLayers
             },
             new ControlAssertion
             {
+                Kind = ControlDispositionKind.Inherited,
+                InheritedFrom = "the system that deploys this library (hosting platform + consuming service, under its ATO)",
+                Justification = "System monitoring, malware protection, memory protection, security alerting, user-facing error handling, and information retention are runtime/operational functions of the deployed system and the organization, not of a code library.",
+                ControlIds =
+                [
+                    "SI-3", "SI-4", "SI-4(2)", "SI-4(4)", "SI-4(5)", "SI-4(10)", "SI-4(12)", "SI-4(20)", "SI-4(22)",
+                    "SI-5", "SI-5(1)", "SI-6", "SI-11", "SI-12", "SI-16",
+                ],
+            },
+            new ControlAssertion
+            {
                 Kind = ControlDispositionKind.NotApplicable,
-                Justification = "The component implements no wireless, mobile-device, or collaborative-computing technologies, so these controls have no applicable surface.",
+                Justification = "The component implements no wireless, mobile-device, collaborative-computing, or messaging/mail technologies, so these controls have no applicable surface.",
                 ControlIds =
                 [
                     "AC-18", "AC-18(1)", "AC-18(3)", "AC-18(4)", "AC-18(5)", "AC-19", "AC-19(5)", "SC-15",
+                    "SI-4(14)", "SI-8", "SI-8(2)",
                 ],
             },
         },
