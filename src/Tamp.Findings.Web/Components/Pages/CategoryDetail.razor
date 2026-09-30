@@ -646,16 +646,16 @@ else
                         }
                         else
                         {
-                            var sastRan = _receipts.Where(r => Tamp.Findings.Domain.Values.ScannerKinds.Sast.Contains(r.Scanner)).ToList();
-                            @if (Key.StartsWith("sast") && sastRan.Count == 0)
+                            var ran = CategoryReceipts(Key);
+                            @if (ran.Count == 0)
                             {
-                                <Chip Label="No SAST scan" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
-                                <span>No static-analysis scan was recorded for this build — a “0” here is <strong>unassessed, not clean</strong>.</span>
+                                <Chip Label="@("No " + ScanKindLabel(Key) + " scan")" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+                                <span>No @ScanKindLabel(Key) scan was recorded for this build — a “0” here is <strong>unassessed, not clean</strong>.</span>
                             }
                             else
                             {
-                                <Chip Label="Nothing found" Tone="var(--color-pass)" Glyph="✓" />
-                                <span>No findings in this category for this build@(Key.StartsWith("sast") ? $" (scanned by {string.Join(", ", sastRan.Select(r => r.ToolName ?? r.Scanner.ToString()))})" : "").</span>
+                                <Chip Label="Scanned · clean" Tone="var(--color-pass)" Glyph="✓" />
+                                <span>No findings in this category for this build — @ran.Count scan@(ran.Count == 1 ? "" : "s") ran (below).</span>
                             }
                         }
                     </div>
@@ -702,6 +702,34 @@ else
                     </ScrollBox>
                 </Card>
                 <p class="field__help">@_findings.Count finding@(_findings.Count == 1 ? "" : "s") contributing to this category.</p>
+            }
+
+            @if (CategoryReceipts(Key) is { Count: > 0 } prov)
+            {
+                <Card Padded="false">
+                    <div class="card-body">
+                        <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">Scan provenance</h2>
+                        <table class="table table--rows">
+                            <thead><tr><th>Scanner</th><th>Tool</th><th>Status</th><th class="align-end">Findings</th><th>Completed</th></tr></thead>
+                            <tbody>
+                                @foreach (var r in prov)
+                                {
+                                    <tr>
+                                        <td class="mono">@r.Scanner</td>
+                                        <td class="mono muted">@($"{r.ToolName} {r.ToolVersion}".Trim())</td>
+                                        <td class="mono">@ReceiptStatus(r.Status)</td>
+                                        <td class="mono align-end">@r.FindingsCount.ToString("N0")</td>
+                                        <td class="mono muted">@(r.CompletedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                                    </tr>
+                                    @if (!string.IsNullOrWhiteSpace(r.Notes))
+                                    {
+                                        <tr><td colspan="5" class="mono muted">@r.Notes</td></tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
             }
         </div>
 
@@ -887,6 +915,26 @@ else
         sev is Domain.Values.Severity.Critical or Domain.Values.Severity.High ? "gated" : "—";
 
     // A receipt's status, glyphed. Succeeded is clean; Failed/Skipped are the gaps.
+    private List<Tamp.Findings.Application.Risk.ReceiptRow> CategoryReceipts(string key)
+    {
+        var kinds = key switch
+        {
+            "sastSevere" or "sastLow" => Tamp.Findings.Domain.Values.ScannerKinds.Sast
+                .Append(Tamp.Findings.Domain.Values.ScannerKind.SonarQube).ToHashSet(),
+            "secrets" => new HashSet<Tamp.Findings.Domain.Values.ScannerKind> { Tamp.Findings.Domain.Values.ScannerKind.TruffleHog },
+            "iacSevere" => new HashSet<Tamp.Findings.Domain.Values.ScannerKind> { Tamp.Findings.Domain.Values.ScannerKind.Trivy },
+            _ => new HashSet<Tamp.Findings.Domain.Values.ScannerKind>(),
+        };
+        return _receipts.Where(r => kinds.Contains(r.Scanner)).ToList();
+    }
+
+    private static string ScanKindLabel(string key) => key switch
+    {
+        "secrets" => "secret-detection",
+        "iacSevere" => "IaC",
+        _ => "static-analysis",
+    };
+
     private static string ReceiptStatus(string status) => status switch
     {
         "Succeeded" => "✓ ran",
