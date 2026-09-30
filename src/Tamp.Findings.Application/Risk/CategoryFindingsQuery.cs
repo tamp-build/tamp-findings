@@ -127,15 +127,50 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
 
         var reports = await db.CoverageReports.AsNoTracking()
             .Where(r => cvIds.Contains(r.ComponentVersionId))
-            .Select(r => new { r.CoveredSequences, r.TotalSequences, r.CoveredBranches, r.TotalBranches })
+            .Select(r => new { r.Id, r.CoveredSequences, r.TotalSequences, r.CoveredBranches, r.TotalBranches, r.ToolName, r.ToolVersion, r.IngestedAt })
             .ToListAsync(ct);
         if (reports.Count == 0) return null;
+
+        var reportIds = reports.Select(r => r.Id).ToArray();
+        var classes = await (from c in db.CoverageClasses.AsNoTracking()
+                             join m in db.CoverageModules.AsNoTracking() on c.CoverageModuleId equals m.Id
+                             join f in db.CoverageSourceFiles.AsNoTracking() on c.CoverageSourceFileId equals f.Id
+                             where reportIds.Contains(m.CoverageReportId)
+                             select new { Module = m.Name, c.FullName, f.RelativePath, c.CoveredSequences, c.TotalSequences, c.CoveredBranches, c.TotalBranches })
+            .ToListAsync(ct);
+
+        static double Pct(int c, int t) => t == 0 ? 0 : 100.0 * c / t;
+        static string Ns(string full)
+        {
+            var top = full.Split('/', '+')[0];
+            var i = top.LastIndexOf('.');
+            return i > 0 ? top[..i] : "(global)";
+        }
+        var modules = classes.GroupBy(c => c.Module).Select(mg =>
+        {
+            var nss = mg.GroupBy(c => Ns(c.FullName)).Select(ng =>
+            {
+                var files = ng.GroupBy(c => c.RelativePath).Select(fg =>
+                {
+                    var cs = fg.Sum(x => x.CoveredSequences); var ts = fg.Sum(x => x.TotalSequences);
+                    var cb = fg.Sum(x => x.CoveredBranches); var tb = fg.Sum(x => x.TotalBranches);
+                    return new CoverageFileRow(fg.Key, Pct(cs, ts), cs, ts, Pct(cb, tb), cb, tb);
+                }).OrderBy(f => f.SeqPercent).ThenByDescending(f => f.TotalSeq).ToList();
+                var ncs = ng.Sum(x => x.CoveredSequences); var nts = ng.Sum(x => x.TotalSequences);
+                var ncb = ng.Sum(x => x.CoveredBranches); var ntb = ng.Sum(x => x.TotalBranches);
+                return new CoverageNamespaceRow(ng.Key, Pct(ncs, nts), ncs, nts, Pct(ncb, ntb), ncb, ntb, files);
+            }).OrderBy(n => n.SeqPercent).ThenByDescending(n => n.TotalSeq).ToList();
+            var mcs = nss.Sum(x => x.CoveredSeq); var mts = nss.Sum(x => x.TotalSeq);
+            var mcb = nss.Sum(x => x.CoveredBranch); var mtb = nss.Sum(x => x.TotalBranch);
+            return new CoverageModuleRow(mg.Key, Pct(mcs, mts), mcs, mts, Pct(mcb, mtb), mcb, mtb, nss);
+        }).OrderBy(m => m.SeqPercent).ThenByDescending(m => m.TotalSeq).ToList();
 
         var cs = reports.Sum(r => r.CoveredSequences); var ts = reports.Sum(r => r.TotalSequences);
         var cb = reports.Sum(r => r.CoveredBranches); var tb = reports.Sum(r => r.TotalBranches);
         return new CoverageSummary(
             ts == 0 ? 0 : 100.0 * cs / ts, cs, ts,
-            tb == 0 ? 0 : 100.0 * cb / tb, cb, tb);
+            tb == 0 ? 0 : 100.0 * cb / tb, cb, tb,
+            reports[0].ToolName, reports[0].ToolVersion, reports.Max(r => r.IngestedAt), modules);
     }
 
     /// <summary>Test outcomes for the `tests` category. Suite-level — per-test flaky/skipped
@@ -579,7 +614,13 @@ public sealed record CveRow(
 
 public sealed record CoverageSummary(
     double SequencePercent, int CoveredSequences, int TotalSequences,
-    double BranchPercent, int CoveredBranches, int TotalBranches);
+    double BranchPercent, int CoveredBranches, int TotalBranches,
+    string? ToolName = null, string? ToolVersion = null, DateTimeOffset? IngestedAt = null,
+    IReadOnlyList<CoverageModuleRow>? Modules = null);
+
+public sealed record CoverageFileRow(string Path, double SeqPercent, int CoveredSeq, int TotalSeq, double BranchPercent, int CoveredBranch, int TotalBranch);
+public sealed record CoverageNamespaceRow(string Name, double SeqPercent, int CoveredSeq, int TotalSeq, double BranchPercent, int CoveredBranch, int TotalBranch, IReadOnlyList<CoverageFileRow> Files);
+public sealed record CoverageModuleRow(string Name, double SeqPercent, int CoveredSeq, int TotalSeq, double BranchPercent, int CoveredBranch, int TotalBranch, IReadOnlyList<CoverageNamespaceRow> Namespaces);
 
 public sealed record TestsSummary(
     int Total, int Passed, int Failed, int Skipped, IReadOnlyList<TestSuiteRow> Suites,

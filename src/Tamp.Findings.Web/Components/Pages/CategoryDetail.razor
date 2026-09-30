@@ -196,6 +196,50 @@ else
                                 </div>
                             </div>
                         </Card>
+                        @if (_coverage.ToolName is not null)
+                        {
+                            <p class="field__help mono">@($"{_coverage.ToolName} {_coverage.ToolVersion}".Trim())@(_coverage.IngestedAt is { } ing ? " · ingested " + ing.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC" : "")</p>
+                        }
+                        @if (_coverage.Modules is { Count: > 0 } mods)
+                        {
+                            <Card Padded="false">
+                                <div class="card-body">
+                                    <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">By assembly · namespace · file <span class="muted">(lowest coverage first)</span></h2>
+                                    <table class="table table--rows">
+                                        <thead><tr><th>Name</th><th class="align-end">Line %</th><th class="align-end">Lines</th><th class="align-end">Branch %</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var m in mods)
+                                            {
+                                                <tr>
+                                                    <td class="mono"><strong>@m.Name</strong> <span class="muted">assembly</span></td>
+                                                    <td class="mono align-end" style="color: @CovColor(m.SeqPercent)">@m.SeqPercent.ToString("F1")%</td>
+                                                    <td class="mono align-end muted">@m.CoveredSeq.ToString("N0") / @m.TotalSeq.ToString("N0")</td>
+                                                    <td class="mono align-end">@(m.TotalBranch == 0 ? "—" : m.BranchPercent.ToString("F1") + "%")</td>
+                                                </tr>
+                                                @foreach (var n in m.Namespaces)
+                                                {
+                                                    <tr>
+                                                        <td class="mono" style="padding-left: 24px">@n.Name <span class="muted">namespace</span></td>
+                                                        <td class="mono align-end" style="color: @CovColor(n.SeqPercent)">@n.SeqPercent.ToString("F1")%</td>
+                                                        <td class="mono align-end muted">@n.CoveredSeq.ToString("N0") / @n.TotalSeq.ToString("N0")</td>
+                                                        <td class="mono align-end">@(n.TotalBranch == 0 ? "—" : n.BranchPercent.ToString("F1") + "%")</td>
+                                                    </tr>
+                                                    @foreach (var f in n.Files)
+                                                    {
+                                                        <tr>
+                                                            <td class="mono muted" style="padding-left: 48px" title="@f.Path">@CovShorten(f.Path)</td>
+                                                            <td class="mono align-end" style="color: @CovColor(f.SeqPercent)">@f.SeqPercent.ToString("F1")%</td>
+                                                            <td class="mono align-end muted">@f.CoveredSeq.ToString("N0") / @f.TotalSeq.ToString("N0")</td>
+                                                            <td class="mono align-end">@(f.TotalBranch == 0 ? "—" : f.BranchPercent.ToString("F1") + "%")</td>
+                                                        </tr>
+                                                    }
+                                                }
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+                        }
                     }
                 }
                 else if (Key == "tests")
@@ -806,6 +850,8 @@ else
     private IReadOnlyList<Tamp.Findings.Application.Risk.CveRow> _cves = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.CveScanHistoryRow> _cveHistory = [];
     private Tamp.Findings.Application.Risk.CoverageSummary? _coverage;
+    private static string CovColor(double pct) => pct >= 80 ? "var(--color-pass)" : pct >= 50 ? "var(--color-high)" : "var(--color-critical)";
+    private static string CovShorten(string p) => p.Length <= 70 ? p : "…" + p[^69..];
     private Tamp.Findings.Application.Risk.TestsSummary? _tests;
     private IReadOnlyList<Tamp.Findings.Application.Risk.TestFailureRow> _testFailures = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.TestScanHistoryRow> _testHistory = [];
