@@ -617,6 +617,15 @@ else
                             </div>
                         </Card>
                     }
+                    else if (_sbom.Checked == 0)
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="Not assessed" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+                                <span>None of the @_sbom.Components.ToString("N0") components were checked against a package registry, so freshness is unknown — not fresh.</span>
+                            </div>
+                        </Card>
+                    }
                     else if (_stale.Count == 0)
                     {
                         <Card>
