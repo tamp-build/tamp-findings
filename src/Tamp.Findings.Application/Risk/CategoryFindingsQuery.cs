@@ -446,7 +446,7 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
             .Select(s => new { s.ToolName, s.ToolVersion, s.SpecVersion, s.IngestedAt }).ToListAsync(ct);
         var comps = db.SbomComponents.AsNoTracking().Where(c => snapIds.Contains(c.SbomSnapshotId));
         var total = await comps.CountAsync(ct);
-        var checkedCount = await comps.CountAsync(c => c.LatestVersion != null && c.LatestVersion != "", ct);
+        var checkedCount = await comps.CountAsync(c => c.EnrichedAt != null, ct);
         var outdated = await comps.CountAsync(c => c.LatestVersion != null && c.LatestVersion != "" && c.LatestVersion != c.Version, ct);
         var vulnerable = await comps.CountAsync(c => c.Vulnerabilities.Count > 0, ct);
         var head = snaps.OrderByDescending(s => s.IngestedAt).First();

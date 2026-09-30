@@ -20,6 +20,8 @@ public sealed class SbomComponent
     // enrichment step that queries the package registry; null until then.
     public string? LatestVersion { get; set; }
     public DateTimeOffset? LatestReleasedAt { get; set; }
+    // Set whenever the registry answered for this component, even when it is current (LatestVersion stays null then).
+    public DateTimeOffset? EnrichedAt { get; set; }
     public DateTimeOffset? CurrentReleasedAt { get; set; }
 
     // TFND-21: CycloneDX component hashes — algorithm → value map, e.g.
