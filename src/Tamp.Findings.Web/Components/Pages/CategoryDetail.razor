@@ -699,7 +699,7 @@ else
                             else
                             {
                                 <Chip Label="Scanned · clean" Tone="var(--color-pass)" Glyph="✓" />
-                                <span>No findings in this category for this build — @ran.Count scan@(ran.Count == 1 ? "" : "s") ran (below). Scan totals count every severity; only the High/Critical ones score here (Medium/Low are under SAST low, quality-typed under Quality).</span>
+                                <span>No findings in this category for this build — @ran.Count scan@(ran.Count == 1 ? "" : "s") ran (below).</span>
                             }
                         }
                     </div>
@@ -754,7 +754,7 @@ else
                     <div class="card-body">
                         <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">Scan provenance</h2>
                         <table class="table table--rows">
-                            <thead><tr><th>Scanner</th><th>Tool</th><th>Status</th><th class="align-end">Total findings (all severities)</th><th>Completed</th></tr></thead>
+                            <thead><tr><th>Scanner</th><th>Tool</th><th>Status</th><th class="align-end">Findings</th><th>Completed</th></tr></thead>
                             <tbody>
                                 @foreach (var r in prov)
                                 {
@@ -762,7 +762,7 @@ else
                                         <td class="mono">@r.Scanner</td>
                                         <td class="mono muted">@($"{r.ToolName} {r.ToolVersion}".Trim())</td>
                                         <td class="mono">@ReceiptStatus(r.Status)</td>
-                                        <td class="mono align-end">@r.FindingsCount.ToString("N0")</td>
+                                        <td class="mono align-end">@_findings.Count(f => f.Scanner.ToString() == r.Scanner.ToString()).ToString("N0")</td>
                                         <td class="mono muted">@(r.CompletedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
                                     </tr>
                                     @if (!string.IsNullOrWhiteSpace(r.Notes))
