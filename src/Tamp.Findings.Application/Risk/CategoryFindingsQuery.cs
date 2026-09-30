@@ -17,7 +17,7 @@ namespace Tamp.Findings.Application.Risk;
 /// sbomStaleness and missingScanners have their own data sources and their own
 /// queries; this returns an empty list for them.
 /// </summary>
-public sealed class CategoryFindingsQuery(FindingsDbContext db)
+public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.LicenseResolutionService licenses)
 {
     // The build's CV set: the requested commit, or the latest canonical one.
     private async Task<Guid[]> ResolveCvIdsAsync(Guid projectId, string? commitSha, CancellationToken ct)
@@ -147,7 +147,7 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db)
 
         var reports = await db.TestRunReports.AsNoTracking()
             .Where(r => cvIds.Contains(r.ComponentVersionId))
-            .Select(r => new { r.Id, r.TotalCount, r.PassedCount, r.FailedCount, r.SkippedCount })
+            .Select(r => new { r.Id, r.TotalCount, r.PassedCount, r.FailedCount, r.SkippedCount, r.DurationMs, r.ToolName, r.ToolVersion, r.CompletedAt })
             .ToListAsync(ct);
         if (reports.Count == 0) return null;
 
@@ -158,9 +158,86 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db)
             .Select(s => new TestSuiteRow(s.AssemblyName + " · " + s.ClassName, s.FailedCount, s.SkippedCount))
             .Take(200).ToListAsync(ct);
 
+        // Full per-assembly breakdown (the "what was actually tested" evidence), failing-first.
+        var byAssembly = (await db.TestSuiteResults.AsNoTracking()
+                .Where(s => reportIds.Contains(s.TestRunReportId))
+                .GroupBy(s => s.AssemblyName)
+                .Select(g => new TestAssemblyRow(g.Key, g.Sum(s => s.TotalCount), g.Sum(s => s.PassedCount), g.Sum(s => s.FailedCount), g.Sum(s => s.SkippedCount)))
+                .ToListAsync(ct))
+            .OrderByDescending(a => a.Failed).ThenByDescending(a => a.Skipped).ThenByDescending(a => a.Total)
+            .ToList();
+        var suiteCount = await db.TestSuiteResults.AsNoTracking().CountAsync(s => reportIds.Contains(s.TestRunReportId), ct);
+
+        var head = reports[0];
         return new TestsSummary(
             reports.Sum(r => r.TotalCount), reports.Sum(r => r.PassedCount),
-            reports.Sum(r => r.FailedCount), reports.Sum(r => r.SkippedCount), suites);
+            reports.Sum(r => r.FailedCount), reports.Sum(r => r.SkippedCount), suites,
+            head.ToolName, head.ToolVersion, reports.Max(r => (DateTimeOffset?)r.CompletedAt),
+            reports.Sum(r => r.DurationMs), suiteCount, byAssembly.Count, byAssembly);
+    }
+
+    /// <summary>Failed test cases for a build — name, class, assembly, error message + stack trace. The
+    /// actual proof of what broke, not just a count (TFND-217).</summary>
+    public async Task<IReadOnlyList<TestFailureRow>> TestFailuresAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
+        if (cvIds.Length == 0) return [];
+        var reportIds = await db.TestRunReports.AsNoTracking()
+            .Where(r => cvIds.Contains(r.ComponentVersionId)).Select(r => r.Id).ToArrayAsync(ct);
+        if (reportIds.Length == 0) return [];
+
+        return await db.TestCaseResults.AsNoTracking()
+            .Where(c => reportIds.Contains(c.Suite!.TestRunReportId) && c.Outcome == Domain.Values.TestOutcome.Failed)
+            .OrderBy(c => c.Suite!.AssemblyName).ThenBy(c => c.Suite!.ClassName).ThenBy(c => c.Name)
+            .Take(500)
+            .Select(c => new TestFailureRow(c.Suite!.AssemblyName, c.Suite!.ClassName, c.Name, c.ErrorMessage, c.ErrorStackTrace))
+            .ToListAsync(ct);
+    }
+
+    /// <summary>Per-build test evidence for the history strip — commit, when, tool, counts, coverage.</summary>
+    public async Task<IReadOnlyList<TestScanHistoryRow>> TestScanHistoryAsync(Guid projectId, int take = 12, CancellationToken ct = default)
+    {
+        var cvs = await db.ComponentVersions.AsNoTracking()
+            .Where(cv => cv.ProjectId == projectId && cv.CommitSha != null)
+            .OrderByDescending(cv => cv.CreatedAt).Take(take)
+            .Select(cv => new { cv.Id, cv.CommitSha, cv.CreatedAt })
+            .ToListAsync(ct);
+        if (cvs.Count == 0) return [];
+        var ids = cvs.Select(c => c.Id).ToArray();
+
+        var reports = (await db.TestRunReports.AsNoTracking()
+                .Where(r => ids.Contains(r.ComponentVersionId))
+                .Select(r => new { r.ComponentVersionId, r.ToolName, r.TotalCount, r.PassedCount, r.FailedCount, r.SkippedCount })
+                .ToListAsync(ct))
+            .ToDictionary(r => r.ComponentVersionId);
+        var coverage = (await db.CoverageReports.AsNoTracking()
+                .Where(r => ids.Contains(r.ComponentVersionId))
+                .Select(r => new { r.ComponentVersionId, r.SequenceCoverage })
+                .ToListAsync(ct))
+            .GroupBy(r => r.ComponentVersionId).ToDictionary(g => g.Key, g => g.First().SequenceCoverage);
+
+        return cvs.Select(c =>
+        {
+            reports.TryGetValue(c.Id, out var r);
+            return new TestScanHistoryRow(
+                c.CommitSha, c.CreatedAt, r is not null, r?.ToolName,
+                r?.TotalCount ?? 0, r?.PassedCount ?? 0, r?.FailedCount ?? 0, r?.SkippedCount ?? 0,
+                coverage.TryGetValue(c.Id, out var cov) ? cov : null);
+        }).ToList();
+    }
+
+    /// <summary>The stored raw artifacts of a kind for a build, for download (evidence of record).</summary>
+    public async Task<BuildRawArtifacts?> RawArtifactsAsync(Guid projectId, string? commitSha, Domain.Values.RawArtifactKind kind, CancellationToken ct = default)
+    {
+        var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
+        if (cvIds.Length == 0) return null;
+        var cvId = cvIds[0];
+        var arts = await db.RawReportArtifacts.AsNoTracking()
+            .Where(a => a.ComponentVersionId == cvId && a.Kind == kind)
+            .OrderBy(a => a.FileName ?? a.Format).ThenBy(a => a.IngestedAt)
+            .Select(a => new RawArtifactRef(a.Id, a.Format, a.FileName, a.SizeBytes, a.IngestedAt))
+            .ToListAsync(ct);
+        return arts.Count == 0 ? null : new BuildRawArtifacts(cvId, arts);
     }
 
     /// <summary>Licence mix for the `license` category.</summary>
@@ -177,6 +254,106 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db)
             .ToListAsync(ct);
 
         return groups.Select(g => new LicenseGroup(g.Key ?? "unknown", g.Count)).ToArray();
+    }
+
+    /// <summary>
+    /// Everything the license category page needs to be self-explanatory (TFND-222):
+    /// the tier of each license, the policy in force, WHY the score is what it is,
+    /// and the still-unknown packages a human can resolve. Applies the global
+    /// license knowledge base before classifying — the same map the scorer uses —
+    /// so the page and the number agree.
+    /// </summary>
+    public async Task<LicenseOverview?> LicenseOverviewAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var snapIds = await SnapshotIdsAsync(projectId, commitSha, ct);
+        if (snapIds.Length == 0) return null;
+
+        var comps = await db.SbomComponents.AsNoTracking()
+            .Where(c => snapIds.Contains(c.SbomSnapshotId))
+            .Select(c => new { c.Purl, c.Name, c.Version, c.License })
+            .ToListAsync(ct);
+        if (comps.Count == 0) return null;
+
+        var policy = await LicensePolicyAsync(projectId, ct);
+        var rules = policy.Licenses;
+        var map = await licenses.MapAsync(ct);
+
+        // Apply the knowledge base, then classify — exactly as the scorer does.
+        string Effective(string purl, string? declared) =>
+            map.TryGetValue(purl, out var s) ? s : (declared ?? "");
+
+        var resolvedApplied = 0;
+        var tierCounts = new Dictionary<LicensePolicy.Tier, int>();
+        var groups = new Dictionary<string, (LicensePolicy.Tier Tier, int Count)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in comps)
+        {
+            var eff = Effective(c.Purl, c.License);
+            if (map.ContainsKey(c.Purl)) resolvedApplied++;
+            var tier = LicensePolicy.Classify(string.IsNullOrWhiteSpace(eff) ? null : eff, rules);
+            tierCounts[tier] = tierCounts.GetValueOrDefault(tier) + 1;
+            var label = string.IsNullOrWhiteSpace(eff) ? "unknown" : eff;
+            var cur = groups.GetValueOrDefault(label);
+            groups[label] = (tier, cur.Count + 1);
+        }
+
+        // Still-unknown packages, distinct by purl — the human-resolution worklist.
+        var unknowns = comps
+            .Where(c => LicensePolicy.Classify(
+                string.IsNullOrWhiteSpace(Effective(c.Purl, c.License)) ? null : Effective(c.Purl, c.License), rules)
+                == LicensePolicy.Tier.Unknown)
+            .GroupBy(c => c.Purl, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(c => new UnknownComponent(c.Purl, c.Name, c.Version, c.License))
+            .ToArray();
+
+        var total = comps.Count;
+        int Count(LicensePolicy.Tier t) => tierCounts.GetValueOrDefault(t);
+        var denied = Count(LicensePolicy.Tier.Denied);
+        var strong = Count(LicensePolicy.Tier.StrongCopyleft);
+        var unknown = Count(LicensePolicy.Tier.Unknown);
+
+        // The score math, mirrored from RiskScorer's License case so the page can
+        // show its own working.
+        double W(string k, double dflt) =>
+            policy.Categories.TryGetValue(RiskCategoryNames.License, out var cat) && cat.Weights.TryGetValue(k, out var w)
+                ? w : dflt;
+        var wDenied = W("denied", 0.5);
+        var wStrong = W("strongCopyleft", 0.1);
+        var wUnknownMul = W("unknownPctMul", 0.2);
+        var catMax = policy.Categories.TryGetValue(RiskCategoryNames.License, out var lc) && lc.Max > 0 ? lc.Max : 5;
+        var unknownPct = (double)unknown / Math.Max(1, total);
+        var raw = Math.Clamp(denied * wDenied + strong * wStrong + unknownPct * wUnknownMul, 0, 1);
+
+        var groupRows = groups
+            .Select(kv => new LicenseTierGroup(kv.Key, kv.Value.Tier, kv.Value.Count))
+            .OrderByDescending(g => g.Tier == LicensePolicy.Tier.Denied)
+            .ThenByDescending(g => g.Tier == LicensePolicy.Tier.StrongCopyleft)
+            .ThenByDescending(g => g.Tier == LicensePolicy.Tier.Unknown)
+            .ThenByDescending(g => g.Count)
+            .ToArray();
+
+        return new LicenseOverview(
+            groupRows, unknowns, total,
+            denied, strong, Count(LicensePolicy.Tier.WeakCopyleft), Count(LicensePolicy.Tier.Permissive), unknown,
+            wDenied, wStrong, wUnknownMul, catMax, raw * catMax,
+            rules.Deny.ToArray(), rules.Allow.ToArray(), rules.DenyUnknown, resolvedApplied);
+    }
+
+    /// <summary>The policy in force for a project — project override, then client, then instance
+    /// default (the chain the scorer walks). Empty config when the instance has no default.</summary>
+    private async Task<RiskPolicyConfig> LicensePolicyAsync(Guid projectId, CancellationToken ct)
+    {
+        var project = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => new { p.RiskPolicyId, ClientPolicyId = p.Client!.RiskPolicyId })
+            .SingleOrDefaultAsync(ct);
+        var policyId = project?.RiskPolicyId ?? project?.ClientPolicyId;
+        var policy = policyId is { } id
+            ? await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct)
+            : null;
+        policy ??= await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
+        return policy?.Config ?? new RiskPolicyConfig();
     }
 
     /// <summary>The outdated SBOM components behind the `sbomStaleness` score.
@@ -279,11 +456,40 @@ public sealed record CoverageSummary(
     double BranchPercent, int CoveredBranches, int TotalBranches);
 
 public sealed record TestsSummary(
-    int Total, int Passed, int Failed, int Skipped, IReadOnlyList<TestSuiteRow> Suites);
+    int Total, int Passed, int Failed, int Skipped, IReadOnlyList<TestSuiteRow> Suites,
+    // TFND-217: provenance so "N passed" is evidence, not just a number.
+    string? ToolName = null, string? ToolVersion = null, DateTimeOffset? CompletedAt = null,
+    double DurationMs = 0, int SuiteCount = 0, int AssemblyCount = 0,
+    IReadOnlyList<TestAssemblyRow>? Assemblies = null);
+
+public sealed record TestAssemblyRow(string Assembly, int Total, int Passed, int Failed, int Skipped);
+public sealed record TestFailureRow(string Assembly, string ClassName, string Name, string? ErrorMessage, string? ErrorStackTrace);
+public sealed record TestScanHistoryRow(
+    string? CommitSha, DateTimeOffset BuiltAt, bool Measured, string? ToolName,
+    int Total, int Passed, int Failed, int Skipped, double? CoveragePercent);
+public sealed record RawArtifactRef(Guid Id, string Format, string? FileName, long SizeBytes, DateTimeOffset IngestedAt);
+public sealed record BuildRawArtifacts(Guid ComponentVersionId, IReadOnlyList<RawArtifactRef> Artifacts);
 
 public sealed record TestSuiteRow(string Suite, int Failed, int Skipped);
 
 public sealed record LicenseGroup(string License, int Count);
+
+/// <summary>A license row with its resolved permissiveness tier and how many components carry it.</summary>
+public sealed record LicenseTierGroup(string License, LicensePolicy.Tier Tier, int Count);
+
+/// <summary>A package whose license is still unknown after the knowledge base — a resolution candidate.</summary>
+public sealed record UnknownComponent(string Purl, string Name, string Version, string? DeclaredLicense);
+
+/// <summary>Self-explaining data for the license category page (TFND-222).</summary>
+public sealed record LicenseOverview(
+    IReadOnlyList<LicenseTierGroup> Groups,
+    IReadOnlyList<UnknownComponent> Unknowns,
+    int TotalComponents,
+    int DeniedCount, int StrongCopyleftCount, int WeakCopyleftCount, int PermissiveCount, int UnknownCount,
+    double WeightDenied, double WeightStrongCopyleft, double WeightUnknownPctMul, double CategoryMax,
+    double DisplayedScore,
+    IReadOnlyList<string> PolicyDeny, IReadOnlyList<string> PolicyAllow, bool DenyUnknown,
+    int ResolvedApplied);
 
 public sealed record StaleComponent(string Name, string Version, string? LatestVersion, int? DaysBehind, bool Stale);
 

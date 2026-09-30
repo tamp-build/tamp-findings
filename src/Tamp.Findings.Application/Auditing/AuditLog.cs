@@ -193,6 +193,9 @@ public static class AuditActions
     public const string ClientPolicySaved = "client_policy.saved";
     public const string ClientTemplateSwitched = "client.template_switched";
     public const string ComplianceProfileRead = "compliance_profile.read";
+    // Global license knowledge base (TFND-222).
+    public const string LicenseResolved = "license.resolved";
+    public const string LicenseResolutionCleared = "license.resolution_cleared";
     public const string ZtProfileRead = "zt_profile.read";
     public const string AdrRulesPushed = "adr_rules.pushed";
     public const string AdrRulesetRead = "adr_ruleset.read";

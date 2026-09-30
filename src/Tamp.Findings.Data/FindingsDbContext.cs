@@ -39,6 +39,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<TestCaseResult> TestCaseResults => Set<TestCaseResult>();
     public DbSet<RawReportArtifact> RawReportArtifacts => Set<RawReportArtifact>();
     public DbSet<ModelPrice> ModelPrices => Set<ModelPrice>();
+    public DbSet<LicenseResolution> LicenseResolutions => Set<LicenseResolution>();
     public DbSet<ScanUsageObservation> ScanUsageObservations => Set<ScanUsageObservation>();
     public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
@@ -469,6 +470,17 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.OutputPerMillion).HasColumnType("numeric(12,4)");
             // One price per (model, effective date) — a dated table, newest-effective-wins at read time.
             e.HasIndex(x => new { x.ModelId, x.EffectiveFrom }).IsUnique();
+        });
+
+        b.Entity<LicenseResolution>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Purl).HasMaxLength(1024).IsRequired();
+            e.Property(x => x.Spdx).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Note).HasMaxLength(2048);
+            e.Property(x => x.ResolvedBy).HasMaxLength(256);
+            // Global fact keyed by purl: one resolution per package version, upserted.
+            e.HasIndex(x => x.Purl).IsUnique();
         });
 
         b.Entity<ScanUsageObservation>(e =>

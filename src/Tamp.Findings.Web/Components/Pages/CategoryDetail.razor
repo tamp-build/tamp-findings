@@ -4,6 +4,7 @@
 @inject RouteScope Scope
 @inject ProjectHubQuery Hub
 @inject Tamp.Findings.Application.Risk.CategoryFindingsQuery CategoryFindings
+@inject Tamp.Findings.Application.Licensing.LicenseResolutionService Licenses
 @inject CurrentUser Me
 
 <PageTitle>@Label(Key) — tamp.findings</PageTitle>
@@ -46,9 +47,9 @@ else
             </div>
         </div>
 
-        @* CVE combines current + history on one view (its current panel is small); every other
-           category keeps the Current/History tabs. *@
-        @if (Key != "cve")
+        @* CVE, Tests and Licences each combine everything on one view (their current panels carry their
+           own evidence, rationale and worklist); every other category keeps the Current/History tabs. *@
+        @if (Key != "cve" && Key != "tests" && Key != "license")
         {
             <div class="cattabs">
                 <button class="cattab @(_tab == Tab.Current ? "cattab--active" : null)" @onclick="() => _tab = Tab.Current">Current</button>
@@ -233,39 +234,162 @@ else
                                     <div class="covstat__sub mono">@_tests.Skipped.ToString("N0") skipped</div>
                                 </div>
                             </div>
+                            @* Provenance line — the run this evidence came from: what produced it, when, how
+                               long, and how much it covered. A count with no provenance is not evidence. *@
+                            <p class="field__help mono" style="margin-top: var(--space-3)">
+                                @(_tests.ToolName ?? "test run")@(string.IsNullOrWhiteSpace(_tests.ToolVersion) ? "" : " " + _tests.ToolVersion)
+                                · @_tests.SuiteCount.ToString("N0") suite@(_tests.SuiteCount == 1 ? "" : "s") across @_tests.AssemblyCount assembl@(_tests.AssemblyCount == 1 ? "y" : "ies")
+                                @if (_tests.DurationMs > 0) { <text> · @FormatDuration(_tests.DurationMs)</text> }
+                                @if (_tests.CompletedAt is { } tc) { <text> · @tc.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") UTC</text> }
+                            </p>
                         </Card>
-                        @if (_tests.Suites.Count > 0)
+
+                        @* Per-assembly breakdown — the full "what actually ran" surface, failing-first. This is
+                           the real test-module evidence, not just a grand total. *@
+                        @if (_tests.Assemblies is { Count: > 0 } asms)
                         {
                             <Card Padded="false">
-                                <ScrollBox Label="Suites with failures or skips">
+                                <ScrollBox Label="Test assemblies">
                                     <table class="table table--rows">
                                         <thead>
-                                            <tr><th>Suite</th><th class="align-end">Failed</th><th class="align-end">Skipped</th></tr>
+                                            <tr><th>Assembly</th><th class="align-end">Total</th><th class="align-end">Passed</th><th class="align-end">Failed</th><th class="align-end">Skipped</th></tr>
                                         </thead>
                                         <tbody>
-                                            @foreach (var s in _tests.Suites)
+                                            @foreach (var a in asms)
                                             {
                                                 <tr>
-                                                    <td class="mono">@s.Suite</td>
-                                                    <td class="mono align-end" style="color: @(s.Failed > 0 ? "var(--color-critical)" : "inherit")">@s.Failed</td>
-                                                    <td class="mono align-end muted">@s.Skipped</td>
+                                                    <td class="mono">@a.Assembly</td>
+                                                    <td class="mono align-end">@a.Total.ToString("N0")</td>
+                                                    <td class="mono align-end" style="color: var(--color-pass)">@a.Passed.ToString("N0")</td>
+                                                    <td class="mono align-end" style="color: @(a.Failed > 0 ? "var(--color-critical)" : "inherit")">@a.Failed</td>
+                                                    <td class="mono align-end muted">@a.Skipped</td>
                                                 </tr>
                                             }
                                         </tbody>
                                     </table>
                                 </ScrollBox>
                             </Card>
-                            <p class="field__help">Per-test flaky/skip detail is not yet ingested — this is suite-level. (<code class="mono">TFND-176</code>)</p>
                         }
-                        else
+
+                        @* Failure detail — the actual proof of what broke: message + stack, per failed case. *@
+                        @if (_testFailures.Count > 0)
                         {
-                            <p class="field__help">Every suite passed clean — no failures or skips.</p>
+                            <Card Padded="false">
+                                <ScrollBox Label="@($"Failures ({_testFailures.Count})")">
+                                    <div class="card-body">
+                                        @foreach (var f in _testFailures)
+                                        {
+                                            <div style="padding: var(--space-2) 0; border-bottom: 1px solid var(--color-border)">
+                                                <div class="mono" style="color: var(--color-critical)">@f.ClassName.@f.Name</div>
+                                                <div class="mono muted" style="font-size: 11px">@f.Assembly</div>
+                                                @if (!string.IsNullOrWhiteSpace(f.ErrorMessage))
+                                                {
+                                                    <pre class="mono" style="white-space: pre-wrap; margin: var(--space-1) 0 0; font-size: 12px">@f.ErrorMessage</pre>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(f.ErrorStackTrace))
+                                                {
+                                                    <details>
+                                                        <summary class="muted" style="font-size: 12px; cursor: pointer">Stack trace</summary>
+                                                        <pre class="mono muted" style="white-space: pre-wrap; margin: var(--space-1) 0 0; font-size: 11px">@f.ErrorStackTrace</pre>
+                                                    </details>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                </ScrollBox>
+                            </Card>
+                        }
+                        else if (_tests.Failed == 0)
+                        {
+                            <p class="field__help">Every test passed — no failures to show.</p>
+                        }
+
+                        @* Raw report download — the original .trx/junit files, stored verbatim (ADR 0014,
+                           TFND-209). The evidence of record: an auditor can re-parse the exact bytes we did. *@
+                        @if (_testArtifacts is { Artifacts.Count: > 0 } raw)
+                        {
+                            <Card>
+                                <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">
+                                    Raw test reports <span class="muted mono" style="font-size: 12px">· @raw.Artifacts.Count file@(raw.Artifacts.Count == 1 ? "" : "s") · @FormatBytes(raw.Artifacts.Sum(a => a.SizeBytes)) total</span>
+                                </h2>
+                                @{ var rawList = raw.Artifacts; var rn = 0; }
+                                @* No nested scrollbox — a long inner scroll region traps the mouse wheel and
+                                   makes the page feel un-scrollable. Show a few inline; the rest live behind a
+                                   plain expander so the page stays one continuous scroll. *@
+                                <ul style="list-style: none; padding: 0; margin: 0">
+                                    @foreach (var art in rawList.Take(8))
+                                    {
+                                        rn++;
+                                        <li style="padding: var(--space-1) 0">
+                                            <a class="mono" href="@RawHref(art.Id, raw.ComponentVersionId)" download>⭳ @(art.FileName ?? $"{art.Format}-report-{rn:D3}.xml")</a>
+                                            <span class="muted mono" style="font-size: 11px"> · @art.Format · @FormatBytes(art.SizeBytes) · @art.IngestedAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") UTC</span>
+                                        </li>
+                                    }
+                                </ul>
+                                @if (rawList.Count > 8)
+                                {
+                                    <details>
+                                        <summary class="muted" style="cursor: pointer; padding: var(--space-1) 0">Show all @rawList.Count files</summary>
+                                        <ul style="list-style: none; padding: 0; margin: 0">
+                                            @foreach (var art in rawList.Skip(8))
+                                            {
+                                                rn++;
+                                                <li style="padding: var(--space-1) 0">
+                                                    <a class="mono" href="@RawHref(art.Id, raw.ComponentVersionId)" download>⭳ @(art.FileName ?? $"{art.Format}-report-{rn:D3}.xml")</a>
+                                                    <span class="muted mono" style="font-size: 11px"> · @art.Format · @FormatBytes(art.SizeBytes) · @art.IngestedAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") UTC</span>
+                                                </li>
+                                            }
+                                        </ul>
+                                    </details>
+                                }
+                                <p class="field__help">Stored verbatim at ingest — the same bytes the server parsed. Re-parse them to reproduce every count above.</p>
+                            </Card>
+                        }
+
+                        @* Scan history — per-build test evidence: commit, when, tool, pass/fail, coverage.
+                           A build with no test run is flagged, so a silent zero can't read as green. *@
+                        @if (_testHistory.Count > 0)
+                        {
+                            <Card Padded="false">
+                                <div class="card-body">
+                                    <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">Test history</h2>
+                                    <table class="table table--rows">
+                                        <thead>
+                                            <tr><th>Build</th><th>Ran</th><th>Tool</th><th class="align-end">Passed</th><th class="align-end">Failed</th><th class="align-end">Skipped</th><th class="align-end">Coverage</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var h in _testHistory)
+                                            {
+                                                <tr>
+                                                    <td><span class="mono">@Short(h.CommitSha)</span> <span class="muted">@h.BuiltAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm")</span></td>
+                                                    <td>
+                                                        @if (h.Measured)
+                                                        {
+                                                            <span style="color: var(--color-pass)">✓</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span style="color: var(--color-high)">no run</span>
+                                                        }
+                                                    </td>
+                                                    <td class="mono muted">@(h.Measured ? (h.ToolName ?? "—") : "—")</td>
+                                                    <td class="align-end mono" style="color: var(--color-pass)">@(h.Measured ? h.Passed.ToString("N0") : "—")</td>
+                                                    <td class="align-end mono" style="color: @(h.Failed > 0 ? "var(--color-critical)" : "inherit")">@(h.Measured ? h.Failed.ToString() : "—")</td>
+                                                    <td class="align-end mono muted">@(h.Measured ? h.Skipped.ToString() : "—")</td>
+                                                    <td class="align-end mono">@(h.CoveragePercent is { } cp ? cp.ToString("F1") + "%" : "—")</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                    <p class="field__help">Each row is the test run behind that build — provenance and result, not just that tests ran.</p>
+                                </div>
+                            </Card>
                         }
                     }
                 }
                 else if (Key == "license")
                 {
-                    @if (_licenses.Count == 0)
+                    @if (_licenseOverview is null)
                     {
                         <Card>
                             <div class="row">
@@ -276,17 +400,75 @@ else
                     }
                     else
                     {
+                        var lo = _licenseOverview;
+
+                        @* 1 — Why the score is what it is. The formula, with THIS build's numbers filled in. *@
+                        <Card>
+                            <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">Why this score is @lo.DisplayedScore.ToString("0.0") / @lo.CategoryMax.ToString("0")</h2>
+                            <div class="covgrid">
+                                <div class="covstat">
+                                    <div class="covstat__value" style="color: @(lo.DeniedCount > 0 ? "var(--color-critical)" : "var(--color-neutral-500)")">@lo.DeniedCount</div>
+                                    <div class="covstat__label">Denied</div>
+                                    <div class="covstat__sub mono">× @lo.WeightDenied.ToString("0.##") each</div>
+                                </div>
+                                <div class="covstat">
+                                    <div class="covstat__value" style="color: @(lo.StrongCopyleftCount > 0 ? "var(--color-band-orange)" : "var(--color-neutral-500)")">@lo.StrongCopyleftCount</div>
+                                    <div class="covstat__label">Strong copyleft</div>
+                                    <div class="covstat__sub mono">× @lo.WeightStrongCopyleft.ToString("0.##") each</div>
+                                </div>
+                                <div class="covstat">
+                                    <div class="covstat__value" style="color: @(lo.UnknownCount > 0 ? "var(--color-medium)" : "var(--color-neutral-500)")">@lo.UnknownCount</div>
+                                    <div class="covstat__label">Unknown</div>
+                                    <div class="covstat__sub mono">@((lo.UnknownCount * 100.0 / Math.Max(1, lo.TotalComponents)).ToString("0.#"))% of @lo.TotalComponents · × @lo.WeightUnknownPctMul.ToString("0.##")</div>
+                                </div>
+                            </div>
+                            <p class="field__help mono" style="margin-top: var(--space-3)">
+                                @lo.DeniedCount×@lo.WeightDenied.ToString("0.##") + @lo.StrongCopyleftCount×@lo.WeightStrongCopyleft.ToString("0.##")
+                                + (@lo.UnknownCount/@lo.TotalComponents)×@lo.WeightUnknownPctMul.ToString("0.##")
+                                → @lo.DisplayedScore.ToString("0.00") points of @lo.CategoryMax.ToString("0")
+                            </p>
+                            @if (lo.ResolvedApplied > 0)
+                            {
+                                <p class="field__help" style="color: var(--color-pass)">✓ @lo.ResolvedApplied component@(lo.ResolvedApplied == 1 ? "" : "s") classified from the license knowledge base.</p>
+                            }
+                        </Card>
+
+                        @* 2 — The policy in force: what counts as denied, and any project overrides. *@
+                        <Card>
+                            <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">Licence policy in force</h2>
+                            <p class="field__help" style="margin-top: 0">
+                                Built-in denied tiers: <span class="mono">GPL-3.0, AGPL-3.0, SSPL-1.0, Commons-Clause</span> (network-copyleft / source-disclosure that breaks commercial SaaS). Strong copyleft (<span class="mono">GPL-2.0, LGPL-3.0</span>) is flagged but not denied.
+                            </p>
+                            <div class="row" style="gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2)">
+                                @if (lo.PolicyDeny.Count > 0)
+                                {
+                                    <span>Policy also denies: @foreach (var d in lo.PolicyDeny) { <span class="mono" style="color: var(--color-critical)">@d </span>}</span>
+                                }
+                                @if (lo.PolicyAllow.Count > 0)
+                                {
+                                    <span>Policy allows (override): @foreach (var a in lo.PolicyAllow) { <span class="mono" style="color: var(--color-pass)">@a </span>}</span>
+                                }
+                                @if (lo.PolicyDeny.Count == 0 && lo.PolicyAllow.Count == 0)
+                                {
+                                    <span class="muted">No project-specific allow/deny overrides — the built-in tiers apply as-is.</span>
+                                }
+                            </div>
+                            <p class="field__help">Unknown licences are @(lo.DenyUnknown ? "treated as DENIED" : "counted as risk but not denied") by this policy.</p>
+                        </Card>
+
+                        @* 3 — The mix, each row tagged with its permissiveness tier. *@
                         <Card Padded="false">
                             <ScrollBox Label="Licence mix">
                                 <table class="table table--rows">
                                     <thead>
-                                        <tr><th>Licence</th><th class="align-end">Components</th></tr>
+                                        <tr><th>Licence</th><th>Tier</th><th class="align-end">Components</th></tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var g in _licenses)
+                                        @foreach (var g in lo.Groups)
                                         {
                                             <tr>
                                                 <td class="mono">@g.License</td>
+                                                <td><Chip Label="@TierLabel(g.Tier)" Tone="@TierTone(g.Tier)" /></td>
                                                 <td class="mono align-end">@g.Count.ToString("N0")</td>
                                             </tr>
                                         }
@@ -294,7 +476,75 @@ else
                                 </table>
                             </ScrollBox>
                         </Card>
-                        <p class="field__help">@_licenses.Sum(g => g.Count).ToString("N0") components across @_licenses.Count distinct licence@(_licenses.Count == 1 ? "" : "s").</p>
+                        <p class="field__help">@lo.TotalComponents.ToString("N0") components across @lo.Groups.Count distinct licence@(lo.Groups.Count == 1 ? "" : "s").</p>
+
+                        @* 4 — The worklist: packages whose licence nobody could classify, with a way to resolve + persist. *@
+                        @if (lo.Unknowns.Count > 0)
+                        {
+                            <Card Padded="false">
+                                <div class="card-body">
+                                    <h2 style="font-size: 14px; margin: 0 0 var(--space-1)">Unresolved licences <span class="muted mono" style="font-size: 12px">· @lo.Unknowns.Count</span></h2>
+                                    <p class="field__help" style="margin-top: 0">
+                                        These packages carry no SPDX licence the classifier recognises — usually an old-style NuGet <span class="mono">.nuspec</span> with a <span class="mono">licenseUrl</span> instead of an expression. Confirm the real licence and record it; the resolution is <strong>global</strong> — every project pulling that package inherits it, and the score updates.
+                                    </p>
+                                    @if (_resolveError is { } err)
+                                    {
+                                        <p class="field__help" style="color: var(--color-critical)">@err</p>
+                                    }
+                                    <table class="table table--rows">
+                                        <thead>
+                                            <tr><th>Package</th><th>Version</th><th>Declared</th>@if (_canResolveLicense) { <th>Resolve to</th> }</tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var u in lo.Unknowns)
+                                            {
+                                                <tr>
+                                                    <td class="mono">@u.Name</td>
+                                                    <td class="mono muted">@u.Version</td>
+                                                    <td class="mono muted" style="font-size: 11px">@(u.DeclaredLicense ?? "—")</td>
+                                                    @if (_canResolveLicense)
+                                                    {
+                                                        <td>
+                                                            <div class="row" style="gap: var(--space-1); flex-wrap: nowrap">
+                                                                <input class="input mono" list="spdx-common" placeholder="SPDX e.g. MIT" style="width: 110px"
+                                                                       value="@_resolveSpdx.GetValueOrDefault(u.Purl, "")"
+                                                                       @oninput="e => _resolveSpdx[u.Purl] = e.Value?.ToString() ?? string.Empty" />
+                                                                <input class="input" placeholder="evidence (optional)" style="width: 150px"
+                                                                       value="@_resolveNote.GetValueOrDefault(u.Purl, "")"
+                                                                       @oninput="e => _resolveNote[u.Purl] = e.Value?.ToString() ?? string.Empty" />
+                                                                <button class="btn" disabled="@(_resolveBusyPurl == u.Purl)" @onclick="() => ResolveLicenseAsync(u.Purl)">
+                                                                    @(_resolveBusyPurl == u.Purl ? "Saving…" : "Resolve")
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    }
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                    @if (!_canResolveLicense)
+                                    {
+                                        <p class="field__help">You don't have permission to resolve licences (needs policy-edit rights).</p>
+                                    }
+                                </div>
+                            </Card>
+                            <datalist id="spdx-common">
+                                <option value="MIT"></option>
+                                <option value="Apache-2.0"></option>
+                                <option value="BSD-2-Clause"></option>
+                                <option value="BSD-3-Clause"></option>
+                                <option value="ISC"></option>
+                                <option value="MPL-2.0"></option>
+                                <option value="LGPL-2.1"></option>
+                                <option value="GPL-2.0"></option>
+                                <option value="GPL-3.0"></option>
+                                <option value="AGPL-3.0"></option>
+                            </datalist>
+                        }
+                        else
+                        {
+                            <p class="field__help" style="color: var(--color-pass)">✓ Every licence in this build is identified — no unknowns to resolve.</p>
+                        }
                     }
                 }
                 else if (Key == "sbomStaleness")
@@ -526,7 +776,16 @@ else
     private IReadOnlyList<Tamp.Findings.Application.Risk.CveScanHistoryRow> _cveHistory = [];
     private Tamp.Findings.Application.Risk.CoverageSummary? _coverage;
     private Tamp.Findings.Application.Risk.TestsSummary? _tests;
+    private IReadOnlyList<Tamp.Findings.Application.Risk.TestFailureRow> _testFailures = [];
+    private IReadOnlyList<Tamp.Findings.Application.Risk.TestScanHistoryRow> _testHistory = [];
+    private Tamp.Findings.Application.Risk.BuildRawArtifacts? _testArtifacts;
     private IReadOnlyList<Tamp.Findings.Application.Risk.LicenseGroup> _licenses = [];
+    private Tamp.Findings.Application.Risk.LicenseOverview? _licenseOverview;
+    private bool _canResolveLicense;
+    private readonly Dictionary<string, string> _resolveSpdx = new();
+    private readonly Dictionary<string, string> _resolveNote = new();
+    private string? _resolveError;
+    private string? _resolveBusyPurl;
     private IReadOnlyList<Tamp.Findings.Application.Risk.StaleComponent> _stale = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.ReceiptRow> _receipts = [];
     private int _sbomComponents;
@@ -575,9 +834,18 @@ else
                 else if (Key == "coverage")
                     _coverage = await CategoryFindings.CoverageAsync(_project.ProjectId, _commitSha);
                 else if (Key == "tests")
+                {
                     _tests = await CategoryFindings.TestsAsync(_project.ProjectId, _commitSha);
+                    _testFailures = await CategoryFindings.TestFailuresAsync(_project.ProjectId, _commitSha);
+                    _testHistory = await CategoryFindings.TestScanHistoryAsync(_project.ProjectId);        // per-build run provenance
+                    _testArtifacts = await CategoryFindings.RawArtifactsAsync(_project.ProjectId, _commitSha, Tamp.Findings.Domain.Values.RawArtifactKind.TestResults);
+                }
                 else if (Key == "license")
-                    _licenses = await CategoryFindings.LicensesAsync(_project.ProjectId, _commitSha);
+                {
+                    _licenseOverview = await CategoryFindings.LicenseOverviewAsync(_project.ProjectId, _commitSha);
+                    _canResolveLicense = (await Me.CanAsync(
+                        Capability.EditPolicyWeights, new ScopeTarget(_project.ClientId, _project.ProjectId))).Allowed;
+                }
                 else if (Key == "sbomStaleness")
                     _stale = await CategoryFindings.SbomStalenessAsync(_project.ProjectId, _commitSha);
                 else if (Key == "missingScanners")
@@ -593,7 +861,11 @@ else
             _cveHistory = [];
             _coverage = null;
             _tests = null;
+            _testFailures = [];
+            _testHistory = [];
+            _testArtifacts = null;
             _licenses = [];
+            _licenseOverview = null;
             _stale = [];
             _receipts = [];
             _history = [];
@@ -629,6 +901,66 @@ else
     }
 
     private static string Short(string? sha) => sha is { Length: > 7 } ? sha[..7] : (sha ?? "—");
+
+    // Download URL for a stored raw report — the read endpoint keys on componentVersionId for the
+    // visibility boundary (TFND-209). The browser fetches the original .trx/junit bytes directly.
+    private static string RawHref(Guid id, Guid cvId) => $"/raw-artifacts/{id}?componentVersionId={cvId}";
+
+    private static string FormatDuration(double ms) =>
+        ms >= 60_000 ? $"{ms / 60_000:F1} min" : ms >= 1_000 ? $"{ms / 1_000:F1} s" : $"{ms:F0} ms";
+
+    private static string FormatBytes(long bytes) =>
+        bytes >= 1_048_576 ? $"{bytes / 1_048_576.0:F1} MB" : bytes >= 1_024 ? $"{bytes / 1_024.0:F0} KB" : $"{bytes} B";
+
+    private static string TierLabel(Tamp.Findings.Application.Risk.LicensePolicy.Tier t) => t switch
+    {
+        Tamp.Findings.Application.Risk.LicensePolicy.Tier.Permissive => "Permissive",
+        Tamp.Findings.Application.Risk.LicensePolicy.Tier.WeakCopyleft => "Weak copyleft",
+        Tamp.Findings.Application.Risk.LicensePolicy.Tier.StrongCopyleft => "Strong copyleft",
+        Tamp.Findings.Application.Risk.LicensePolicy.Tier.Denied => "Denied",
+        _ => "Unknown",
+    };
+
+    private static string TierTone(Tamp.Findings.Application.Risk.LicensePolicy.Tier t) => t switch
+    {
+        Tamp.Findings.Application.Risk.LicensePolicy.Tier.Permissive => "var(--color-pass)",
+        Tamp.Findings.Application.Risk.LicensePolicy.Tier.WeakCopyleft => "var(--color-band-yellow)",
+        Tamp.Findings.Application.Risk.LicensePolicy.Tier.StrongCopyleft => "var(--color-band-orange)",
+        Tamp.Findings.Application.Risk.LicensePolicy.Tier.Denied => "var(--color-critical)",
+        _ => "var(--color-medium)",
+    };
+
+    // Attest a license for an unresolved package. The write is global (TFND-222); it
+    // changes the score, so we reload both the overview and the header afterward.
+    private async Task ResolveLicenseAsync(string purl)
+    {
+        _resolveError = null;
+        if (_project is null) return;
+        var spdx = _resolveSpdx.GetValueOrDefault(purl, "").Trim();
+        if (spdx.Length == 0) { _resolveError = $"Enter an SPDX id for {purl}."; return; }
+
+        _resolveBusyPurl = purl;
+        try
+        {
+            var actor = await Me.AtAsync(new ScopeTarget(_project.ClientId, _project.ProjectId));
+            if (actor is null) { _resolveError = "You are not authorized to resolve licences."; return; }
+
+            var res = await Licenses.ResolveAsync(actor, purl, spdx, _resolveNote.GetValueOrDefault(purl));
+            if (!res.Success) { _resolveError = res.Error; return; }
+
+            _resolveSpdx.Remove(purl);
+            _resolveNote.Remove(purl);
+
+            _licenseOverview = await CategoryFindings.LicenseOverviewAsync(_project.ProjectId, _commitSha);
+            var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
+            var data = await Hub.LoadAsync(_project, sha);
+            _row = data?.Risk.Breakdown.FirstOrDefault(b => b.Key == Key);
+        }
+        finally
+        {
+            _resolveBusyPurl = null;
+        }
+    }
 
     // Pull the advisory-DB provenance out of the receipt notes ("db=grype-db/v6.1.9; db_built=…") into
     // a compact "grype-db/v6.1.9 · 2026-09-29". Falls back to the raw notes when it's not that shape.

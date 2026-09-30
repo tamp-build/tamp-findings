@@ -11,7 +11,7 @@ namespace Tamp.Findings.Application.Risk;
 // project's "latest canonical" CV set; this service is for the
 // per-build evaluator path where we need to score a specific commit's
 // CV set OR an arbitrary prior CV set.
-public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResolver)
+public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResolver, Licensing.LicenseResolutionService licenses)
 {
     // Canonical groupings live in Domain — the same sets decide which hash a
     // finding gets at ingest and which browse surface renders it, and those
@@ -136,10 +136,15 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             .Where(c => snapshotIds.Contains(c.SbomSnapshotId))
             .Select(c => new
             {
-                c.Version, c.LatestVersion, c.LatestReleasedAt, c.License,
+                c.Purl, c.Version, c.LatestVersion, c.LatestReleasedAt, c.License,
                 VulnCount = c.Vulnerabilities.Count,
             })
             .ToListAsync(ct);
+
+        // The global license knowledge base (TFND-222): a human-attested SPDX id
+        // for a purl overrides whatever the SBOM carried, so a resolved package
+        // classifies by its real license and stops costing "unknown" points.
+        var licenseMap = await licenses.MapAsync(ct);
 
         var compsCount = sbomComponents.Count;
         var staleCutoff = DateTimeOffset.UtcNow.AddDays(-180);
@@ -167,7 +172,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             // built-in table. A policy that says "we have signed off AGPL" and
             // a score that still counts it as denied would be two answers to
             // one question, and the score is the one people act on.
-            switch (LicensePolicy.Classify(c.License, policy.Licenses))
+            var effLicense = licenseMap.TryGetValue(c.Purl, out var resolved) ? resolved : c.License;
+            switch (LicensePolicy.Classify(effLicense, policy.Licenses))
             {
                 case LicensePolicy.Tier.StrongCopyleft: strong++; break;
                 case LicensePolicy.Tier.Denied:         denied++; break;

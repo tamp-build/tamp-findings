@@ -26,3 +26,4 @@ Numbering starts at 0001 for tamp.findings-local decisions.
 | [0014](0014-raw-report-ingestion-and-server-side-parsing.md) | Raw report ingestion — the sink parses, and the raw report is the evidence of record | Accepted |
 | [0015](0015-project-authored-control-dispositions.md) | Project-authored control dispositions; archetype as the default (amends 0009) | Accepted |
 | [0016](0016-scan-cost-fact-policy-split.md) | Scan cost — the producer sends tokens, findings owns the dated price | Accepted |
+| [0017](0017-license-resolution-global-fact.md) | License resolution — a global fact, kept separate from the project's allow/deny position | Accepted |
