@@ -47,18 +47,9 @@ else
             </div>
         </div>
 
-        @* CVE, Tests and Licences each combine everything on one view (their current panels carry their
-           own evidence, rationale and worklist); every other category keeps the Current/History tabs. *@
-        @if (Key != "cve" && Key != "tests" && Key != "license" && Key != "quality")
-        {
-            <div class="cattabs">
-                <button class="cattab @(_tab == Tab.Current ? "cattab--active" : null)" @onclick="() => _tab = Tab.Current">Current</button>
-                <button class="cattab @(_tab == Tab.History ? "cattab--active" : null)" @onclick="() => _tab = Tab.History">History</button>
-            </div>
-        }
-
-        @if (_tab == Tab.Current)
-        {
+        @* Current evidence first, then (for categories without their own history panel) the compact
+           points trend below — one combined page, no tabs. *@
+        <div>
             @if (!Tamp.Findings.Application.Risk.CategoryFindingsQuery.IsFindingsCategory(Key))
             {
                 @if (Key == "cve")
@@ -655,8 +646,17 @@ else
                         }
                         else
                         {
-                            <Chip Label="Nothing found" Tone="var(--color-pass)" Glyph="✓" />
-                            <span>No findings in this category for this build.</span>
+                            var sastRan = _receipts.Where(r => Tamp.Findings.Domain.Values.ScannerKinds.Sast.Contains(r.Scanner)).ToList();
+                            @if (Key.StartsWith("sast") && sastRan.Count == 0)
+                            {
+                                <Chip Label="No SAST scan" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+                                <span>No static-analysis scan was recorded for this build — a “0” here is <strong>unassessed, not clean</strong>.</span>
+                            }
+                            else
+                            {
+                                <Chip Label="Nothing found" Tone="var(--color-pass)" Glyph="✓" />
+                                <span>No findings in this category for this build@(Key.StartsWith("sast") ? $" (scanned by {string.Join(", ", sastRan.Select(r => r.ToolName ?? r.Scanner.ToString()))})" : "").</span>
+                            }
                         }
                     </div>
                     <p class="field__help">A missing scan is not a clean scan — check the Missing scanners category.</p>
@@ -703,8 +703,9 @@ else
                 </Card>
                 <p class="field__help">@_findings.Count finding@(_findings.Count == 1 ? "" : "s") contributing to this category.</p>
             }
-        }
-        else
+        </div>
+
+        @if (Key != "cve" && Key != "tests" && Key != "license" && Key != "quality")
         {
             var hist = _history
                 .Select(h => (h.CommitSha, h.VersionString, h.IngestedAt, Row: h.Breakdown.FirstOrDefault(b => b.Key == Key)))
@@ -771,8 +772,6 @@ else
     [Parameter] public string Sha { get; set; } = "";
     [Parameter] public string Key { get; set; } = "";
 
-    private enum Tab { Current, History }
-
     private ProjectRef? _project;
     private Tamp.Findings.Domain.Risk.RiskCategoryBreakdown? _row;
     private IReadOnlyList<Tamp.Findings.Application.Risk.CategoryFinding> _findings = [];
@@ -799,7 +798,6 @@ else
         (r.Scanner == Tamp.Findings.Domain.Values.ScannerKind.OsvScanner || r.Scanner == Tamp.Findings.Domain.Values.ScannerKind.Grype)
         && r.Status == "Succeeded");
     private IReadOnlyList<BuildHistoryRow> _history = [];
-    private Tab _tab = Tab.Current;
     private bool _loading = true;
     private string? _commitSha;
 
@@ -815,7 +813,6 @@ else
     {
         Scope.SetProject(Client, Project, Sha);
         _loading = true;
-        _tab = Tab.Current;
         try
         {
             _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
@@ -829,7 +826,10 @@ else
             if (_project is not null && _row is not null)
             {
                 if (Tamp.Findings.Application.Risk.CategoryFindingsQuery.IsFindingsCategory(Key))
+                {
                     _findings = await CategoryFindings.LoadAsync(_project.ProjectId, _commitSha, Key);
+                    _receipts = await CategoryFindings.ReceiptsAsync(_project.ProjectId, _commitSha);
+                }
                 else if (Key == "cve")
                 {
                     _cves = await CategoryFindings.CvesAsync(_project.ProjectId, _commitSha);
