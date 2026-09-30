@@ -622,7 +622,7 @@ else
                         <Card>
                             <div class="row">
                                 <Chip Label="Not assessed" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
-                                <span>None of the @_sbom.Components.ToString("N0") components were checked against a package registry, so freshness is unknown — not fresh.</span>
+                                <span>No registry version data is recorded for any of the @_sbom.Components.ToString("N0") components (the enrich-versions step did not run, or found nothing), so freshness is unproven — not fresh.</span>
                             </div>
                         </Card>
                     }
