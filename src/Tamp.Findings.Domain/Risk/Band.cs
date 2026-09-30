@@ -27,6 +27,17 @@ public static class BandExtensions
         Band.Orange => "#d68f42",
         _ => "#dd5f5f",
     };
+
+    /// <summary>Parse a band slug back to the enum (unknown → Red, the safe/worst band). Lets a
+    /// consumer that only has the slug — e.g. the SVG badge from the shared status summary — resolve
+    /// the canonical <see cref="Hex"/> without re-declaring colours.</summary>
+    public static Band FromSlug(string? slug) => slug switch
+    {
+        "green" => Band.Green,
+        "yellow" => Band.Yellow,
+        "orange" => Band.Orange,
+        _ => Band.Red,
+    };
 }
 
 /// <summary>

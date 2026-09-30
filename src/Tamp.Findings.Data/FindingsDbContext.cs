@@ -111,6 +111,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.GitHubRepository).HasMaxLength(256);
             e.HasOne(x => x.Client).WithMany(c => c.Projects).HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.ClientId, x.Name }).IsUnique();
+            e.Property(x => x.BadgeKey).HasMaxLength(64);
+            e.HasIndex(x => x.BadgeKey).IsUnique();
             e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
             // Project acceptance gates — jsonb. Null = no gates wired
             // (every build passes). Distinct from RiskPolicy which is

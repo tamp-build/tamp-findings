@@ -153,42 +153,22 @@ else
     // reader can actually match against a git log.
     private string? ShortSha => _data?.CommitSha is { Length: > 7 } full ? full[..7] : _data?.CommitSha;
 
-    private string BandColour => _data?.Risk.Band switch
-    {
-        "green" => "var(--color-band-green)",
-        "yellow" => "var(--color-band-yellow)",
-        "orange" => "var(--color-band-orange)",
-        _ => "var(--color-band-red)",
-    };
-
+    // The four-metric summary — the SAME one the public badge renders (ProjectStatus.From), so the
+    // header strip and the badge can never disagree on a value or a colour. The header just maps its
+    // band slugs to CSS tokens; the "unmeasured is red / every blocking gate named" logic lives once.
+    private Tamp.Findings.Application.Projects.ProjectStatus? _status;
     private static string Colour(string slug) => $"var(--color-band-{slug})";
 
-    // Coverage: banded off the project's own target/floor (higher is better). No report ingested
-    // is a FAILURE, not a benign blank — a missing measurement is the "unscanned gate passes"
-    // defect this product exists to kill, so it reads red, not grey.
-    private string CoverageColour => _data!.Inputs.CoverageMeasured
-        ? Colour(BandScale.Coverage(_data.CoverageTarget, _data.CoverageFloor).SlugFor(_data.Inputs.SequenceCoveragePercent))
-        : Colour("red");
-    private string CoverageValue => _data!.Inputs.CoverageMeasured
-        ? _data.Inputs.SequenceCoveragePercent.ToString("F1") + "%"
+    private string BandColour => Colour(_status?.RiskBand ?? "red");
+    private string CoverageColour => Colour(_status!.CoverageBand);
+    private string CoverageValue => _status!.CoverageMeasured
+        ? _status.CoveragePercent.ToString("F1") + "%"
         : "✕ No data";
-
-    // Tests: green only when every test passes; banded on the pass rate when some fail; and RED
-    // when nothing was ingested — no test evidence is a failing state, never a pass.
-    private int TestsTotal => _data!.Inputs.TestsTotal;
-    private int TestsPassed => _data!.Inputs.TestsTotal - _data.Inputs.TestsFailed;
-    private string TestsColour => !_data!.Inputs.TestsMeasured ? Colour("red")
-        : _data.Inputs.TestsFailed == 0 ? Colour("green")
-        : Colour(BandScale.Percent(100, 90, 75).SlugFor(TestsTotal > 0 ? 100.0 * TestsPassed / TestsTotal : 0));
-
-    // Ship gate: green when clear, red otherwise with EVERY blocking gate named — a build
-    // blocked by two gates that shows only one reads as one fix away when it is two.
-    private string ShipColour => Colour(_data!.Gates.ClearToShip ? "green" : "red");
-    private IReadOnlyList<string> ShipReasons => _data!.Gates.ClearToShip
-        ? []
-        : _data.Gates.Results.Where(r => r.Blocks)
-            .Select(g => $"{GateEvaluator.Label(g.Key)} · {g.Observed}")
-            .ToArray();
+    private int TestsTotal => _status!.TestsTotal;
+    private int TestsPassed => _status!.TestsPassed;
+    private string TestsColour => Colour(_status!.TestsBand);
+    private string ShipColour => Colour(_status!.ShipBand);
+    private IReadOnlyList<string> ShipReasons => _status!.ShipReasons;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -204,6 +184,7 @@ else
             // nothing, and render a scanned project as never-scanned.
             var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
             _data = _project is null ? null : await Hub.LoadAsync(_project, sha);
+            _status = _data is null ? null : Tamp.Findings.Application.Projects.ProjectStatus.From(_data);
             // POA&M past-due count feeds the evidence tile; a cheap board read
             // reusing the same past-due rule the gate uses.
             _poamPastDue = _data is null || _project is null

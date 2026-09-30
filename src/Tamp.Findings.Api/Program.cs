@@ -686,6 +686,7 @@ if (Tamp.Findings.Api.Endpoints.DesignAccessEndpoints.Enabled)
 
 // Ingest-token CRUD — SPA-facing, behind the cookie-auth fallback.
 app.MapIngestTokens();
+app.MapBadge();   // public anonymous status badge + admin mint/rotate
 
 // TFND-12: the agent surface.
 //

@@ -30,6 +30,11 @@ public sealed class Project
     // project only gets a lighter posture once a human deliberately classifies it down.
     public Values.ProjectArchetype? Archetype { get; set; }
 
+    /// <summary>Opaque per-project token for the PUBLIC status badge (GET /badge/{key}.svg). Unguessable
+    /// so the URL is the capability, but the badge it serves is anonymous + read-only. Rotatable by an
+    /// admin to revoke a leaked embed. Null means the badge is not yet minted for this project.</summary>
+    public string? BadgeKey { get; set; }
+
     // TFND-32: vulnerability disclosure policy metadata. Federal
     // procurement (per CISA BOD 20-01 / NIST SSDF RV.3.1) expects a
     // published path for coordinated disclosure. When any of these are
