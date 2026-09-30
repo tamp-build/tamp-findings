@@ -79,7 +79,14 @@ public sealed record RiskInputs(
     // TFND-216 — a dependency vulnerability (SCA) scan produced a Succeeded receipt (OSV / Grype).
     // The CVE/KEV gates read THIS, not RanSbom: an SBOM inventory with no SCA scan is unassessed, and
     // "zero CVEs" from a scan that never ran is not a clean result. Defaulted so it's additive.
-    bool RanSca = false);
+    bool RanSca = false,
+    // TFND-175 code-quality process gates. QualityGateFailed>0 blocks the qualityGate gate;
+    // HasQualityGateVerdict is the "did a gate verdict get reported" ran-flag (no verdict = Unknown).
+    int QualityGateFailed = 0,
+    bool HasQualityGateVerdict = false,
+    // UnanalyzedLanguages>0 blocks the analysisCoverage gate; HasAnalysisCoverage is its ran-flag.
+    int UnanalyzedLanguages = 0,
+    bool HasAnalysisCoverage = false);
 
 public sealed record RiskCategoryBreakdown(
     string Key,

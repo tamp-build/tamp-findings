@@ -26,6 +26,10 @@ public sealed class Finding
     // here is null for scanners that don't sub-categorise.
     public string? SubCategory { get; set; }
 
+    // TFND-175: opaque native-tool provenance for quality/SAST sources (SonarQube MQR
+    // impacts, severityRaw, effort, analysisId), stored verbatim for the drill-down.
+    public string? Source { get; set; }
+
     // TFND-16: the package this finding is ABOUT, for scanners that report
     // against a dependency rather than against source.
     //

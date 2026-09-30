@@ -40,6 +40,9 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<RawReportArtifact> RawReportArtifacts => Set<RawReportArtifact>();
     public DbSet<ModelPrice> ModelPrices => Set<ModelPrice>();
     public DbSet<LicenseResolution> LicenseResolutions => Set<LicenseResolution>();
+    public DbSet<AnalysisCoverageReport> AnalysisCoverageReports => Set<AnalysisCoverageReport>();
+    public DbSet<AnalysisCoverageLanguage> AnalysisCoverageLanguages => Set<AnalysisCoverageLanguage>();
+    public DbSet<QualityGateResult> QualityGateResults => Set<QualityGateResult>();
     public DbSet<ScanUsageObservation> ScanUsageObservations => Set<ScanUsageObservation>();
     public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
@@ -509,12 +512,43 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => new { x.ComponentVersionId, x.Kind, x.SlotKey }).IsUnique();
         });
 
+        b.Entity<AnalysisCoverageReport>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.GapLanguages).HasMaxLength(1024);
+            e.Property(x => x.Excludes).HasMaxLength(4096);
+            e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(x => x.Languages).WithOne(l => l.Report!).HasForeignKey(l => l.AnalysisCoverageReportId).OnDelete(DeleteBehavior.Cascade);
+            // Replace-on-ingest: one analysis-coverage report per build.
+            e.HasIndex(x => x.ComponentVersionId).IsUnique();
+        });
+        b.Entity<QualityGateResult>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Status).HasMaxLength(16).IsRequired();
+            e.Property(x => x.AnalysisId).HasMaxLength(128);
+            e.Property(x => x.Source).HasMaxLength(256);
+            e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
+            // Replace-on-ingest: one verdict per build.
+            e.HasIndex(x => x.ComponentVersionId).IsUnique();
+        });
+        b.Entity<AnalysisCoverageLanguage>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Language).HasMaxLength(64).IsRequired();
+            e.Property(x => x.AnalyzedBy).HasMaxLength(256);
+            e.Property(x => x.UnanalyzedSample).HasMaxLength(4096);
+            e.HasIndex(x => new { x.AnalysisCoverageReportId, x.Language });
+        });
+
         b.Entity<ScanRunReceipt>(e =>
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.ToolName).HasMaxLength(128);
             e.Property(x => x.ToolVersion).HasMaxLength(64);
             e.Property(x => x.Notes).HasMaxLength(2048);
+            e.Property(x => x.GateStatus).HasMaxLength(16);
+            e.Property(x => x.GateDetails).HasMaxLength(4096);
             e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
             // Replace-on-ingest: one receipt per (CV, Scanner).
             e.HasIndex(x => new { x.ComponentVersionId, x.Scanner }).IsUnique();

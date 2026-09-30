@@ -415,12 +415,25 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
         "sastSevere" or "sastLow" or "secrets" or "iacSevere";
 
     private static readonly ScannerKind[] Sast = ScannerKinds.Sast.ToArray();
+    private static readonly ScannerKind[] QualityScanners = ScannerKinds.Quality.ToArray();
 
     private static IQueryable<Finding>? Filter(string key, IQueryable<Finding> q) => key switch
     {
-        "sastSevere" => q.Where(f => Sast.Contains(f.Scanner)
+        // Typed-unified routing (TFND-175), mirroring RiskInputsBuilder so the list and the score
+        // agree: the issue TYPE on SubCategory wins over the scanner's default bucket. A code smell
+        // (any tool) is quality and can never ride criticalSast; a security issue (any tool but Trivy,
+        // whose "vulnerability" rows are CVEs) is SAST.
+        "quality" => q.Where(f => QualityScanners.Contains(f.Scanner)
+            || f.SubCategory == "bug" || f.SubCategory == "code_smell"),
+        "sastSevere" => q.Where(f =>
+            f.SubCategory != "bug" && f.SubCategory != "code_smell"
+            && (Sast.Contains(f.Scanner)
+                || ((f.SubCategory == "vulnerability" && f.Scanner != ScannerKind.Trivy) || f.SubCategory == "security_hotspot"))
             && (f.Severity == Severity.Critical || f.Severity == Severity.High)),
-        "sastLow" => q.Where(f => Sast.Contains(f.Scanner)
+        "sastLow" => q.Where(f =>
+            f.SubCategory != "bug" && f.SubCategory != "code_smell"
+            && (Sast.Contains(f.Scanner)
+                || ((f.SubCategory == "vulnerability" && f.Scanner != ScannerKind.Trivy) || f.SubCategory == "security_hotspot"))
             && (f.Severity == Severity.Medium || f.Severity == Severity.Low)),
         // Secrets: TruffleHog, plus Trivy rows tagged secret.
         "secrets" => q.Where(f => f.Scanner == ScannerKind.TruffleHog

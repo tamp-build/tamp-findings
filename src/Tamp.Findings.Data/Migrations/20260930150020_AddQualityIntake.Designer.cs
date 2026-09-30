@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Tamp.Findings.Data;
@@ -15,9 +16,11 @@ using Tamp.Findings.Domain.Risk;
 namespace Tamp.Findings.Data.Migrations
 {
     [DbContext(typeof(FindingsDbContext))]
-    partial class FindingsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260930150020_AddQualityIntake")]
+    partial class AddQualityIntake
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -97,14 +100,6 @@ namespace Tamp.Findings.Data.Migrations
 
                     b.Property<Guid>("ComponentVersionId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("Excludes")
-                        .HasMaxLength(4096)
-                        .HasColumnType("character varying(4096)");
-
-                    b.Property<string>("GapLanguages")
-                        .HasMaxLength(1024)
-                        .HasColumnType("character varying(1024)");
 
                     b.Property<DateTimeOffset>("IngestedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1046,9 +1041,6 @@ namespace Tamp.Findings.Data.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("Snippet")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Source")
                         .HasColumnType("text");
 
                     b.Property<int>("Status")
@@ -2057,48 +2049,6 @@ namespace Tamp.Findings.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("ProjectRoleAssignments");
-                });
-
-            modelBuilder.Entity("Tamp.Findings.Domain.Entities.QualityGateResult", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AnalysisId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
-                    b.Property<Guid>("ComponentVersionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ConditionsJson")
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("IngestedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("MeasuresJson")
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("ObservedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Source")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ComponentVersionId")
-                        .IsUnique();
-
-                    b.ToTable("QualityGateResults");
                 });
 
             modelBuilder.Entity("Tamp.Findings.Domain.Entities.RawReportArtifact", b =>
@@ -3162,17 +3112,6 @@ namespace Tamp.Findings.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Client");
-                });
-
-            modelBuilder.Entity("Tamp.Findings.Domain.Entities.QualityGateResult", b =>
-                {
-                    b.HasOne("Tamp.Findings.Domain.Entities.ComponentVersion", "ComponentVersion")
-                        .WithMany()
-                        .HasForeignKey("ComponentVersionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("ComponentVersion");
                 });
 
             modelBuilder.Entity("Tamp.Findings.Domain.Entities.RawReportArtifact", b =>
