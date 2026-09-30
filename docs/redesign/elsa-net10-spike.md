@@ -1,5 +1,10 @@
 # Spike findings — Elsa 3.x and Elsa Studio on .NET 10
 
+> ⚠️ **SUPERSEDED (historical spike).** This spike's "proceed, pin Elsa 3.7.1" verdict was **reversed by
+> [ADR 0005](../adr/0005-removing-elsa-scheduled-work-as-hosted-workers.md)** — Elsa was removed entirely.
+> Scheduled work now runs as hosted `BackgroundService` workers and approvals are durable `PendingApproval`
+> rows in the Application layer. Kept only as the record of why the option was evaluated and dropped.
+
 Ticket: TFND-58 (under TFND-40) · Date: 2026-08-22 · SDK 10.0.202 / runtime .NET 10.0.10
 
 ADR 0001 accepted Elsa on a benchmark taken in a throwaway harness against Elsa 3.7.1, and noted the

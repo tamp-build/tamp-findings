@@ -10,7 +10,7 @@ Numbering starts at 0001 for tamp.findings-local decisions.
 
 | # | Title | Status |
 |---|---|---|
-| [0001](0001-rule-evaluation-predicates-and-workflows.md) | Rule evaluation — four-valued verdicts, predicates by default, Elsa for complexity | Accepted |
+| [0001](0001-rule-evaluation-predicates-and-workflows.md) | Rule evaluation — four-valued verdicts, predicates by default, Elsa for complexity | Accepted (Elsa portion superseded by 0005) |
 | [0002](0002-blazor-hosting-and-the-authorization-boundary.md) | Blazor hosting, the application layer, and one authorization boundary | Accepted |
 | [0003](0003-reflow-and-the-1180px-density-floor.md) | Reflow and the 1180px density floor | Accepted |
 | [0004](0004-gate-enforcement-modes-and-the-cli-gate.md) | Gate enforcement modes and the fail-closed CLI gate | Accepted |
@@ -25,3 +25,4 @@ Numbering starts at 0001 for tamp.findings-local decisions.
 | [0013](0013-reverse-examination-undocumented-decision-advisories.md) | Reverse-examination — undocumented-decision advisories as CM-3 evidence | Proposed |
 | [0014](0014-raw-report-ingestion-and-server-side-parsing.md) | Raw report ingestion — the sink parses, and the raw report is the evidence of record | Accepted |
 | [0015](0015-project-authored-control-dispositions.md) | Project-authored control dispositions; archetype as the default (amends 0009) | Accepted |
+| [0016](0016-scan-cost-fact-policy-split.md) | Scan cost — the producer sends tokens, findings owns the dated price | Accepted |

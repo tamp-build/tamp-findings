@@ -1,5 +1,12 @@
 # tamp.findings — product brief for a UX rework
 
+> ⚠️ **HISTORICAL — pre-redesign (superseded).** This brief describes the *original* app: a React 19 /
+> Vite SPA over a four-tier `Client → Project → Component → Build` model. Both are gone. The frontend is
+> now **Blazor Server (.NET 10)**, served in-process by the API (the SPA was retired, TFND-128), and the
+> hierarchy collapsed to **`Client → Project → Build`** (a build IS a ComponentVersion, TFND-205). It is
+> kept for the UX history it captures. For the current state see **[`../README.md`](../README.md)** and
+> the current design authority **[`redesign/design_handoff_tamp_findings_v3/README.md`](redesign/design_handoff_tamp_findings_v3/README.md)**.
+
 Written for a designer with no prior exposure to this codebase. Everything below reflects the app as deployed, not as planned.
 
 **Live instance:** <https://tamp-findings.example.com>

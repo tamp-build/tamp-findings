@@ -28,14 +28,14 @@ It ingests SARIF, SBOMs, coverage, and test results from any CI pipeline, scores
 |---|---|
 | **Risk score** | 10-category weighted-sum against a configurable policy. Green ≤10 · Yellow ≤25 · Orange ≤50 · Red ≤100. |
 | **Risk rings** | Concentric donut: coverage · code quality · SBOM · secrets · licenses · IaC. Click any segment to drill. |
-| **Acceptance gates** | Pass/fail blockers per build: `riskScoreRegression`, `kevExposure`, `anyCves`, `criticalCves`, `criticalSast`, `criticalIac`, `verifiedSecrets`, `deniedLicenses`, `testFailures`, `coverageRegression`, `poamPastDue`. |
+| **Acceptance gates** | Four-valued (Pass/Fail/Unknown/N/A) blockers per build: `kevExposure`, `anyCves`, `criticalCves`, `highCves`, `criticalSast`, `highSast`, `criticalDast`, `highDast`, `criticalIac`, `verifiedSecrets`, `deniedLicenses`, `baseImageAge`, `testFailures`, `coverageRegression`, `coverageFloor`, `sbomAge`, `poamPastDue`, `noUnmapped`, `adrConformance`. A gate whose scan never ran is Unknown, not clean — the CVE/KEV gates need a dependency (SCA) scan, not just an SBOM. |
 | **CISA KEV gate** | Daily sync of the [Known Exploited Vulnerabilities catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog) (M-22-09 / BOD 22-01). |
 | **VEX** | Per-project CycloneDX-VEX 1.5+ statements. Suppresses matching vulns from CVE counts and the KEV gate. |
 | **POA&M** | NIST SP 800-53 CA-5 / FedRAMP Plan of Action & Milestones with lifecycle + past-due gate. |
 | **SSDF attestation** | `/projects/{id}/ssdf-attestation` produces a print-ready CISA SSDF (NIST SP 800-218) doc with PO/PS/PW/RV practices auto-populated from ingest data. JSON export for FedRAMP packages. |
 | **VDP** | Per-project Vulnerability Disclosure Policy metadata. Drives SSDF RV.3.1 evidence. |
 | **SBOM provenance** | Accepts SLSA / in-toto / DSSE attestations. Drives SSDF PS.2.1 evidence. |
-| **Hierarchical browse** | Overview → Client → Project → Component drill-down. Project gear opens settings dialog (policy, gates, VEX, POA&M, VDP). |
+| **Hierarchical browse** | Overview → Client → Project → Build drill-down. Project gear opens settings dialog (policy, gates, VEX, POA&M, VDP). |
 
 ## Architecture
 
@@ -47,7 +47,7 @@ It ingests SARIF, SBOMs, coverage, and test results from any CI pipeline, scores
 
 ## Hierarchy model
 
-`Client → Project → Component → ComponentVersion`. Risk policy, acceptance gates, VEX, POA&M, and VDP scope to **Project**. Per-build evaluation operates on the latest canonical CV set per `(Component, Flavor)` tuple.
+`Client → Project → Build`. A **build IS a ComponentVersion**, keyed on `(project, flavor, version)` — the `Flavor` is a case-insensitive string tag (e.g. `net10`, `web`), not its own tier. Risk policy, acceptance gates, VEX, POA&M, and VDP scope to **Project**. Per-build evaluation operates on the latest canonical build per `(project, flavor)`. _(The former Component tier was collapsed in TFND-205: evidence anchors straight to the project; ingest still accepts a `component` field for wire compatibility but no longer models it.)_
 
 ## Layout
 

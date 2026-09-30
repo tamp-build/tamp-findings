@@ -3,8 +3,10 @@ using Tamp.Findings.Domain.Values;
 namespace Tamp.Findings.Api.Contracts;
 
 // v0 ingest payload. Adopters POST this to /ingest/findings; the server
-// find-or-creates Client/Project/Component(/Flavor)/ComponentVersion from
-// the names, then upserts findings using the (component-version, hash)
+// find-or-creates the Client/Project and the build (ComponentVersion, keyed on
+// project+flavor+version — the Component tier was collapsed in TFND-205; the
+// `component` field is still accepted for wire compat but no longer modelled),
+// then upserts findings using the (component-version, hash)
 // dedup invariant. Idempotent re-ingest is the goal: posting the same
 // payload twice should produce the same row count and bump LastSeen.
 public sealed record IngestRequest(

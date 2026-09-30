@@ -48,4 +48,4 @@ dotnet run --project build -- Deploy
 
 The production GitHub OAuth app's callback URL **must** be
 `https://<your-host>/auth/github/callback`. A local dev app
-(`http://localhost:5173/auth/github/callback`) is registered separately.
+(`http://localhost:5080/auth/github/callback`) is registered separately.
