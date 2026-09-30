@@ -588,7 +588,36 @@ else
                 }
                 else if (Key == "sbomStaleness")
                 {
-                    @if (_stale.Count == 0)
+                @if (_sbom is { } sb)
+                {
+                    <Card Padded="false">
+                        <div class="card-body">
+                            <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">SBOM provenance</h2>
+                            <table class="table table--rows">
+                                <thead><tr><th>Tool</th><th>Spec</th><th class="align-end">Components</th><th class="align-end">Version-checked</th><th class="align-end">Outdated</th><th class="align-end">Vulnerable</th><th>Ingested</th></tr></thead>
+                                <tbody><tr>
+                                    <td class="mono">@($"{sb.ToolName} {sb.ToolVersion}".Trim())</td>
+                                    <td class="mono muted">@(sb.SpecVersion ?? "—")</td>
+                                    <td class="mono align-end">@sb.Components.ToString("N0")</td>
+                                    <td class="mono align-end" style="@(sb.Checked < sb.Components ? "color: var(--color-high)" : null)">@sb.Checked.ToString("N0")</td>
+                                    <td class="mono align-end">@sb.Outdated.ToString("N0")</td>
+                                    <td class="mono align-end">@sb.Vulnerable.ToString("N0")</td>
+                                    <td class="mono muted">@sb.IngestedAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                </tr></tbody>
+                            </table>
+                        </div>
+                    </Card>
+                }
+                    @if (_sbom is null)
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="No SBOM" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
+                                <span>No SBOM was ingested for this build — freshness is unassessed, not fresh.</span>
+                            </div>
+                        </Card>
+                    }
+                    else if (_stale.Count == 0)
                     {
                         <Card>
                             <div class="row">
@@ -865,6 +894,7 @@ else
     private string? _resolveError;
     private string? _resolveBusyPurl;
     private IReadOnlyList<Tamp.Findings.Application.Risk.StaleComponent> _stale = [];
+    private Tamp.Findings.Application.Risk.SbomSummary? _sbom;
     private IReadOnlyList<Tamp.Findings.Application.Risk.ReceiptRow> _receipts = [];
     private int _sbomComponents;
     // The dependency-vuln (SCA) scan receipt, if one ran — the evidence behind "0 CVEs" (TFND-217).
@@ -928,7 +958,10 @@ else
                 else if (Key == "quality")
                     _quality = await CategoryFindings.QualityOverviewAsync(_project.ProjectId, _commitSha);
                 else if (Key == "sbomStaleness")
+                {
                     _stale = await CategoryFindings.SbomStalenessAsync(_project.ProjectId, _commitSha);
+                    _sbom = await CategoryFindings.SbomSummaryAsync(_project.ProjectId, _commitSha);
+                }
                 else if (Key == "missingScanners")
                     _receipts = await CategoryFindings.ReceiptsAsync(_project.ProjectId, _commitSha);
             }
@@ -949,6 +982,7 @@ else
             _licenseOverview = null;
             _quality = null;
             _stale = [];
+            _sbom = null;
             _receipts = [];
             _history = [];
         }

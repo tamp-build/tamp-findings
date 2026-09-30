@@ -436,6 +436,23 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
             .Take(100).ToArray();
     }
 
+    /// <summary>Provenance + enrichment coverage for the SBOM behind `sbomStaleness`, so "fresh" is
+    /// evidence (how many components were actually checked), not an absence of rows.</summary>
+    public async Task<SbomSummary?> SbomSummaryAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var snapIds = await SnapshotIdsAsync(projectId, commitSha, ct);
+        if (snapIds.Length == 0) return null;
+        var snaps = await db.SbomSnapshots.AsNoTracking().Where(s => snapIds.Contains(s.Id))
+            .Select(s => new { s.ToolName, s.ToolVersion, s.SpecVersion, s.IngestedAt }).ToListAsync(ct);
+        var comps = db.SbomComponents.AsNoTracking().Where(c => snapIds.Contains(c.SbomSnapshotId));
+        var total = await comps.CountAsync(ct);
+        var checkedCount = await comps.CountAsync(c => c.LatestVersion != null && c.LatestVersion != "", ct);
+        var outdated = await comps.CountAsync(c => c.LatestVersion != null && c.LatestVersion != "" && c.LatestVersion != c.Version, ct);
+        var vulnerable = await comps.CountAsync(c => c.Vulnerabilities.Count > 0, ct);
+        var head = snaps.OrderByDescending(s => s.IngestedAt).First();
+        return new SbomSummary(head.ToolName, head.ToolVersion, head.SpecVersion, head.IngestedAt, total, checkedCount, outdated, vulnerable);
+    }
+
     /// <summary>Scan-run receipts for the `missingScanners` category — which scanners ran.</summary>
     public async Task<IReadOnlyList<ReceiptRow>> ReceiptsAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
     {
@@ -670,6 +687,7 @@ public sealed record LicenseOverview(
     IReadOnlyList<string> PolicyDeny, IReadOnlyList<string> PolicyAllow, bool DenyUnknown,
     int ResolvedApplied);
 
+public sealed record SbomSummary(string? ToolName, string? ToolVersion, string? SpecVersion, DateTimeOffset IngestedAt, int Components, int Checked, int Outdated, int Vulnerable);
 public sealed record StaleComponent(string Name, string Version, string? LatestVersion, int? DaysBehind, bool Stale);
 
 public sealed record ReceiptRow(
