@@ -293,6 +293,14 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
     // without overwriting what somebody recorded about their own contract.
     await Tamp.Findings.Application.SystemAdmin.PaidComponentRegistry.SeedAsync(db);
 
+    // TFND-204: seed approximate LLM token prices if the table is empty. Insert-if-absent (never
+    // overwrite) — an admin's corrected price is theirs to keep; a new price is a new dated row.
+    if (!await db.ModelPrices.AnyAsync())
+    {
+        db.ModelPrices.AddRange(Tamp.Findings.Domain.Entities.ModelPriceDefaults.Build());
+        await db.SaveChangesAsync();
+    }
+
     // Arm the administrator claim token if nobody has signed in yet
     // (TFND-126). Printed to the container log because whoever can read the
     // log is the operator — that possession is what the token proves.
@@ -705,6 +713,7 @@ app.MapIngest();
 app.MapSbomIngest();
 app.MapCoverageIngest();
 app.MapScanRunIngest();
+app.MapScanUsageIngest();   // TFND-204: LLM usage/cost telemetry per build
 // TFND-134: the image a build produced, and the base image behind it.
 app.MapContainerImageIngest();
 app.MapSbomEnrich();

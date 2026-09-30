@@ -18,6 +18,7 @@
 @inject ProjectHubQuery Hub
 @inject CurrentUser Me
 @inject CostsAndLicensesQuery Query
+@inject Tamp.Findings.Application.Costs.ScanCostQuery ScanCosts
 
 <PageTitle>Costs &amp; licences — @Project</PageTitle>
 
@@ -112,6 +113,42 @@ else
                         shipping a licence nobody signed off is a commitment somebody made on the
                         organisation's behalf.
                     </p>
+                </Card>
+            }
+
+            @* ---- LLM scan cost (TFND-204) ------------------------------- *@
+            @if (_scanCost is { } sc)
+            {
+                <Card Padded="false">
+                    <div class="card-body">
+                        <h2>Scan cost</h2>
+                        <div class="row" style="gap: var(--space-4); align-items: baseline">
+                            <div><span class="stat__value">$@sc.TotalCost.ToString("N2")</span> <span class="muted">across @sc.Builds build@(sc.Builds == 1 ? "" : "s")</span></div>
+                            <div class="muted">@sc.InputTokens.ToString("N0") in · @sc.OutputTokens.ToString("N0") out tokens</div>
+                        </div>
+                        @if (sc.UnpricedModels.Count > 0)
+                        {
+                            <p class="field__help">No price on file for <span class="mono">@string.Join(", ", sc.UnpricedModels)</span> — cost is understated for those. Add a price in the model-price table.</p>
+                        }
+                        <table class="table table--rows" style="margin-top: var(--space-3)">
+                            <thead><tr><th>Model</th><th class="align-end">Input</th><th class="align-end">Output</th><th class="align-end">Cost</th></tr></thead>
+                            <tbody>
+                                @foreach (var m in sc.ByModel)
+                                {
+                                    <tr>
+                                        <td class="mono">@m.ModelId</td>
+                                        <td class="align-end">@m.InputTokens.ToString("N0")</td>
+                                        <td class="align-end">@m.OutputTokens.ToString("N0")</td>
+                                        <td class="align-end">$@m.Cost.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        <p class="field__help">
+                            LLM tokens billed by the conformance scans, priced from findings' dated model-price table
+                            (the price in effect when each scan ran). Cost is evidence about the SCAN, not the code.
+                        </p>
+                    </div>
                 </Card>
             }
 
@@ -320,6 +357,7 @@ else
     [Parameter] public string Project { get; set; } = "";
 
     private CostsAndLicenses? _data;
+    private Tamp.Findings.Application.Costs.ScanCostSummary? _scanCost;
     private string? _error;
 
     private int NeedingReview =>
@@ -349,6 +387,7 @@ else
             if (project is null) { _error = "No such project."; return; }
 
             _data = await Query.LoadAsync(project.ProjectId, DateTimeOffset.UtcNow);
+            _scanCost = await ScanCosts.ForProjectAsync(project.ProjectId);
         }
         catch (Exception ex)
         {

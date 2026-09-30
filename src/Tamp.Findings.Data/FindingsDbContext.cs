@@ -38,6 +38,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<TestSuiteResult> TestSuiteResults => Set<TestSuiteResult>();
     public DbSet<TestCaseResult> TestCaseResults => Set<TestCaseResult>();
     public DbSet<RawReportArtifact> RawReportArtifacts => Set<RawReportArtifact>();
+    public DbSet<ModelPrice> ModelPrices => Set<ModelPrice>();
+    public DbSet<ScanUsageObservation> ScanUsageObservations => Set<ScanUsageObservation>();
     public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
     public DbSet<PolicyTemplate> PolicyTemplates => Set<PolicyTemplate>();
@@ -455,6 +457,29 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.Property(x => x.ErrorStackTrace).HasColumnType("text");
             e.HasOne(x => x.Suite).WithMany(s => s.Cases).HasForeignKey(x => x.TestSuiteResultId).OnDelete(DeleteBehavior.Cascade);
             e.HasIndex(x => new { x.TestSuiteResultId, x.Name });
+        });
+
+        b.Entity<ModelPrice>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ModelId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Provider).HasMaxLength(64);
+            e.Property(x => x.Currency).HasMaxLength(8).IsRequired();
+            e.Property(x => x.InputPerMillion).HasColumnType("numeric(12,4)");
+            e.Property(x => x.OutputPerMillion).HasColumnType("numeric(12,4)");
+            // One price per (model, effective date) — a dated table, newest-effective-wins at read time.
+            e.HasIndex(x => new { x.ModelId, x.EffectiveFrom }).IsUnique();
+        });
+
+        b.Entity<ScanUsageObservation>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Adapter).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Capability).HasMaxLength(128);
+            e.Property(x => x.ModelId).HasMaxLength(128).IsRequired();
+            e.Property(x => x.Provider).HasMaxLength(64);
+            e.HasOne(x => x.ComponentVersion).WithMany().HasForeignKey(x => x.ComponentVersionId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.ComponentVersionId, x.ObservedAt });
         });
 
         b.Entity<RawReportArtifact>(e =>
