@@ -104,6 +104,18 @@ public static class ArchetypeLayers
             },
             new ControlAssertion
             {
+                Kind = ControlDispositionKind.Inherited,
+                InheritedFrom = "the deployed system, the SCM platform (branch protection / required reviews), and the org change-control program",
+                Justification = "Configuration management of a running system — baseline configuration, configuration change control, config settings, least functionality — and the change-control MECHANISM (who may change the code/system) are operational functions of the deployed system, the source-control platform, and the org's change-control program, not of a code library. Fine-grained gated checks (branch-protection verification, change testing) are tracked in TFND-212; component inventory (CM-8) is owned/gated separately.",
+                ControlIds =
+                [
+                    "CM-2(2)", "CM-2(3)", "CM-2(7)", "CM-3", "CM-3(1)", "CM-3(2)", "CM-3(4)", "CM-3(6)",
+                    "CM-4", "CM-4(1)", "CM-4(2)", "CM-5", "CM-5(1)", "CM-6(1)", "CM-6(2)",
+                    "CM-7(1)", "CM-7(2)", "CM-7(5)", "CM-9", "CM-10", "CM-11", "CM-12", "CM-12(1)",
+                ],
+            },
+            new ControlAssertion
+            {
                 Kind = ControlDispositionKind.NotApplicable,
                 Justification = "The component implements no wireless, mobile-device, collaborative-computing, or messaging/mail technologies, so these controls have no applicable surface.",
                 ControlIds =
