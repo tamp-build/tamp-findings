@@ -229,12 +229,20 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         var ranQuality = QualitySet.Any(s => receiptSet.Contains(s)) || receiptSet.Contains(ScannerKind.SonarQube);
 
         // TFND-175 quality-gate verdict from the dedicated /ingest/quality-gate result.
-        var qualityGateStatus = await db.QualityGateResults.AsNoTracking()
+        // The SQ quality gate is COMPOSITE (reliability/security/coverage/maintainability
+        // conditions), so on a fail we count the ERROR conditions — a "2 failed" reads
+        // truer than "1", and the detail names which ones.
+        var qg = await db.QualityGateResults.AsNoTracking()
             .Where(r => cvIds.Contains(r.ComponentVersionId))
-            .Select(r => r.Status)
+            .Select(r => new { r.Status, r.ConditionsJson })
             .FirstOrDefaultAsync(ct);
-        var hasQualityGateVerdict = qualityGateStatus != null;
-        var qualityGateFailed = string.Equals(qualityGateStatus, "fail", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        var hasQualityGateVerdict = qg != null;
+        var qualityGateFailed = 0;
+        if (qg is not null && string.Equals(qg.Status, "fail", StringComparison.OrdinalIgnoreCase))
+        {
+            qualityGateFailed = CountErrorConditions(qg.ConditionsJson);
+            if (qualityGateFailed == 0) qualityGateFailed = 1;   // fail with no parsable conditions still blocks
+        }
 
         // TFND-175 analysis-coverage: the producer's authoritative gap list
         // (overall.languagesWithFootprintNoAnalyzer) — a non-empty list blocks.
@@ -323,6 +331,25 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
 
     // Per-policy severity ceiling. Default (no override) returns the
     // ingested severity unchanged.
+    // How many quality-gate conditions failed (SQ status ERROR) — the composite gate's
+    // real failure count. Stored as a JSON array of {Metric, Op, Threshold, Actual, Status}.
+    private static int CountErrorConditions(string? conditionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(conditionsJson)) return 0;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(conditionsJson);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) return 0;
+            var n = 0;
+            foreach (var c in doc.RootElement.EnumerateArray())
+                if (c.TryGetProperty("Status", out var s)
+                    && string.Equals(s.GetString(), "ERROR", StringComparison.OrdinalIgnoreCase))
+                    n++;
+            return n;
+        }
+        catch { return 0; }
+    }
+
     private static Severity CapSeverity(ScannerKind scanner, Severity raw, IReadOnlyDictionary<string, ScannerOverride> overrides)
     {
         if (overrides.TryGetValue(scanner.ToString(), out var ov)

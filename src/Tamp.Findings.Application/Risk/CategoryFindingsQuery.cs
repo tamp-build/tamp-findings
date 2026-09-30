@@ -401,6 +401,116 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
             .ToListAsync(ct);
     }
 
+    /// <summary>Everything the quality surfaces show for one build: type-routed findings (SonarQube or
+    /// any quality-lane tool), the SonarQube quality-gate verdict with its named conditions, analysis
+    /// coverage, the scan-run provenance, and per-build history. "Ran" is true only with real evidence
+    /// (a successful quality receipt, a gate verdict or findings) — never inferred from a bare zero.</summary>
+    public async Task<QualityOverview> QualityOverviewAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
+        if (cvIds.Length == 0) return QualityOverview.Empty;
+
+        var findings = await Filter("quality", db.Findings.AsNoTracking().Where(f => cvIds.Contains(f.ComponentVersionId)))!
+            .OrderByDescending(f => f.Severity).ThenBy(f => f.FilePath).ThenBy(f => f.Line)
+            .Select(f => new CategoryFinding(
+                f.Id, f.Scanner, f.RuleId, f.Severity, f.Title, f.Description,
+                f.FilePath, f.Line, f.Snippet, f.SubCategory, f.Status, f.FirstSeen))
+            .ToListAsync(ct);
+
+        var qualityKinds = QualityScanners.Append(ScannerKind.SonarQube).ToArray();
+        var receipts = await db.ScanRunReceipts.AsNoTracking()
+            .Where(r => cvIds.Contains(r.ComponentVersionId) && qualityKinds.Contains(r.Scanner))
+            .OrderBy(r => r.Scanner)
+            .Select(r => new ReceiptRow(r.Scanner, r.Status.ToString(), r.FindingsCount, r.CompletedAt, r.ToolName, r.ToolVersion, r.Notes))
+            .ToListAsync(ct);
+
+        var gateRow = await db.QualityGateResults.AsNoTracking()
+            .Where(g => cvIds.Contains(g.ComponentVersionId))
+            .OrderByDescending(g => g.ObservedAt)
+            .FirstOrDefaultAsync(ct);
+        QualityGateView? gate = gateRow is null ? null : new QualityGateView(
+            gateRow.Status, ParseConditions(gateRow.ConditionsJson), ParseMeasures(gateRow.MeasuresJson),
+            gateRow.Source, gateRow.AnalysisId, gateRow.ObservedAt);
+
+        var cov = await db.AnalysisCoverageReports.AsNoTracking().Include(r => r.Languages)
+            .Where(r => cvIds.Contains(r.ComponentVersionId))
+            .OrderByDescending(r => r.ObservedAt)
+            .FirstOrDefaultAsync(ct);
+        AnalysisCoverageView? coverage = cov is null ? null : new AnalysisCoverageView(
+            cov.Languages.OrderByDescending(l => l.LinesTotal)
+                .Select(l => new AnalysisLanguageRow(l.Language, l.FilesAnalyzed, l.FilesTotal, l.LinesTotal, l.PercentAnalyzed, l.AnalyzedBy, l.UnanalyzedSample))
+                .ToList(),
+            SplitList(cov.GapLanguages), SplitList(cov.Excludes), cov.ObservedAt);
+
+        var ran = findings.Count > 0 || gate is not null
+            || receipts.Any(r => r.Status == "Succeeded");
+
+        return new QualityOverview(ran, findings, receipts, gate, coverage, await QualityHistoryAsync(projectId, ct));
+    }
+
+    private async Task<IReadOnlyList<QualityHistoryRow>> QualityHistoryAsync(Guid projectId, CancellationToken ct)
+    {
+        var cvs = await db.ComponentVersions.AsNoTracking()
+            .Where(cv => cv.ProjectId == projectId && cv.CommitSha != null)
+            .OrderByDescending(cv => cv.CreatedAt).Take(12)
+            .Select(cv => new { cv.Id, cv.CommitSha, cv.CreatedAt })
+            .ToListAsync(ct);
+        if (cvs.Count == 0) return [];
+        var ids = cvs.Select(c => c.Id).ToArray();
+
+        var counts = (await Filter("quality", db.Findings.AsNoTracking().Where(f => ids.Contains(f.ComponentVersionId)))!
+                .GroupBy(f => f.ComponentVersionId)
+                .Select(g => new { CvId = g.Key, Count = g.Count() })
+                .ToListAsync(ct))
+            .ToDictionary(x => x.CvId, x => x.Count);
+        var gates = (await db.QualityGateResults.AsNoTracking()
+                .Where(g => ids.Contains(g.ComponentVersionId))
+                .Select(g => new { g.ComponentVersionId, g.Status, g.ConditionsJson })
+                .ToListAsync(ct))
+            .GroupBy(g => g.ComponentVersionId).ToDictionary(g => g.Key, g => g.First());
+
+        return cvs.Select(c =>
+        {
+            gates.TryGetValue(c.Id, out var g);
+            var conds = g is null ? [] : ParseConditions(g.ConditionsJson);
+            return new QualityHistoryRow(c.CommitSha, c.CreatedAt, counts.GetValueOrDefault(c.Id, 0),
+                g?.Status, conds.Count(x => x.Failed), conds.Count);
+        }).ToList();
+    }
+
+    private static IReadOnlyList<string> SplitList(string? s) =>
+        string.IsNullOrWhiteSpace(s) ? [] : s.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+    private static IReadOnlyList<QualityCondition> ParseConditions(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) return [];
+            static string? Str(System.Text.Json.JsonElement e, string n) =>
+                e.TryGetProperty(n, out var v) ? (v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : v.ToString()) : null;
+            return doc.RootElement.EnumerateArray()
+                .Select(c => new QualityCondition(Str(c, "Metric") ?? "?", Str(c, "Op"), Str(c, "Threshold"), Str(c, "Actual"),
+                    string.Equals(Str(c, "Status"), "ERROR", StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+        catch { return []; }
+    }
+
+    private static IReadOnlyList<KeyValuePair<string, string>> ParseMeasures(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return [];
+            return doc.RootElement.EnumerateObject()
+                .Select(p => KeyValuePair.Create(p.Name, p.Value.ToString())).ToList();
+        }
+        catch { return []; }
+    }
+
     private async Task<Guid[]> SnapshotIdsAsync(Guid projectId, string? commitSha, CancellationToken ct)
     {
         var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
@@ -515,3 +625,21 @@ public sealed record ReceiptRow(
 public sealed record CveScanHistoryRow(
     string? CommitSha, DateTimeOffset BuiltAt, bool Scanned,
     string? ScannerTool, string? ScannerVersion, string? Notes, int CveCount);
+
+public sealed record QualityCondition(string Metric, string? Op, string? Threshold, string? Actual, bool Failed);
+public sealed record QualityGateView(
+    string Status, IReadOnlyList<QualityCondition> Conditions, IReadOnlyList<KeyValuePair<string, string>> Measures,
+    string? Source, string? AnalysisId, DateTimeOffset ObservedAt);
+public sealed record AnalysisLanguageRow(
+    string Language, int FilesAnalyzed, int FilesTotal, long Lines, double PercentAnalyzed, string? AnalyzedBy, string? UnanalyzedSample);
+public sealed record AnalysisCoverageView(
+    IReadOnlyList<AnalysisLanguageRow> Languages, IReadOnlyList<string> GapLanguages,
+    IReadOnlyList<string> Excludes, DateTimeOffset ObservedAt);
+public sealed record QualityHistoryRow(
+    string? CommitSha, DateTimeOffset BuiltAt, int FindingCount, string? GateStatus, int FailedConditions, int TotalConditions);
+public sealed record QualityOverview(
+    bool Ran, IReadOnlyList<CategoryFinding> Findings, IReadOnlyList<ReceiptRow> Receipts,
+    QualityGateView? Gate, AnalysisCoverageView? Coverage, IReadOnlyList<QualityHistoryRow> History)
+{
+    public static readonly QualityOverview Empty = new(false, [], [], null, null, []);
+}

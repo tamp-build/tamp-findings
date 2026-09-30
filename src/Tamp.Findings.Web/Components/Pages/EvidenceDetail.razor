@@ -5,6 +5,7 @@
 @inject ProjectHubQuery Hub
 @inject CurrentUser Me
 @inject Tamp.Findings.Application.Evidence.EvidenceQuery Evidence
+@inject Tamp.Findings.Application.Risk.CategoryFindingsQuery CategoryFindings
 @inject Tamp.Findings.Application.Poam.PoamQuery Poam
 @inject Tamp.Findings.Application.Vex.VexQuery Vex
 @inject Tamp.Findings.Application.Attestation.SsdfAttestationBuilder Ssdf
@@ -75,8 +76,11 @@ else
         {
             @switch (Key)
             {
-                case EvidenceKeys.Dast:
                 case EvidenceKeys.Quality:
+                    <QualityPanel Overview="_quality" />
+                    break;
+
+                case EvidenceKeys.Dast:
                 case EvidenceKeys.Accessibility:
                     @if (!_scanRan)
                     {
@@ -335,6 +339,7 @@ else
     private (string Mark, string Color, bool Dashed, string Text) _status = ("•", "var(--color-neutral-500)", false, "collected");
 
     private bool _scanRan;
+    private Tamp.Findings.Application.Risk.QualityOverview? _quality;
     private IReadOnlyList<EvidenceFinding> _findings = [];
     private IReadOnlyList<KevRow> _kev = [];
     private IReadOnlyList<BaseImageRow> _images = [];
@@ -376,6 +381,7 @@ else
     private void Reset()
     {
         _scanRan = false;
+        _quality = null;
         _findings = [];
         _kev = [];
         _images = [];
@@ -396,9 +402,9 @@ else
                 SetScanStatus(_scanRan, _findings.Count);
                 break;
             case EvidenceKeys.Quality:
-                _scanRan = i.RanQuality;
-                _findings = await Evidence.QualityAsync(projectId, _commitSha);
-                SetScanStatus(_scanRan, _findings.Count);
+                _quality = await CategoryFindings.QualityOverviewAsync(projectId, _commitSha);
+                _scanRan = _quality.Ran || i.RanQuality;
+                SetScanStatus(_scanRan, _quality.Findings.Count);
                 break;
             case EvidenceKeys.Accessibility:
                 _scanRan = i.RanAccessibility;
@@ -538,7 +544,7 @@ else
     {
         EvidenceKeys.Dast => "Dynamic scan of the deployed target (ZAP / Nuclei).",
         EvidenceKeys.Kev => "CISA Known Exploited Vulnerabilities matched against this build's CVEs.",
-        EvidenceKeys.Quality => "Design and maintainability checks: OpenAPI lint, breaking-change, architecture, mutation.",
+        EvidenceKeys.Quality => "Code quality: the SonarQube quality gate and its conditions, bugs and code smells, analysis coverage; plus OpenAPI lint, breaking-change, architecture and mutation checks.",
         EvidenceKeys.Accessibility => "axe-core accessibility violations by rule.",
         EvidenceKeys.BaseImage => "Container base-image age, measured at build.",
         EvidenceKeys.Poam => "Plan of Action & Milestones — open weaknesses and their due dates.",

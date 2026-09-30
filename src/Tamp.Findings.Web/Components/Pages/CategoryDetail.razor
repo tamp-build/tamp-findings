@@ -49,7 +49,7 @@ else
 
         @* CVE, Tests and Licences each combine everything on one view (their current panels carry their
            own evidence, rationale and worklist); every other category keeps the Current/History tabs. *@
-        @if (Key != "cve" && Key != "tests" && Key != "license")
+        @if (Key != "cve" && Key != "tests" && Key != "license" && Key != "quality")
         {
             <div class="cattabs">
                 <button class="cattab @(_tab == Tab.Current ? "cattab--active" : null)" @onclick="() => _tab = Tab.Current">Current</button>
@@ -547,6 +547,10 @@ else
                         }
                     }
                 }
+                else if (Key == "quality")
+                {
+                    <QualityPanel Overview="_quality" />
+                }
                 else if (Key == "sbomStaleness")
                 {
                     @if (_stale.Count == 0)
@@ -781,6 +785,7 @@ else
     private Tamp.Findings.Application.Risk.BuildRawArtifacts? _testArtifacts;
     private IReadOnlyList<Tamp.Findings.Application.Risk.LicenseGroup> _licenses = [];
     private Tamp.Findings.Application.Risk.LicenseOverview? _licenseOverview;
+    private Tamp.Findings.Application.Risk.QualityOverview? _quality;
     private bool _canResolveLicense;
     private readonly Dictionary<string, string> _resolveSpdx = new();
     private readonly Dictionary<string, string> _resolveNote = new();
@@ -846,6 +851,8 @@ else
                     _canResolveLicense = (await Me.CanAsync(
                         Capability.EditPolicyWeights, new ScopeTarget(_project.ClientId, _project.ProjectId))).Allowed;
                 }
+                else if (Key == "quality")
+                    _quality = await CategoryFindings.QualityOverviewAsync(_project.ProjectId, _commitSha);
                 else if (Key == "sbomStaleness")
                     _stale = await CategoryFindings.SbomStalenessAsync(_project.ProjectId, _commitSha);
                 else if (Key == "missingScanners")
@@ -866,6 +873,7 @@ else
             _testArtifacts = null;
             _licenses = [];
             _licenseOverview = null;
+            _quality = null;
             _stale = [];
             _receipts = [];
             _history = [];
