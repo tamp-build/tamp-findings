@@ -75,7 +75,11 @@ public sealed record RiskInputs(
     // TFND-182 — the build's SBOM age in days (the snapshot's own age: now minus
     // when it was ingested), or null when no SBOM was ingested. Drives the
     // sbomAge gate; distinct from base-image age and component staleness.
-    int? SbomAgeDays = null);
+    int? SbomAgeDays = null,
+    // TFND-216 — a dependency vulnerability (SCA) scan produced a Succeeded receipt (OSV / Grype).
+    // The CVE/KEV gates read THIS, not RanSbom: an SBOM inventory with no SCA scan is unassessed, and
+    // "zero CVEs" from a scan that never ran is not a clean result. Defaulted so it's additive.
+    bool RanSca = false);
 
 public sealed record RiskCategoryBreakdown(
     string Key,

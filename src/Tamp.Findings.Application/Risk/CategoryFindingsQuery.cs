@@ -179,7 +179,7 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db)
         return await db.ScanRunReceipts.AsNoTracking()
             .Where(r => cvIds.Contains(r.ComponentVersionId))
             .OrderBy(r => r.Scanner)
-            .Select(r => new ReceiptRow(r.Scanner, r.Status.ToString(), r.FindingsCount, r.CompletedAt, r.ToolName))
+            .Select(r => new ReceiptRow(r.Scanner, r.Status.ToString(), r.FindingsCount, r.CompletedAt, r.ToolName, r.ToolVersion, r.Notes))
             .ToListAsync(ct);
     }
 
@@ -247,4 +247,5 @@ public sealed record LicenseGroup(string License, int Count);
 public sealed record StaleComponent(string Name, string Version, string? LatestVersion, int? DaysBehind, bool Stale);
 
 public sealed record ReceiptRow(
-    ScannerKind Scanner, string Status, int FindingsCount, DateTimeOffset? CompletedAt, string? ToolName);
+    ScannerKind Scanner, string Status, int FindingsCount, DateTimeOffset? CompletedAt, string? ToolName,
+    string? ToolVersion = null, string? Notes = null);

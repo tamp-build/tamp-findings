@@ -279,10 +279,10 @@ public static class GateEvaluator
             + "threshold. The first build on a project has nothing to compare against and passes.",
         GateKeys.KevExposure =>
             "Blocks when any dependency carries a CVE on the CISA Known Exploited Vulnerabilities "
-            + "list. Unanswerable without an SBOM ingest.",
-        GateKeys.AnyCves => "Blocks on any open CVE at all. Unanswerable without an SBOM ingest.",
-        GateKeys.CriticalCves => "Blocks on critical CVEs above the threshold. Needs an SBOM.",
-        GateKeys.HighCves => "Blocks on high CVEs above the threshold. Needs an SBOM.",
+            + "list. Unanswerable without a dependency (SCA) scan.",
+        GateKeys.AnyCves => "Blocks on any open CVE at all. Unanswerable without a dependency (SCA) scan.",
+        GateKeys.CriticalCves => "Blocks on critical CVEs above the threshold. Needs a dependency (SCA) scan.",
+        GateKeys.HighCves => "Blocks on high CVEs above the threshold. Needs a dependency (SCA) scan.",
         GateKeys.CriticalSast => "Blocks on critical static-analysis findings. Needs a SAST scan.",
         GateKeys.HighSast => "Blocks on high static-analysis findings. Needs a SAST scan.",
         GateKeys.CriticalDast =>
@@ -338,10 +338,13 @@ public static class GateEvaluator
             // CVE and licence facts come out of the SBOM pipeline. No SBOM
             // ingest means nobody looked, which is not the same as nothing
             // being there.
-            GateKeys.KevExposure         => Threshold(key, cfg, current.KevListedCves, 0, "KEV-listed CVEs", current.RanSbom, "SBOM"),
-            GateKeys.AnyCves             => Threshold(key, cfg, current.CveCritical + current.CveHigh + current.CveMedium + current.CveLow, 0, "open CVEs", current.RanSbom, "SBOM"),
-            GateKeys.CriticalCves        => Threshold(key, cfg, current.CveCritical, 0, "critical CVEs", current.RanSbom, "SBOM"),
-            GateKeys.HighCves            => Threshold(key, cfg, current.CveHigh, 0, "high CVEs", current.RanSbom, "SBOM"),
+            // CVE/KEV gates read RanSca (an OSV/Grype scan ran), NOT RanSbom (TFND-216): an SBOM is an
+            // inventory; zero CVEs from an inventory that was never scanned is unassessed, not clean.
+            GateKeys.KevExposure         => Threshold(key, cfg, current.KevListedCves, 0, "KEV-listed CVEs", current.RanSca, "dependency (SCA) scan"),
+            GateKeys.AnyCves             => Threshold(key, cfg, current.CveCritical + current.CveHigh + current.CveMedium + current.CveLow, 0, "open CVEs", current.RanSca, "dependency (SCA) scan"),
+            GateKeys.CriticalCves        => Threshold(key, cfg, current.CveCritical, 0, "critical CVEs", current.RanSca, "dependency (SCA) scan"),
+            GateKeys.HighCves            => Threshold(key, cfg, current.CveHigh, 0, "high CVEs", current.RanSca, "dependency (SCA) scan"),
+            // Denied licences stay on RanSbom — that IS a property of the inventory, not a vuln scan.
             GateKeys.DeniedLicenses      => Threshold(key, cfg, current.LicenseDenied, 0, "denied licenses", current.RanSbom, "SBOM"),
 
             // TFND-134. Not a Threshold() call, because this gate has THREE

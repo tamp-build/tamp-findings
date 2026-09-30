@@ -59,12 +59,41 @@ else
                 {
                     @if (_cves.Count == 0)
                     {
-                        <Card>
-                            <div class="row">
-                                <Chip Label="Nothing found" Tone="var(--color-pass)" Glyph="✓" />
-                                <span>No known CVEs in this build's components.</span>
-                            </div>
-                        </Card>
+                        @if (ScaReceipt is { } sca)
+                        {
+                            @* Scanned + clean — SHOW THE EVIDENCE: what scanned it, when, and (from the
+                               receipt notes) which advisory DB + snapshot date. "0 CVEs" only means clean
+                               when we can point at the scan that produced it. *@
+                            <Card>
+                                <div class="row">
+                                    <Chip Label="Scanned · clean" Tone="var(--color-pass)" Glyph="✓" />
+                                    <span>
+                                        No known CVEs. <strong>@_sbomComponents.ToString("N0")</strong> component@(_sbomComponents == 1 ? "" : "s")
+                                        scanned by <span class="mono">@(sca.ToolName ?? "SCA")@(string.IsNullOrWhiteSpace(sca.ToolVersion) ? "" : " " + sca.ToolVersion)</span>@(sca.CompletedAt is { } t ? $" · {t.ToUniversalTime():yyyy-MM-dd HH:mm} UTC" : "").
+                                    </span>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(sca.Notes))
+                                {
+                                    <p class="field__help mono">@sca.Notes</p>
+                                }
+                            </Card>
+                        }
+                        else
+                        {
+                            @* No SCA scan ran — a "0" here is UNASSESSED, not clean. Say so loudly; the
+                               CVE gates read Unknown until an OSV/Grype scan is ingested (TFND-216). *@
+                            <Card>
+                                <div class="row">
+                                    <Chip Label="No vuln scan" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+                                    <span>
+                                        No vulnerability scan ran on this build. The SBOM lists <strong>@_sbomComponents.ToString("N0")</strong>
+                                        component@(_sbomComponents == 1 ? "" : "s"), but nothing checked them against an advisory database —
+                                        a “0” here is <strong>unassessed, not clean</strong>.
+                                    </span>
+                                </div>
+                                <p class="field__help">The CVE gates read Unknown, not Pass, until an SCA scan (OSV / Grype) is ingested.</p>
+                            </Card>
+                        }
                     }
                     else
                     {
@@ -453,6 +482,11 @@ else
     private IReadOnlyList<Tamp.Findings.Application.Risk.LicenseGroup> _licenses = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.StaleComponent> _stale = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.ReceiptRow> _receipts = [];
+    private int _sbomComponents;
+    // The dependency-vuln (SCA) scan receipt, if one ran — the evidence behind "0 CVEs" (TFND-217).
+    private Tamp.Findings.Application.Risk.ReceiptRow? ScaReceipt => _receipts.FirstOrDefault(r =>
+        (r.Scanner == Tamp.Findings.Domain.Values.ScannerKind.OsvScanner || r.Scanner == Tamp.Findings.Domain.Values.ScannerKind.Grype)
+        && r.Status == "Succeeded");
     private IReadOnlyList<BuildHistoryRow> _history = [];
     private Tab _tab = Tab.Current;
     private bool _loading = true;
@@ -479,13 +513,17 @@ else
             _row = data?.Risk.Breakdown.FirstOrDefault(b => b.Key == Key);
             _commitSha = data?.CommitSha;
             _history = data?.History ?? [];
+            _sbomComponents = data?.Inputs.SbomComponents ?? 0;
 
             if (_project is not null && _row is not null)
             {
                 if (Tamp.Findings.Application.Risk.CategoryFindingsQuery.IsFindingsCategory(Key))
                     _findings = await CategoryFindings.LoadAsync(_project.ProjectId, _commitSha, Key);
                 else if (Key == "cve")
+                {
                     _cves = await CategoryFindings.CvesAsync(_project.ProjectId, _commitSha);
+                    _receipts = await CategoryFindings.ReceiptsAsync(_project.ProjectId, _commitSha);   // for the SCA scan-evidence panel
+                }
                 else if (Key == "coverage")
                     _coverage = await CategoryFindings.CoverageAsync(_project.ProjectId, _commitSha);
                 else if (Key == "tests")

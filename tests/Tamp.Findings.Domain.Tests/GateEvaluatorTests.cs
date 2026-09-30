@@ -25,7 +25,7 @@ public class GateEvaluatorTests
         SbomComponents: 10, SbomOutdated: 0, SbomStale: 0,
         TestsMeasured: true, TestsTotal: 100, TestsFailed: 0,
         LicenseDenied: 0, LicenseStrongCopyleft: 0, LicenseUnknown: 0,
-        RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true,
+        RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true, RanSca: true,
         // Clean() means EVERY expected scanner ran and found nothing. Without
         // this the DAST gates would be Unknown rather than Pass, and a test
         // that sets DastCritical while RanDast is false describes a build
@@ -209,7 +209,7 @@ public class GateEvaluatorTests
     {
         CoverageMeasured = false, TestsMeasured = false, SbomComponents = 0,
         RanSast = false, RanSecrets = false, RanIac = false,
-        RanSbom = false, RanCoverage = false, RanDast = false,
+        RanSbom = false, RanCoverage = false, RanDast = false, RanSca = false,
     };
 
     private static ProjectGatesConfig AllSeverityGates() => Gates(
@@ -228,6 +228,31 @@ public class GateEvaluatorTests
         Assert.Equal(0, eval.Passed);
         Assert.Equal(10, eval.Unknown);
         Assert.False(eval.ClearToShip);
+    }
+
+    // TFND-216: an SBOM is an inventory, not a vulnerability scan. A build with an SBOM but no SCA
+    // scan (OSV/Grype) must NOT pass the CVE gates on "0 CVEs" — that zero is unassessed, not clean.
+    [Theory]
+    [InlineData(GateKeys.CriticalCves)]
+    [InlineData(GateKeys.HighCves)]
+    [InlineData(GateKeys.KevExposure)]
+    public void An_sbom_without_an_sca_scan_leaves_the_cve_gates_unknown(string key)
+    {
+        var sbomButNoSca = Clean() with { RanSbom = true, SbomComponents = 42, RanSca = false };
+        var eval = GateEvaluator.Evaluate(Gates((key, null)), sbomButNoSca, 0, null, null);
+        var gate = Result(eval, key);
+        Assert.Equal(GateVerdict.Unknown, gate.Verdict);
+        Assert.True(gate.Blocks);
+        Assert.Contains("scan", gate.Observed, StringComparison.Ordinal);
+        // Denied licences, by contrast, ARE an inventory property — an SBOM alone answers them.
+    }
+
+    [Fact]
+    public void Denied_licenses_still_answer_from_the_sbom_without_an_sca_scan()
+    {
+        var sbomButNoSca = Clean() with { RanSbom = true, SbomComponents = 42, RanSca = false };
+        var eval = GateEvaluator.Evaluate(Gates((GateKeys.DeniedLicenses, null)), sbomButNoSca, 0, null, null);
+        Assert.NotEqual(GateVerdict.Unknown, Result(eval, GateKeys.DeniedLicenses).Verdict);
     }
 
     [Theory]
@@ -376,7 +401,7 @@ public class GateEvaluatorTests
             SbomComponents: 10, SbomOutdated: 0, SbomStale: 0,
             TestsMeasured: true, TestsTotal: 100, TestsFailed: 0,
             LicenseDenied: 0, LicenseStrongCopyleft: 0, LicenseUnknown: 0,
-            RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true,
+            RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true, RanSca: true,
             RanDast: true, SbomAgeDays: 5);
         private static GateVerdict V(ProjectGatesConfig g, RiskInputs i, string key) =>
             GateEvaluator.Evaluate(g, i, 10, null, null).Results.Single(r => r.Key == key).Verdict;
@@ -422,7 +447,7 @@ public class GateIntersectionTests
         SbomComponents: 1, SbomOutdated: 0, SbomStale: 0,
         TestsMeasured: true, TestsTotal: 1, TestsFailed: 0,
         LicenseDenied: 0, LicenseStrongCopyleft: 0, LicenseUnknown: 0,
-        RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true,
+        RanSast: true, RanSecrets: true, RanIac: true, RanSbom: true, RanCoverage: true, RanSca: true,
         RanDast: ranDast);
 
     private static readonly Tamp.Findings.Domain.Compliance.ComponentCapability CodePackage =

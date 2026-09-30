@@ -65,6 +65,22 @@ public static class ScannerKinds
     public static readonly IReadOnlySet<ScannerKind> Static =
         new HashSet<ScannerKind>(Sast.Concat(Quality));
 
+    // Software-composition analysis — dependency vulnerability scanners (TFND-216).
+    //
+    // The distinction that matters: an SBOM is an INVENTORY of what's inside; an SCA scan is what
+    // turns that inventory into a vulnerability ASSESSMENT by matching it against advisory databases.
+    // The CVE/KEV gates read "did one of these RUN", NOT merely "does an SBOM exist" — because a build
+    // that posts an SBOM and never scans it shows zero CVEs and would otherwise pass as clean, which
+    // is exactly the unscanned-is-not-clean defect this product exists to kill.
+    //
+    // Trivy is deliberately excluded — in this pipeline it is the IaC scanner; a project scanning deps
+    // posts an OSV/Grype receipt.
+    public static readonly IReadOnlySet<ScannerKind> Sca = new HashSet<ScannerKind>
+    {
+        ScannerKind.OsvScanner,
+        ScannerKind.Grype,
+    };
+
     // Section 508 / WCAG 2.1 AA conformance (TFND-27).
     //
     // Its own set, not part of Sast or Dast, because the AUDIENCE is different:

@@ -28,6 +28,7 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
     // need to use this overload yet but it's available.
     private static readonly IReadOnlySet<ScannerKind> QualitySet = ScannerKinds.Quality;
     private static readonly IReadOnlySet<ScannerKind> A11ySet = ScannerKinds.Accessibility;
+    private static readonly IReadOnlySet<ScannerKind> ScaSet = ScannerKinds.Sca;
 
     public async Task<RiskInputs> BuildAsync(IReadOnlyList<Guid> cvIds, RiskPolicyConfig policy, Guid? projectId, CancellationToken ct)
     {
@@ -210,6 +211,9 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         // result, it is an unanswered question.
         var ranQuality = QualitySet.Any(s => receiptSet.Contains(s));
         var ranAccessibility = A11ySet.Any(s => receiptSet.Contains(s));
+        // TFND-216: an SBOM is inventory; only an SCA scan (OSV/Grype receipt) assesses it. The CVE/KEV
+        // gates read this, so a build with an SBOM but no SCA scan is Unknown, not clean.
+        var ranSca = ScaSet.Any(s => receiptSet.Contains(s));
 
         // TFND-30: POA&M past-due count drives the poamPastDue gate.
         // Project-scoped (matches VEX scoping); the /aggregates path
@@ -272,7 +276,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             RanAccessibility: ranAccessibility,
             BaseImageAgeDays: baseImageAgeDays,
             RanImageInspect: ranImageInspect,
-            SbomAgeDays: sbomAgeDays);
+            SbomAgeDays: sbomAgeDays,
+            RanSca: ranSca);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the
