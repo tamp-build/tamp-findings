@@ -36,8 +36,9 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
 
         // Open findings grouped by scanner + severity + sub-category.
         // SubCategory disambiguates Trivy's misconfig vs secret rows.
+        var dupeIds = (await FindingDedupe.DuplicateIdsAsync(db, cvIds, ct)).ToArray();
         var rawFindings = await db.Findings.AsNoTracking()
-            .Where(f => cvIds.Contains(f.ComponentVersionId) && f.Status == FindingStatus.Open)
+            .Where(f => cvIds.Contains(f.ComponentVersionId) && f.Status == FindingStatus.Open && !dupeIds.Contains(f.Id))
             .GroupBy(f => new { f.Scanner, f.Severity, f.SubCategory })
             .Select(g => new { g.Key.Scanner, g.Key.Severity, g.Key.SubCategory, Count = g.Count() })
             .ToListAsync(ct);

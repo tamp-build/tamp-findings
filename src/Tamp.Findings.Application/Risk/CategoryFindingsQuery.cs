@@ -46,7 +46,8 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
         var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
         if (cvIds.Length == 0) return [];
 
-        var q = db.Findings.AsNoTracking().Where(f => cvIds.Contains(f.ComponentVersionId));
+        var dupeIds = (await FindingDedupe.DuplicateIdsAsync(db, cvIds, ct)).ToArray();
+        var q = db.Findings.AsNoTracking().Where(f => cvIds.Contains(f.ComponentVersionId) && !dupeIds.Contains(f.Id));
         q = Filter(categoryKey, q);
         if (q is null) return [];
 
@@ -410,7 +411,8 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
         var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
         if (cvIds.Length == 0) return QualityOverview.Empty;
 
-        var findings = await Filter("quality", db.Findings.AsNoTracking().Where(f => cvIds.Contains(f.ComponentVersionId)))!
+        var dupeIds = (await FindingDedupe.DuplicateIdsAsync(db, cvIds, ct)).ToArray();
+        var findings = await Filter("quality", db.Findings.AsNoTracking().Where(f => cvIds.Contains(f.ComponentVersionId) && !dupeIds.Contains(f.Id)))!
             .OrderByDescending(f => f.Severity).ThenBy(f => f.FilePath).ThenBy(f => f.Line)
             .Select(f => new CategoryFinding(
                 f.Id, f.Scanner, f.RuleId, f.Severity, f.Title, f.Description,
@@ -458,7 +460,8 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
         if (cvs.Count == 0) return [];
         var ids = cvs.Select(c => c.Id).ToArray();
 
-        var counts = (await Filter("quality", db.Findings.AsNoTracking().Where(f => ids.Contains(f.ComponentVersionId)))!
+        var histDupes = (await FindingDedupe.DuplicateIdsAsync(db, ids, ct)).ToArray();
+        var counts = (await Filter("quality", db.Findings.AsNoTracking().Where(f => ids.Contains(f.ComponentVersionId) && !histDupes.Contains(f.Id)))!
                 .GroupBy(f => f.ComponentVersionId)
                 .Select(g => new { CvId = g.Key, Count = g.Count() })
                 .ToListAsync(ct))
