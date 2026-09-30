@@ -46,10 +46,15 @@ else
             </div>
         </div>
 
-        <div class="cattabs">
-            <button class="cattab @(_tab == Tab.Current ? "cattab--active" : null)" @onclick="() => _tab = Tab.Current">Current</button>
-            <button class="cattab @(_tab == Tab.History ? "cattab--active" : null)" @onclick="() => _tab = Tab.History">History</button>
-        </div>
+        @* CVE combines current + history on one view (its current panel is small); every other
+           category keeps the Current/History tabs. *@
+        @if (Key != "cve")
+        {
+            <div class="cattabs">
+                <button class="cattab @(_tab == Tab.Current ? "cattab--active" : null)" @onclick="() => _tab = Tab.Current">Current</button>
+                <button class="cattab @(_tab == Tab.History ? "cattab--active" : null)" @onclick="() => _tab = Tab.History">History</button>
+            </div>
+        }
 
         @if (_tab == Tab.Current)
         {
@@ -128,6 +133,47 @@ else
                             </ScrollBox>
                         </Card>
                         <p class="field__help">@_cves.Count known CVE@(_cves.Count == 1 ? "" : "s") across this build's SBOM components.</p>
+                    }
+
+                    @* Scan history — the real per-build evidence: commit, when, the scanner + advisory DB
+                       it checked against, and the CVE count. A build with no SCA scan is flagged, so a
+                       zero can't read as clean. *@
+                    @if (_cveHistory.Count > 0)
+                    {
+                        <Card Padded="false">
+                            <div class="card-body">
+                                <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">Scan history</h2>
+                                <table class="table table--rows">
+                                    <thead>
+                                        <tr>
+                                            <th>Build</th><th>Scanned</th><th>Scanner</th><th>Advisory DB</th><th class="align-end">CVEs</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var h in _cveHistory)
+                                        {
+                                            <tr>
+                                                <td><span class="mono">@Short(h.CommitSha)</span> <span class="muted">@h.BuiltAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm")</span></td>
+                                                <td>
+                                                    @if (h.Scanned)
+                                                    {
+                                                        <span style="color: var(--color-pass)">✓</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span style="color: var(--color-high)">no scan</span>
+                                                    }
+                                                </td>
+                                                <td class="mono">@(h.Scanned ? $"{h.ScannerTool} {h.ScannerVersion}".Trim() : "—")</td>
+                                                <td class="mono muted">@(DbSummary(h.Notes) ?? "—")</td>
+                                                <td class="align-end mono">@(h.Scanned ? h.CveCount.ToString() : "—")</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                                <p class="field__help">Each row is the SCA scan behind that build's CVE result — provenance (scanner + advisory DB + build), not just that a scan happened.</p>
+                            </div>
+                        </Card>
                     }
                 }
                 else if (Key == "coverage")
@@ -477,6 +523,7 @@ else
     private Tamp.Findings.Domain.Risk.RiskCategoryBreakdown? _row;
     private IReadOnlyList<Tamp.Findings.Application.Risk.CategoryFinding> _findings = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.CveRow> _cves = [];
+    private IReadOnlyList<Tamp.Findings.Application.Risk.CveScanHistoryRow> _cveHistory = [];
     private Tamp.Findings.Application.Risk.CoverageSummary? _coverage;
     private Tamp.Findings.Application.Risk.TestsSummary? _tests;
     private IReadOnlyList<Tamp.Findings.Application.Risk.LicenseGroup> _licenses = [];
@@ -523,6 +570,7 @@ else
                 {
                     _cves = await CategoryFindings.CvesAsync(_project.ProjectId, _commitSha);
                     _receipts = await CategoryFindings.ReceiptsAsync(_project.ProjectId, _commitSha);   // for the SCA scan-evidence panel
+                    _cveHistory = await CategoryFindings.CveScanHistoryAsync(_project.ProjectId);       // per-build scan provenance
                 }
                 else if (Key == "coverage")
                     _coverage = await CategoryFindings.CoverageAsync(_project.ProjectId, _commitSha);
@@ -542,6 +590,7 @@ else
             _row = null;
             _findings = [];
             _cves = [];
+            _cveHistory = [];
             _coverage = null;
             _tests = null;
             _licenses = [];
@@ -577,6 +626,25 @@ else
     {
         var parts = path.Replace('\\', '/').Split('/');
         return parts.Length <= 3 ? path : ".../" + string.Join('/', parts[^2..]);
+    }
+
+    private static string Short(string? sha) => sha is { Length: > 7 } ? sha[..7] : (sha ?? "—");
+
+    // Pull the advisory-DB provenance out of the receipt notes ("db=grype-db/v6.1.9; db_built=…") into
+    // a compact "grype-db/v6.1.9 · 2026-09-29". Falls back to the raw notes when it's not that shape.
+    private static string? DbSummary(string? notes)
+    {
+        if (string.IsNullOrWhiteSpace(notes)) return null;
+        string? Tok(string k) => notes.Split(';')
+            .Select(s => s.Trim())
+            .FirstOrDefault(s => s.StartsWith(k + "=", StringComparison.OrdinalIgnoreCase))?.Split('=', 2)[1];
+        var db = Tok("db");
+        var built = Tok("db_built");
+        if (db is null && built is null)
+            return notes.Length > 44 ? notes[..44] + "…" : notes;
+        var when = built is not null && DateTimeOffset.TryParse(built, out var dt)
+            ? dt.ToUniversalTime().ToString("yyyy-MM-dd") : built;
+        return string.Join(" · ", new[] { db, when }.Where(x => !string.IsNullOrWhiteSpace(x)));
     }
 
     private static string SourceHint(string key) => key switch

@@ -76,6 +76,47 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db)
             .ToListAsync(ct);
     }
 
+    /// <summary>Per-build CVE scan evidence for the history strip — the actual scan behind each build's
+    /// "0 CVEs", not just that a build happened: commit, when, the SCA scanner + its advisory-DB
+    /// provenance (from the receipt notes), and how many CVEs it found. A build with no SCA receipt is
+    /// marked unscanned so a bare zero can't read as clean.</summary>
+    public async Task<IReadOnlyList<CveScanHistoryRow>> CveScanHistoryAsync(
+        Guid projectId, int take = 12, CancellationToken ct = default)
+    {
+        var cvs = await db.ComponentVersions.AsNoTracking()
+            .Where(cv => cv.ProjectId == projectId && cv.CommitSha != null)
+            .OrderByDescending(cv => cv.CreatedAt)
+            .Take(take)
+            .Select(cv => new { cv.Id, cv.CommitSha, cv.CreatedAt })
+            .ToListAsync(ct);
+        if (cvs.Count == 0) return [];
+        var ids = cvs.Select(c => c.Id).ToArray();
+
+        var scaKinds = new[] { ScannerKind.OsvScanner, ScannerKind.Grype };
+        var receipts = (await db.ScanRunReceipts.AsNoTracking()
+                .Where(r => ids.Contains(r.ComponentVersionId) && scaKinds.Contains(r.Scanner)
+                    && r.Status == Domain.Entities.ScanRunStatus.Succeeded)
+                .Select(r => new { r.ComponentVersionId, r.ToolName, r.ToolVersion, r.Notes, r.CompletedAt })
+                .ToListAsync(ct))
+            .GroupBy(r => r.ComponentVersionId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.CompletedAt).First());
+
+        var cveCounts = (await db.Vulnerabilities.AsNoTracking()
+                .Where(v => ids.Contains(v.SbomComponent!.SbomSnapshot!.ComponentVersionId))
+                .GroupBy(v => v.SbomComponent!.SbomSnapshot!.ComponentVersionId)
+                .Select(g => new { CvId = g.Key, Count = g.Count() })
+                .ToListAsync(ct))
+            .ToDictionary(x => x.CvId, x => x.Count);
+
+        return cvs.Select(c =>
+        {
+            receipts.TryGetValue(c.Id, out var r);
+            return new CveScanHistoryRow(
+                c.CommitSha, c.CreatedAt, r is not null,
+                r?.ToolName, r?.ToolVersion, r?.Notes, cveCounts.GetValueOrDefault(c.Id, 0));
+        }).ToList();
+    }
+
     /// <summary>Aggregated coverage for the `coverage` category, or null when never measured.</summary>
     public async Task<CoverageSummary?> CoverageAsync(
         Guid projectId, string? commitSha, CancellationToken ct = default)
@@ -249,3 +290,9 @@ public sealed record StaleComponent(string Name, string Version, string? LatestV
 public sealed record ReceiptRow(
     ScannerKind Scanner, string Status, int FindingsCount, DateTimeOffset? CompletedAt, string? ToolName,
     string? ToolVersion = null, string? Notes = null);
+
+// Per-build CVE scan evidence for the history strip (TFND-217): commit, when it was built, whether an
+// SCA scan actually ran, the scanner + version, its advisory-DB provenance (receipt notes), CVE count.
+public sealed record CveScanHistoryRow(
+    string? CommitSha, DateTimeOffset BuiltAt, bool Scanned,
+    string? ScannerTool, string? ScannerVersion, string? Notes, int CveCount);
