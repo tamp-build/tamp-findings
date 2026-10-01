@@ -1,0 +1,43 @@
+@* TFND-224: tells a reader on a detail page that a newer build has been ingested. Detail pages are
+   re-queried on demand, so rather than yank rows out from under the reader (or share the circuit's
+   DbContext with a background push), this just offers a refresh. No DB access in the callback. *@
+@implements IDisposable
+@inject ProjectHubQuery Hub
+@inject CurrentUser Me
+@inject NavigationManager Nav
+@inject Tamp.Findings.Application.Projects.BuildUpdateNotifier Updates
+
+@if (_newer)
+{
+    <p class="muted" role="status">
+        A newer build has been ingested for this project.
+        <a href="@Nav.Uri" @onclick="Refresh" @onclick:preventDefault>Refresh</a>
+    </p>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Client { get; set; } = "";
+    [Parameter, EditorRequired] public string Project { get; set; } = "";
+
+    private IDisposable? _sub;
+    private Guid _subProject;
+    private bool _newer;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            var p = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
+            if (p is null || p.ProjectId == _subProject) return;
+            _sub?.Dispose();
+            _subProject = p.ProjectId;
+            _newer = false;
+            _sub = Updates.Subscribe(_subProject, () => InvokeAsync(() => { _newer = true; StateHasChanged(); }));
+        }
+        catch { /* banner is a convenience; never break the page */ }
+    }
+
+    private void Refresh() => Nav.NavigateTo(Nav.Uri, forceLoad: true);
+
+    public void Dispose() => _sub?.Dispose();
+}

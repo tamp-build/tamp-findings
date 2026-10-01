@@ -63,6 +63,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Risk.GateFailureNotifier>();   // TFND-122
         services.AddScoped<Projects.ProjectHubQuery>();
         services.AddScoped<Projects.PortfolioQuery>();
+        services.AddSingleton<Projects.BuildUpdateNotifier>();   // TFND-224
         services.AddScoped<Projects.ScoreSnapshotService>();
         services.AddScoped<Projects.HierarchyService>();
         services.AddScoped<Explorer.FindingsExplorerQuery>();
