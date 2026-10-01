@@ -15,6 +15,8 @@ public sealed class SbomComponent
     // CycloneDX "type": library, framework, application, container, file, etc.
     public string? Kind { get; set; }
     public string? License { get; set; }
+    // Producer-asserted reachability fact: not in any shipping project's dependency closure (analyzer/test/build-only).
+    public bool DevDependency { get; set; }
 
     // Outdatedness annotation (TFND-7 / F6.4). Populated by a separate
     // enrichment step that queries the package registry; null until then.

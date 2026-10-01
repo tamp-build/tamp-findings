@@ -111,4 +111,20 @@ public class StalenessExemptionIntegrationTests
         Assert.Contains(closure, c => c.Purl == w.NetStdPurl);
         Assert.DoesNotContain(closure, c => c.Purl == w.SharedPurl);
     }
+
+    [SkippableFact]
+    public async Task Closure_follows_the_producer_dev_flag_across_unrelated_roots()
+    {
+        Skip.IfNot(_fx.Available);
+        var w = await SeedAsync(withExemption: false);
+        using var scope = _fx.Scope();
+        var db = _fx.Db(scope);
+        foreach (var c in db.SbomComponents.Where(c => c.Purl == w.PlatformsPurl || c.Purl == w.SharedPurl)) c.DevDependency = true;
+        await db.SaveChangesAsync();
+        var q = scope.ServiceProvider.GetRequiredService<CategoryFindingsQuery>();
+
+        var closure = await q.StalenessClosureAsync(w.ProjectId, null, w.PlatformsPurl);
+
+        Assert.Contains(closure, c => c.Purl == w.SharedPurl);
+    }
 }

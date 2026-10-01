@@ -465,7 +465,7 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
 
         var comps = await db.SbomComponents.AsNoTracking()
             .Where(c => snapIds.Contains(c.SbomSnapshotId))
-            .Select(c => new { c.Id, c.Name, c.Version, c.Purl, c.LatestVersion, VulnCount = c.Vulnerabilities.Count })
+            .Select(c => new { c.Id, c.Name, c.Version, c.Purl, c.LatestVersion, c.DevDependency, VulnCount = c.Vulnerabilities.Count })
             .ToListAsync(ct);
         var edges = await db.SbomDependencies.AsNoTracking()
             .Where(d => snapIds.Contains(d.SbomSnapshotId))
@@ -496,6 +496,7 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
         var originRoots = new HashSet<Guid>();
         foreach (var o in originIds) originRoots.UnionWith(Roots(o));
 
+        var originIsDev = comps.Any(c => originIds.Contains(c.Id) && c.DevDependency);
         var exemptions = await StalenessExemptions.LoadAsync(db, projectId, ct);
         var result = new Dictionary<string, ClosureSuggestion>();
         foreach (var c in comps)
@@ -504,10 +505,11 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
             if (result.ContainsKey(key)) continue;
             var isOrigin = key == bare;
             var roots = Roots(c.Id);
-            if (!isOrigin && !roots.IsSubsetOf(originRoots)) continue;
+            var devPeer = originIsDev && c.DevDependency;
+            if (!isOrigin && !devPeer && !roots.IsSubsetOf(originRoots)) continue;
             var outdated = c.VulnCount == 0 && !string.IsNullOrEmpty(c.LatestVersion) && c.LatestVersion != c.Version;
             if (!isOrigin && !outdated) continue;
-            var via = string.Join(", ", roots.Select(r => byId[r].Name).OrderBy(n => n).Take(3));
+            var via = devPeer && !isOrigin ? "producer: dev-only" : string.Join(", ", roots.Select(r => byId[r].Name).OrderBy(n => n).Take(3));
             result[key] = new ClosureSuggestion(c.Name, c.Version, c.Purl, isOrigin, outdated,
                 StalenessExemptions.Match(exemptions, c.Purl, c.Version) is not null, via);
         }
