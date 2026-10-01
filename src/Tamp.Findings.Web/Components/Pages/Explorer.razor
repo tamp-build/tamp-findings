@@ -19,7 +19,7 @@
 @inject RuleBreakdownQuery Rules
 
 <PageTitle>@Spine — @Project</PageTitle>
-<NewBuildBanner Client="@Client" Project="@Project" />
+<NewBuildBanner ProjectId="@_project?.ProjectId" />
 
 @if (!Spines.IsValid(Spine))
 {

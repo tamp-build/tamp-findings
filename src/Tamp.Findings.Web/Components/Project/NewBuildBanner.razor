@@ -2,8 +2,6 @@
    re-queried on demand, so rather than yank rows out from under the reader (or share the circuit's
    DbContext with a background push), this just offers a refresh. No DB access in the callback. *@
 @implements IDisposable
-@inject ProjectHubQuery Hub
-@inject CurrentUser Me
 @inject NavigationManager Nav
 @inject Tamp.Findings.Application.Projects.BuildUpdateNotifier Updates
 
@@ -16,25 +14,21 @@
 }
 
 @code {
-    [Parameter, EditorRequired] public string Client { get; set; } = "";
-    [Parameter, EditorRequired] public string Project { get; set; } = "";
+    // The page's already-resolved project. The banner never touches the DB: sharing the circuit's
+    // DbContext with its host page while that page is mid-query is a concurrency 500.
+    [Parameter] public Guid? ProjectId { get; set; }
 
     private IDisposable? _sub;
     private Guid _subProject;
     private bool _newer;
 
-    protected override async Task OnParametersSetAsync()
+    protected override void OnParametersSet()
     {
-        try
-        {
-            var p = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
-            if (p is null || p.ProjectId == _subProject) return;
-            _sub?.Dispose();
-            _subProject = p.ProjectId;
-            _newer = false;
-            _sub = Updates.Subscribe(_subProject, () => InvokeAsync(() => { _newer = true; StateHasChanged(); }));
-        }
-        catch { /* banner is a convenience; never break the page */ }
+        if (ProjectId is not { } id || id == _subProject) return;
+        _sub?.Dispose();
+        _subProject = id;
+        _newer = false;
+        _sub = Updates.Subscribe(id, () => InvokeAsync(() => { _newer = true; StateHasChanged(); }));
     }
 
     private void Refresh() => Nav.NavigateTo(Nav.Uri, forceLoad: true);

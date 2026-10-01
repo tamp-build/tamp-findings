@@ -24,7 +24,7 @@
    page it opens cannot disagree. Never green for an absent receipt. *@
 
 <PageTitle>@Label(Key) — tamp.findings</PageTitle>
-<NewBuildBanner Client="@Client" Project="@Project" />
+<NewBuildBanner ProjectId="@_project?.ProjectId" />
 
 @if (_loading)
 {
