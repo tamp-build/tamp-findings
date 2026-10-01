@@ -47,6 +47,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<IngestToken> IngestTokens => Set<IngestToken>();
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
     public DbSet<PolicyTemplate> PolicyTemplates => Set<PolicyTemplate>();
+    public DbSet<ArchetypeDefinition> ArchetypeDefinitions => Set<ArchetypeDefinition>();
     public DbSet<ControlCatalog> ControlCatalogs => Set<ControlCatalog>();
     public DbSet<Framework> Frameworks => Set<Framework>();
     public DbSet<ConformanceFinding> ConformanceFindings => Set<ConformanceFinding>();
@@ -652,6 +653,14 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => new { x.Name, x.Version }).IsUnique();
             // Link the scoring policy; SetNull so deleting it drops the link.
             e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<ArchetypeDefinition>(e =>
+        {
+            e.HasKey(x => x.Archetype);
+            e.Property(x => x.Archetype).ValueGeneratedNever();
+            e.Property(x => x.Layer).HasColumnType("jsonb").IsRequired();
+            e.Property(x => x.UpdatedByLogin).HasMaxLength(256);
         });
 
         b.Entity<ControlCatalog>(e =>
