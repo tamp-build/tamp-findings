@@ -205,6 +205,7 @@ else
     private async Task OnBuildUpdated()
     {
         if (_project is null) return;
+        var sha = Sha;
         await InvokeAsync(async () =>
         {
             try
@@ -212,16 +213,17 @@ else
                 using var scope = Scopes.CreateScope();
                 var sp = scope.ServiceProvider;
                 var hub = sp.GetRequiredService<ProjectHubQuery>();
-                if (IsLatest)
+                if (string.Equals(sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase))
                 {
                     var l = await LoadAsync(hub, sp.GetRequiredService<Tamp.Findings.Application.Poam.PoamQuery>(),
                         sp.GetRequiredService<Tamp.Findings.Application.Attestation.SsdfAttestationBuilder>(), _project, null);
-                    if (l.Data is null) return;
+                    if (l.Data is null || Sha != sha) return;   // navigated away mid-reload: don't clobber the new view
                     (_data, _status, _poamPastDue, _ssdf) = (l.Data, l.Status, l.PoamPastDue, l.Ssdf);
                 }
                 else
                 {
                     var latest = await hub.LoadAsync(_project, null);
+                    if (Sha != sha) return;
                     _newerSha = latest is not null && latest.CommitSha != _data?.CommitSha ? latest.CommitSha : null;
                 }
                 StateHasChanged();

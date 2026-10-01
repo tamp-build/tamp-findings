@@ -39,7 +39,15 @@ public static class QualityGateIngestEndpoints
         var version = await BuildResolver.GetOrCreateAsync(db, project!.Id, req.Flavor, req.Version,
             req.CommitSha, req.Branch, req.BuildId, req.PullRequestRef, ct);
 
-        var status = req.Status.Trim().ToLowerInvariant();
+        // Normalise the tool's native verdicts; an unrecognised value must not silently read as non-blocking.
+        var status = req.Status.Trim().ToLowerInvariant() switch
+        {
+            "pass" or "ok" or "passed" => "pass",
+            "fail" or "error" or "failed" => "fail",
+            "warn" or "warning" => "warn",
+            _ => null,
+        };
+        if (status is null) return Results.BadRequest("status must be one of pass, fail, warn (or the tool's OK / ERROR / WARN)");
 
         var existing = await db.QualityGateResults
             .FirstOrDefaultAsync(r => r.ComponentVersionId == version.Id, ct);

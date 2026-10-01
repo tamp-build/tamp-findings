@@ -684,12 +684,12 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
             || f.SubCategory == "bug" || f.SubCategory == "code_smell"),
         "sastSevere" => q.Where(f =>
             f.SubCategory != "bug" && f.SubCategory != "code_smell"
-            && (Sast.Contains(f.Scanner)
+            && (Sast.Contains(f.Scanner) || f.Scanner == ScannerKind.SonarQube
                 || ((f.SubCategory == "vulnerability" && f.Scanner != ScannerKind.Trivy) || f.SubCategory == "security_hotspot"))
             && (f.Severity == Severity.Critical || f.Severity == Severity.High)),
         "sastLow" => q.Where(f =>
             f.SubCategory != "bug" && f.SubCategory != "code_smell"
-            && (Sast.Contains(f.Scanner)
+            && (Sast.Contains(f.Scanner) || f.Scanner == ScannerKind.SonarQube
                 || ((f.SubCategory == "vulnerability" && f.Scanner != ScannerKind.Trivy) || f.SubCategory == "security_hotspot"))
             && (f.Severity == Severity.Medium || f.Severity == Severity.Low)),
         // Secrets: TruffleHog, plus Trivy rows tagged secret.

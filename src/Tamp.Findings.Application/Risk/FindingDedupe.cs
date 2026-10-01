@@ -25,7 +25,8 @@ public static class FindingDedupe
     {
         var rows = await db.Findings.AsNoTracking()
             .Where(f => cvIds.Contains(f.ComponentVersionId) && Overlapping.Contains(f.Scanner)
-                && f.FilePath != null && f.Line != null)
+                && f.FilePath != null && f.Line != null
+                && f.Status == FindingStatus.Open)   // a closed canonical row must not hide a live twin
             .Select(f => new { f.Id, f.ComponentVersionId, f.Scanner, f.FilePath, f.Line, f.RuleId })
             .ToListAsync(ct);
 

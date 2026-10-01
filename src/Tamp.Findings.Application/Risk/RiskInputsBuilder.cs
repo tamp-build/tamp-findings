@@ -64,7 +64,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             QualitySet.Contains(s) || FindingTypes.IsQualityType(sub);
         bool IsSast(ScannerKind s, string? sub) =>
             !FindingTypes.IsQualityType(sub)
-            && (SastSet.Contains(s) || (FindingTypes.IsSecurityType(sub) && s != ScannerKind.Trivy));
+            && (SastSet.Contains(s) || s == ScannerKind.SonarQube   // untyped Sonar rows fail into SAST, never out of the score
+                || (FindingTypes.IsSecurityType(sub) && s != ScannerKind.Trivy));
 
         var sastCrit = findings.Where(x => IsSast(x.Scanner, x.SubCategory) && x.Severity == Severity.Critical).Sum(x => x.Count);
         var sastHigh = findings.Where(x => IsSast(x.Scanner, x.SubCategory) && x.Severity == Severity.High).Sum(x => x.Count);
@@ -240,6 +241,7 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         // truer than "1", and the detail names which ones.
         var qg = await db.QualityGateResults.AsNoTracking()
             .Where(r => cvIds.Contains(r.ComponentVersionId))
+            .OrderByDescending(r => r.ObservedAt)
             .Select(r => new { r.Status, r.ConditionsJson })
             .FirstOrDefaultAsync(ct);
         var hasQualityGateVerdict = qg != null;
@@ -254,6 +256,7 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         // (overall.languagesWithFootprintNoAnalyzer) — a non-empty list blocks.
         var acGap = await db.AnalysisCoverageReports.AsNoTracking()
             .Where(r => cvIds.Contains(r.ComponentVersionId))
+            .OrderByDescending(r => r.ObservedAt)
             .Select(r => r.GapLanguages)
             .FirstOrDefaultAsync(ct);
         var hasAnalysisCoverage = await db.AnalysisCoverageReports.AsNoTracking()
