@@ -177,7 +177,8 @@
         DateTimeOffset? expiry = null;
         if (!string.IsNullOrWhiteSpace(_expiry))
         {
-            if (!DateTimeOffset.TryParse(_expiry, out var parsed)) { _actionError = "Expiry is not a valid date."; return; }
+            if (!DateTimeOffset.TryParse(_expiry, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed)) { _actionError = "Expiry is not a valid date."; return; }
             expiry = parsed;
         }
         _busy = true; _actionError = null;

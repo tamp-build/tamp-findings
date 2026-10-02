@@ -1401,8 +1401,8 @@ class Build : SecurityPipelineBuild
             .SetHostUrl(SonarHostUrl)
             .SetToken(SonarToken)
             // Build tooling is not shipped product code; EF migrations are generated.
-            .SetProperty("sonar.exclusions", "build/**,**/Migrations/**,**/obj/**,**/bin/**")
-            .SetProperty("sonar.coverage.exclusions", "build/**,**/Migrations/**")
+            .SetProperty("sonar.exclusions", "build/**,docs/**,**/Migrations/**,**/obj/**,**/bin/**")
+            .SetProperty("sonar.coverage.exclusions", "build/**,docs/**,**/Migrations/**")
             .SetProperty("sonar.cs.opencover.reportsPaths", $"{TestResults.Value}/**/coverage.opencover.xml")
             .SetProperty("sonar.cs.vstest.reportsPaths", $"{TestResults.Value}/**/*.trx")));
 

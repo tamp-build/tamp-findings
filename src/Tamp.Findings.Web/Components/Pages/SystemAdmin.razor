@@ -1194,7 +1194,8 @@ else
         DateTimeOffset? supportEnds = null;
         if (!string.IsNullOrWhiteSpace(_paidSupportEnds))
         {
-            if (!DateTimeOffset.TryParse(_paidSupportEnds, out var parsedDate))
+            if (!DateTimeOffset.TryParse(_paidSupportEnds, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal, out var parsedDate))
             {
                 _paidError = "That is not a date.";
                 return;

@@ -37,7 +37,7 @@
                 <a class="evtile" href="@Routes.PolicyTemplates(t.Id)">
                     <div class="evtile__head">
                         <span class="evtile__label">@t.Name</span>
-                        <span class="mono muted">v@t.Version</span>
+                        <span class="mono muted">v@(t.Version)</span>
                     </div>
                     <div class="evtile__status">@t.UsedByClients client@(t.UsedByClients == 1 ? "" : "s")</div>
                     <div class="evtile__gate mono muted">@(t.IsSeeded ? "seeded" : "custom")</div>

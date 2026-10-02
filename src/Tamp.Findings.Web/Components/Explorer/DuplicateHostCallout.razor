@@ -77,8 +77,18 @@
 
     private ScopeTarget Scope => ScopeTarget.Project(Project.ClientId, Project.ProjectId);
 
-    protected override async Task OnParametersSetAsync() =>
+    // Resolved once per project, not on every parameter set. This component sits under the explorer, which
+    // re-runs its own queries on the circuit-shared DbContext after a merge (Reload); the event's
+    // synchronous re-render hands us new parameters MID-await, and a second capability query on that
+    // same context threw "A second operation was started on this context".
+    private Guid? _capabilityFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_capabilityFor == Project.ProjectId) return;
+        _capabilityFor = Project.ProjectId;
         _canMerge = await Me.CanAsync(Capability.AuthorSuppression, Scope);
+    }
 
     private void Open(DuplicateHostSuspicion suspicion)
     {

@@ -53,7 +53,7 @@
                     <option value="">— pick a template —</option>
                     @foreach (var t in _templates)
                     {
-                        <option value="@t.Id">@t.Name v@t.Version</option>
+                        <option value="@t.Id">@t.Name v@(t.Version)</option>
                     }
                 </select>
                 <button class="btn" disabled="@(_busy || string.IsNullOrEmpty(_selectedTemplateId) || !_canEdit)" @onclick="RequestSwitchAsync">Request switch</button>

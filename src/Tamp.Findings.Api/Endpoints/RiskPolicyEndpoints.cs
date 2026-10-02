@@ -208,6 +208,10 @@ public static class RiskPolicyEndpoints
         if (target is null) return Results.NotFound();
         var prior = await db.RiskPolicies.Where(p => p.IsDefault && p.Id != id).ToListAsync(ct);
         foreach (var p in prior) p.IsDefault = false;
+        // The sparse-unique index on IsDefault is checked per statement, and EF
+        // may order the two UPDATEs either way — clear the old default first in
+        // its own round-trip (still inside the transaction).
+        await db.SaveChangesAsync(ct);
         target.IsDefault = true;
         target.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);

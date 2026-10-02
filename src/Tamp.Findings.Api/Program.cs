@@ -184,6 +184,15 @@ builder.Services.AddSingleton<DynamicProviderStore>();
 builder.Services.AddSingleton<DynamicSchemeRegistry>();
 builder.Services.AddSingleton<IConfigureOptions<OAuthOptions>, DynamicOAuthOptions>();
 builder.Services.AddSingleton<IConfigureOptions<OpenIdConnectOptions>, DynamicOidcOptions>();
+// The framework's post-configure steps (StateDataFormat, the OIDC configuration
+// manager) are normally registered by AddOAuth/AddOpenIdConnect. Database-registered
+// schemes never call those, so without these a DB provider challenge throws a
+// NullReferenceException in BuildChallengeUrl (and an OIDC one cannot start at all).
+// TryAddEnumerable keeps this a no-op when the static GitHub scheme already added it.
+builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<
+    IPostConfigureOptions<OAuthOptions>, OAuthPostConfigureOptions<OAuthOptions, OAuthHandler<OAuthOptions>>>());
+builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<
+    IPostConfigureOptions<OpenIdConnectOptions>, OpenIdConnectPostConfigureOptions>());
 builder.Services.AddHostedService<IdentityProviderStartup>();
 
 // What the sign-in page renders a button for. Scoped because it asks the

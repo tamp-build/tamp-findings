@@ -113,6 +113,15 @@
           "Tamp.Trivy": "1.11.2"
         }
       },
+      "Tamp.SonarScanner.V10": {
+        "type": "Direct",
+        "requested": "[0.3.2, )",
+        "resolved": "0.3.2",
+        "contentHash": "11gi5LxuJ4NbLHUR3dzg656wPUJiy9vRYKi5ne7UvaqAOBKtNLIDZs4LDNm0PbuIwGPGI/lSng9AEfZmU7itew==",
+        "dependencies": {
+          "Tamp.Core": "1.10.0"
+        }
+      },
       "Tamp.Syft": {
         "type": "Direct",
         "requested": "[0.1.2, )",
