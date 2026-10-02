@@ -122,6 +122,15 @@ spec:
             capabilities:
               drop:
                 - ALL
+          volumeMounts:
+            # The root filesystem is read-only; the malicious-package feed sync (TFND-211) streams
+            # a ~200 MB archive to a temp file rather than holding it in memory under the 1Gi limit.
+            - name: scratch
+              mountPath: /tmp
+      volumes:
+        - name: scratch
+          emptyDir:
+            sizeLimit: 1Gi
       securityContext:
         runAsNonRoot: true
         runAsUser: 1654
