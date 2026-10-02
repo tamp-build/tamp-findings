@@ -212,15 +212,20 @@ public class SystemAdminIntegrationTests
         using var scope = _fx.Scope();
         var admin = scope.ServiceProvider.GetRequiredService<SystemAdminService>();
 
-        await admin.SetExpectedScannersAsync(world.Admin, [ScannerKind.Zap]);
+        // The database is shared with every other test, any of which may have recorded a receipt for any
+        // given scanner, so pick one that has genuinely never reported right now rather than assuming.
+        var reported = _fx.Db(scope).ScanRunReceipts.Select(r => r.Scanner).Distinct().ToHashSet();
+        var quiet = Enum.GetValues<ScannerKind>().Last(k => !reported.Contains(k));
+
+        await admin.SetExpectedScannersAsync(world.Admin, [quiet]);
 
         var scanners = await admin.ScannersAsync(world.AsOf);
-        var zap = scanners.Single(s => s.Kind == ScannerKind.Zap);
+        var entry = scanners.Single(s => s.Kind == quiet);
 
-        Assert.True(zap.Expected);
-        Assert.True(zap.Silent);
+        Assert.True(entry.Expected);
+        Assert.True(entry.Silent);
         // And it sorts to the top, where somebody will see it.
-        Assert.Equal(ScannerKind.Zap, scanners[0].Kind);
+        Assert.Equal(quiet, scanners[0].Kind);
     }
 
     [SkippableFact]
