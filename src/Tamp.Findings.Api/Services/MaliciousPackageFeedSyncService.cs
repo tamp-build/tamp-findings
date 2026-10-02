@@ -19,6 +19,7 @@ public sealed class MaliciousPackageFeedSyncService(
 {
     public const string Source = "osv-malicious";
     public static readonly string[] Ecosystems = ["NuGet", "npm"];
+    private const int BatchSize = 2000;
     private static string Url(string eco) => $"https://osv-vulnerabilities.storage.googleapis.com/{eco}/all.zip";
 
     // ETag per ecosystem, process-local: a restart simply re-downloads once.
@@ -63,20 +64,33 @@ public sealed class MaliciousPackageFeedSyncService(
             await using (var fs = File.Create(tmp))
                 await resp.Content.CopyToAsync(fs, ct);
 
-            var found = new List<MalEntry>();
+            // Bounded batches: the npm corpus is ~220k entries, so parse -> upsert -> clear the change
+            // tracker every BatchSize rather than holding everything in memory under the pod limit.
+            int found = 0, ins = 0, upd = 0;
+            var batch = new List<MalEntry>(BatchSize);
+            async Task FlushAsync()
+            {
+                if (batch.Count == 0) return;
+                var (i, u) = await UpsertAsync(batch, ct);
+                ins += i; upd += u; found += batch.Count;
+                batch.Clear();
+                db.ChangeTracker.Clear();
+            }
+
             using (var zip = ZipFile.OpenRead(tmp))
             {
                 foreach (var entry in zip.Entries.Where(e => e.Name.StartsWith("MAL-", StringComparison.Ordinal)))
                 {
                     await using var s = entry.Open();
                     using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct);
-                    found.AddRange(Parse(doc.RootElement, eco));
+                    batch.AddRange(Parse(doc.RootElement, eco));
+                    if (batch.Count >= BatchSize) await FlushAsync();
                 }
             }
+            await FlushAsync();
 
-            var (ins, upd) = await UpsertAsync(found, ct);
             if (resp.Headers.ETag is { } tag) ETags[eco] = tag.ToString();
-            log.LogInformation("malicious-package sync {Eco}: {Found} entries, {Ins} new, {Upd} updated", eco, found.Count, ins, upd);
+            log.LogInformation("malicious-package sync {Eco}: {Found} entries, {Ins} new, {Upd} updated", eco, found, ins, upd);
             return (ins, upd, false);
         }
         finally
@@ -118,8 +132,9 @@ public sealed class MaliciousPackageFeedSyncService(
 
     private async Task<(int Inserted, int Updated)> UpsertAsync(List<MalEntry> found, CancellationToken ct)
     {
+        var purls = found.Select(f => f.Purl).Distinct().ToArray();
         var existing = await db.BannedComponents
-            .Where(b => b.Source == Source)
+            .Where(b => b.Source == Source && purls.Contains(b.Purl))
             .ToDictionaryAsync(b => (b.Purl, b.SourceId), ct);
         int ins = 0, upd = 0;
         var now = DateTimeOffset.UtcNow;
