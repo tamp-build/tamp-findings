@@ -1,0 +1,203 @@
+@* Code-quality evidence for one build — shared by the score row (/score/quality) and the evidence tile
+   (/evidence/quality) so both surfaces tell the same story: the quality-gate verdict with its named
+   conditions, the type-routed findings, analysis coverage, scan provenance and per-build history.
+   Absent evidence is "not assessed", never clean. *@
+@using Tamp.Findings.Application.Risk
+
+@if (Overview is null || !Overview.Ran)
+{
+    <NotScanned Message="No code-quality analysis (SonarQube or a quality-lane tool) was recorded for this build." />
+}
+else
+{
+    var o = Overview;
+
+    @if (o.Gate is { } g)
+    {
+        var failed = g.Conditions.Where(c => c.Failed).ToList();
+        var pass = string.Equals(g.Status, "pass", StringComparison.OrdinalIgnoreCase);
+        <Card Padded="false">
+            <div class="card-body">
+                <div class="row">
+                    <Chip Label="@("Quality gate " + g.Status.ToUpperInvariant())" Tone="@(pass ? "var(--color-pass)" : "var(--color-critical)")" Glyph="@(pass ? "✓" : "✕")" />
+                    <span>
+                        @if (failed.Count > 0)
+                        {
+                            <strong>@failed.Count of @g.Conditions.Count</strong><text> condition@(failed.Count == 1 ? "" : "s") failed — this blocks the ship gate.</text>
+                        }
+                        else if (g.Conditions.Count > 0)
+                        {
+                            <text>All @g.Conditions.Count conditions passed.</text>
+                        }
+                    </span>
+                </div>
+                @if (g.Conditions.Count > 0)
+                {
+                    <table class="table table--rows" style="margin-top: var(--space-2)">
+                        <thead><tr><th>Condition</th><th>Rule</th><th class="align-end">Actual</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var c in g.Conditions.OrderByDescending(c => c.Failed))
+                            {
+                                <tr>
+                                    <td class="mono">@c.Metric</td>
+                                    <td class="mono muted">@(c.Op is null ? "—" : $"{c.Op} {c.Threshold}")</td>
+                                    <td class="mono align-end" style="@(c.Failed ? "color: var(--color-critical)" : null)">@(c.Actual ?? "—")</td>
+                                    <td>@if (c.Failed) { <span class="contrib__sat mono" style="color: var(--color-critical)">FAILED</span> } else { <span style="color: var(--color-pass)">✓</span> }</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                <p class="field__help mono">
+                    @(g.Source ?? "quality gate")@(g.AnalysisId is null ? "" : " · analysis " + g.AnalysisId) · observed @g.ObservedAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") UTC
+                </p>
+                @if (g.Measures.Count > 0)
+                {
+                    <p class="field__help mono">@string.Join(" · ", g.Measures.Select(m => $"{m.Key} {m.Value}"))</p>
+                }
+            </div>
+        </Card>
+    }
+    else
+    {
+        <Card>
+            <div class="row">
+                <Chip Label="No gate verdict" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+                <span>No quality-gate verdict was reported for this build — the gate reads Unknown, not Pass.</span>
+            </div>
+        </Card>
+    }
+
+    @if (o.Findings.Count == 0)
+    {
+        <NothingFound Message="No bugs or code smells reported for this build." />
+    }
+    else
+    {
+        <Card Padded="false">
+            <ScrollBox Label="Bugs & code smells">
+                <table class="table table--rows">
+                    <thead><tr><th>Severity</th><th>Type</th><th>Finding</th><th>Location</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach (var f in o.Findings)
+                        {
+                            <tr>
+                                <td><SeverityBadge Severity="f.Severity" /></td>
+                                <td class="mono muted">@(f.SubCategory ?? "—")</td>
+                                <td>
+                                    <div>@f.Title</div>
+                                    <div class="mono muted cat__rule">@f.Scanner · @f.RuleId</div>
+                                </td>
+                                <td class="mono">
+                                    @if (f.FilePath is { } loc)
+                                    {
+                                        <span title="@loc">@Shorten(loc)@(f.Line is { } ln ? $":{ln}" : "")</span>
+                                    }
+                                    else { <span class="muted">—</span> }
+                                </td>
+                                <td class="mono muted">@f.Status</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </ScrollBox>
+        </Card>
+        <p class="field__help">@o.Findings.Count issue@(o.Findings.Count == 1 ? "" : "s"); security vulnerabilities and hotspots score under SAST, not here.</p>
+    }
+
+    @if (o.Coverage is { } cov)
+    {
+        <Card Padded="false">
+            <div class="card-body">
+                <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">Analysis coverage</h2>
+                @if (cov.GapLanguages.Count > 0)
+                {
+                    <p style="color: var(--color-high)">⚠ Languages with source but no analyzer: <strong>@string.Join(", ", cov.GapLanguages)</strong> — “0 findings” there means unanalyzed, not clean.</p>
+                }
+                <table class="table table--rows">
+                    <thead><tr><th>Language</th><th class="align-end">Files analyzed</th><th class="align-end">Lines</th><th class="align-end">Analyzed</th><th>Analyzer</th></tr></thead>
+                    <tbody>
+                        @foreach (var l in cov.Languages)
+                        {
+                            <tr>
+                                <td class="mono">@l.Language</td>
+                                <td class="mono align-end">@l.FilesAnalyzed.ToString("N0") / @l.FilesTotal.ToString("N0")</td>
+                                <td class="mono align-end">@l.Lines.ToString("N0")</td>
+                                <td class="mono align-end" style="color: @(l.PercentAnalyzed >= 99.5 ? "var(--color-pass)" : "var(--color-high)")">@l.PercentAnalyzed.ToString("F1")%</td>
+                                <td class="mono muted">@(l.AnalyzedBy ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                @if (cov.Excludes.Count > 0)
+                {
+                    <p class="field__help mono">Excludes: @string.Join(", ", cov.Excludes)</p>
+                }
+            </div>
+        </Card>
+    }
+    else
+    {
+        <p class="field__help">No analysis-coverage report for this build — completeness of the analysis is unproven (SA-11).</p>
+    }
+
+    @if (o.Receipts.Count > 0)
+    {
+        <Card Padded="false">
+            <div class="card-body">
+                <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">Scan provenance</h2>
+                <table class="table table--rows">
+                    <thead><tr><th>Scanner</th><th>Tool</th><th>Status</th><th class="align-end">Findings</th><th>Completed</th></tr></thead>
+                    <tbody>
+                        @foreach (var r in o.Receipts)
+                        {
+                            <tr>
+                                <td class="mono">@r.Scanner</td>
+                                <td class="mono muted">@($"{r.ToolName} {r.ToolVersion}".Trim())</td>
+                                <td class="mono">@r.Status</td>
+                                <td class="mono align-end">@r.FindingsCount.ToString("N0")</td>
+                                <td class="mono muted">@(r.CompletedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                            </tr>
+                            @if (!string.IsNullOrWhiteSpace(r.Notes))
+                            {
+                                <tr><td colspan="5" class="mono muted">@r.Notes</td></tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </Card>
+    }
+
+    @if (o.History.Count > 0)
+    {
+        <Card Padded="false">
+            <div class="card-body">
+                <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">History</h2>
+                <table class="table table--rows">
+                    <thead><tr><th>Build</th><th>Quality gate</th><th class="align-end">Issues</th></tr></thead>
+                    <tbody>
+                        @foreach (var h in o.History)
+                        {
+                            <tr>
+                                <td><span class="mono">@(h.CommitSha is { Length: > 8 } sha ? sha[..8] : h.CommitSha)</span> <span class="muted">@h.BuiltAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm")</span></td>
+                                <td class="mono">
+                                    @if (h.GateStatus is null) { <span class="muted">no verdict</span> }
+                                    else if (h.FailedConditions > 0) { <span style="color: var(--color-critical)">@h.GateStatus · @h.FailedConditions/@h.TotalConditions failed</span> }
+                                    else { <span style="color: var(--color-pass)">@h.GateStatus</span> }
+                                </td>
+                                <td class="mono align-end">@h.FindingCount.ToString("N0")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </Card>
+    }
+}
+
+@code {
+    [Parameter] public QualityOverview? Overview { get; set; }
+
+    private static string Shorten(string path) => path.Length <= 60 ? path : "…" + path[^59..];
+}

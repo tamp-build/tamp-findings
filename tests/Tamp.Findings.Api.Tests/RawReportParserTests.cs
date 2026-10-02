@@ -101,7 +101,11 @@ public class RawReportParserTests
         Assert.Equal("Pkg.A", m.Name);
         Assert.Equal(3, m.CoveredSequences);      // 3 of 4 lines hit
         Assert.Equal(4, m.TotalSequences);
-        Assert.Null(m.Classes);                    // no line-level overlay on the raw path
+        var c = Assert.Single(m.Classes!);          // per-class counts kept; source text is not
+        Assert.Equal("src/C.cs", c.SourceFileRelativePath);
+        Assert.Equal(3, c.CoveredSequences);
+        Assert.Equal(new[] { 3 }, c.UnvisitedLines);
+        Assert.Equal("src/C.cs", Assert.Single(r.SourceFiles!).RelativePath);
     }
 
     // ---- OpenCover (real fixture) --------------------------------------------------------------

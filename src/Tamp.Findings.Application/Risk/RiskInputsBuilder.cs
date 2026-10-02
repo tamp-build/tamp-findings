@@ -36,8 +36,9 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
 
         // Open findings grouped by scanner + severity + sub-category.
         // SubCategory disambiguates Trivy's misconfig vs secret rows.
+        var dupeIds = (await FindingDedupe.DuplicateIdsAsync(db, cvIds, ct)).ToArray();
         var rawFindings = await db.Findings.AsNoTracking()
-            .Where(f => cvIds.Contains(f.ComponentVersionId) && f.Status == FindingStatus.Open)
+            .Where(f => cvIds.Contains(f.ComponentVersionId) && f.Status == FindingStatus.Open && !dupeIds.Contains(f.Id))
             .GroupBy(f => new { f.Scanner, f.Severity, f.SubCategory })
             .Select(g => new { g.Key.Scanner, g.Key.Severity, g.Key.SubCategory, Count = g.Count() })
             .ToListAsync(ct);
@@ -55,10 +56,21 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             })
             .ToList();
 
-        var sastCrit = findings.Where(x => SastSet.Contains(x.Scanner) && x.Severity == Severity.Critical).Sum(x => x.Count);
-        var sastHigh = findings.Where(x => SastSet.Contains(x.Scanner) && x.Severity == Severity.High).Sum(x => x.Count);
-        var sastMed  = findings.Where(x => SastSet.Contains(x.Scanner) && x.Severity == Severity.Medium).Sum(x => x.Count);
-        var sastLow  = findings.Where(x => SastSet.Contains(x.Scanner) && x.Severity == Severity.Low).Sum(x => x.Count);
+        // Typed-unified routing (TFND-175): the issue TYPE on SubCategory wins over the
+        // scanner's default bucket, so a Roslyn/Sonar code_smell scores as quality and a
+        // Sonar vulnerability scores as SAST — whatever tool found it. Trivy's own
+        // "vulnerability" rows are CVEs, not SAST, so security-type routing excludes it.
+        bool IsQuality(ScannerKind s, string? sub) =>
+            QualitySet.Contains(s) || FindingTypes.IsQualityType(sub);
+        bool IsSast(ScannerKind s, string? sub) =>
+            !FindingTypes.IsQualityType(sub)
+            && (SastSet.Contains(s) || s == ScannerKind.SonarQube   // untyped Sonar rows fail into SAST, never out of the score
+                || (FindingTypes.IsSecurityType(sub) && s != ScannerKind.Trivy));
+
+        var sastCrit = findings.Where(x => IsSast(x.Scanner, x.SubCategory) && x.Severity == Severity.Critical).Sum(x => x.Count);
+        var sastHigh = findings.Where(x => IsSast(x.Scanner, x.SubCategory) && x.Severity == Severity.High).Sum(x => x.Count);
+        var sastMed  = findings.Where(x => IsSast(x.Scanner, x.SubCategory) && x.Severity == Severity.Medium).Sum(x => x.Count);
+        var sastLow  = findings.Where(x => IsSast(x.Scanner, x.SubCategory) && x.Severity == Severity.Low).Sum(x => x.Count);
 
         var dastCrit = findings.Where(x => DastSet.Contains(x.Scanner) && x.Severity == Severity.Critical).Sum(x => x.Count);
         var dastHigh = findings.Where(x => DastSet.Contains(x.Scanner) && x.Severity == Severity.High).Sum(x => x.Count);
@@ -68,10 +80,10 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         // TFND-33 … TFND-37. Counted separately from SAST so an OpenAPI style
         // nit reported as High can never reach the criticalSast gate — a gate
         // that fires on a lint warning is a gate a team turns off.
-        var qualityHigh = findings.Where(x => QualitySet.Contains(x.Scanner)
+        var qualityHigh = findings.Where(x => IsQuality(x.Scanner, x.SubCategory)
                                            && x.Severity is Severity.Critical or Severity.High).Sum(x => x.Count);
-        var qualityMed  = findings.Where(x => QualitySet.Contains(x.Scanner) && x.Severity == Severity.Medium).Sum(x => x.Count);
-        var qualityLow  = findings.Where(x => QualitySet.Contains(x.Scanner) && x.Severity == Severity.Low).Sum(x => x.Count);
+        var qualityMed  = findings.Where(x => IsQuality(x.Scanner, x.SubCategory) && x.Severity == Severity.Medium).Sum(x => x.Count);
+        var qualityLow  = findings.Where(x => IsQuality(x.Scanner, x.SubCategory) && x.Severity == Severity.Low).Sum(x => x.Count);
 
         // TFND-27 — Section 508 / WCAG 2.1 AA. Split at axe's own line: a
         // "critical" there means a control that cannot be operated at all by
@@ -146,6 +158,9 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         // classifies by its real license and stops costing "unknown" points.
         var licenseMap = await licenses.MapAsync(ct);
 
+        var stalenessExempt = projectId is { } exPid
+            ? await StalenessExemptions.LoadAsync(db, exPid, ct)
+            : [];
         var compsCount = sbomComponents.Count;
         var staleCutoff = DateTimeOffset.UtcNow.AddDays(-180);
         int outdated = 0, stale = 0;
@@ -159,6 +174,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             var hasNewer = !string.IsNullOrEmpty(c.LatestVersion) && c.LatestVersion != c.Version;
             if (hasNewer)
             {
+                // TFND-226: a filed staleness VEX takes the component out of the score.
+                if (StalenessExemptions.Match(stalenessExempt, c.Purl, c.Version) is not null) continue;
                 outdated++;
                 // TODO(TFND-178): LatestReleasedAt is never populated by the SBOM
                 // ingest today, so this branch never fires and the scorer's `stale`
@@ -206,7 +223,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             .Select(r => r.Scanner)
             .ToListAsync(ct);
         var receiptSet = new HashSet<ScannerKind>(receipts);
-        var ranSast = SastSet.Any(s => receiptSet.Contains(s));
+        // SonarQube produces both quality and SAST, so its receipt credits either lane.
+        var ranSast = SastSet.Any(s => receiptSet.Contains(s)) || receiptSet.Contains(ScannerKind.SonarQube);
         var ranDast = DastSet.Any(s => receiptSet.Contains(s));
         var ranSecrets = receiptSet.Contains(ScannerKind.TruffleHog);
         var ranIac = receiptSet.Contains(ScannerKind.Trivy);
@@ -215,7 +233,37 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         // "Did any design-analysis tool run at all". Same honesty rule as every
         // other Ran* flag: a zero from a scanner that never ran is not a clean
         // result, it is an unanswered question.
-        var ranQuality = QualitySet.Any(s => receiptSet.Contains(s));
+        var ranQuality = QualitySet.Any(s => receiptSet.Contains(s)) || receiptSet.Contains(ScannerKind.SonarQube);
+
+        // TFND-175 quality-gate verdict from the dedicated /ingest/quality-gate result.
+        // The SQ quality gate is COMPOSITE (reliability/security/coverage/maintainability
+        // conditions), so on a fail we count the ERROR conditions — a "2 failed" reads
+        // truer than "1", and the detail names which ones.
+        var qg = await db.QualityGateResults.AsNoTracking()
+            .Where(r => cvIds.Contains(r.ComponentVersionId))
+            .OrderByDescending(r => r.ObservedAt)
+            .Select(r => new { r.Status, r.ConditionsJson })
+            .FirstOrDefaultAsync(ct);
+        var hasQualityGateVerdict = qg != null;
+        var qualityGateFailed = 0;
+        if (qg is not null && string.Equals(qg.Status, "fail", StringComparison.OrdinalIgnoreCase))
+        {
+            qualityGateFailed = CountErrorConditions(qg.ConditionsJson);
+            if (qualityGateFailed == 0) qualityGateFailed = 1;   // fail with no parsable conditions still blocks
+        }
+
+        // TFND-175 analysis-coverage: the producer's authoritative gap list
+        // (overall.languagesWithFootprintNoAnalyzer) — a non-empty list blocks.
+        var acGap = await db.AnalysisCoverageReports.AsNoTracking()
+            .Where(r => cvIds.Contains(r.ComponentVersionId))
+            .OrderByDescending(r => r.ObservedAt)
+            .Select(r => r.GapLanguages)
+            .FirstOrDefaultAsync(ct);
+        var hasAnalysisCoverage = await db.AnalysisCoverageReports.AsNoTracking()
+            .AnyAsync(r => cvIds.Contains(r.ComponentVersionId), ct);
+        var unanalyzedLanguages = string.IsNullOrWhiteSpace(acGap)
+            ? 0
+            : acGap.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
         var ranAccessibility = A11ySet.Any(s => receiptSet.Contains(s));
         // TFND-216: an SBOM is inventory; only an SCA scan (OSV/Grype receipt) assesses it. The CVE/KEV
         // gates read this, so a build with an SBOM but no SCA scan is Unknown, not clean.
@@ -283,11 +331,34 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             BaseImageAgeDays: baseImageAgeDays,
             RanImageInspect: ranImageInspect,
             SbomAgeDays: sbomAgeDays,
-            RanSca: ranSca);
+            RanSca: ranSca,
+            QualityGateFailed: qualityGateFailed,
+            HasQualityGateVerdict: hasQualityGateVerdict,
+            UnanalyzedLanguages: unanalyzedLanguages,
+            HasAnalysisCoverage: hasAnalysisCoverage);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the
     // ingested severity unchanged.
+    // How many quality-gate conditions failed (SQ status ERROR) — the composite gate's
+    // real failure count. Stored as a JSON array of {Metric, Op, Threshold, Actual, Status}.
+    private static int CountErrorConditions(string? conditionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(conditionsJson)) return 0;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(conditionsJson);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) return 0;
+            var n = 0;
+            foreach (var c in doc.RootElement.EnumerateArray())
+                if (c.TryGetProperty("Status", out var s)
+                    && string.Equals(s.GetString(), "ERROR", StringComparison.OrdinalIgnoreCase))
+                    n++;
+            return n;
+        }
+        catch { return 0; }
+    }
+
     private static Severity CapSeverity(ScannerKind scanner, Severity raw, IReadOnlyDictionary<string, ScannerOverride> overrides)
     {
         if (overrides.TryGetValue(scanner.ToString(), out var ov)

@@ -112,7 +112,8 @@ public static class IngestEndpoints
                 current.Description = f.Description;
                 current.Line = f.Line;
                 current.Snippet = f.Snippet;
-                current.SubCategory = f.SubCategory;
+                current.SubCategory = f.Type ?? f.SubCategory;   // TFND-175: Type (the routing key) wins
+                current.Source = f.Source;
                 current.Purl = f.Purl;
 
                 if (prev == FindingStatus.Accepted)
@@ -144,7 +145,8 @@ public static class IngestEndpoints
                 queued.Description = f.Description;
                 queued.Line = f.Line;
                 queued.Snippet = f.Snippet;
-                queued.SubCategory = f.SubCategory;
+                queued.SubCategory = f.Type ?? f.SubCategory;
+                queued.Source = f.Source;
                 queued.Purl = f.Purl;
                 updated++;
             }
@@ -162,7 +164,8 @@ public static class IngestEndpoints
                     FilePath = f.FilePath,
                     Line = f.Line,
                     Snippet = f.Snippet,
-                    SubCategory = f.SubCategory,
+                    SubCategory = f.Type ?? f.SubCategory,
+                    Source = f.Source,
                     Purl = f.Purl,
                     FirstSeen = now,
                     LastSeen = now,

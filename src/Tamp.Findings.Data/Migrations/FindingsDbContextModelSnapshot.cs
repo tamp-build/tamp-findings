@@ -45,6 +45,105 @@ namespace Tamp.Findings.Data.Migrations
                     b.ToTable("DataProtectionKeys");
                 });
 
+            modelBuilder.Entity("Tamp.Findings.Domain.Entities.AnalysisCoverageLanguage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AnalysisCoverageReportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AnalyzedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("FilesAnalyzed")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("FilesTotal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<long>("LinesAnalyzed")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("LinesTotal")
+                        .HasColumnType("bigint");
+
+                    b.Property<double>("PercentAnalyzed")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("UnanalyzedSample")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnalysisCoverageReportId", "Language");
+
+                    b.ToTable("AnalysisCoverageLanguages");
+                });
+
+            modelBuilder.Entity("Tamp.Findings.Domain.Entities.AnalysisCoverageReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ComponentVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Excludes")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<string>("GapLanguages")
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<DateTimeOffset>("IngestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ComponentVersionId")
+                        .IsUnique();
+
+                    b.ToTable("AnalysisCoverageReports");
+                });
+
+            modelBuilder.Entity("Tamp.Findings.Domain.Entities.ArchetypeDefinition", b =>
+                {
+                    b.Property<int>("Archetype")
+                        .HasColumnType("integer");
+
+                    b.Property<PolicyLayer>("Layer")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedByLogin")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Archetype");
+
+                    b.ToTable("ArchetypeDefinitions");
+                });
+
             modelBuilder.Entity("Tamp.Findings.Domain.Entities.AttestationSnapshot", b =>
                 {
                     b.Property<Guid>("Id")
@@ -971,6 +1070,9 @@ namespace Tamp.Findings.Data.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("Snippet")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Source")
                         .HasColumnType("text");
 
                     b.Property<int>("Status")
@@ -1981,6 +2083,48 @@ namespace Tamp.Findings.Data.Migrations
                     b.ToTable("ProjectRoleAssignments");
                 });
 
+            modelBuilder.Entity("Tamp.Findings.Domain.Entities.QualityGateResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AnalysisId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("ComponentVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConditionsJson")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("IngestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MeasuresJson")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("ObservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Source")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ComponentVersionId")
+                        .IsUnique();
+
+                    b.ToTable("QualityGateResults");
+                });
+
             modelBuilder.Entity("Tamp.Findings.Domain.Entities.RawReportArtifact", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2087,6 +2231,12 @@ namespace Tamp.Findings.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("CurrentReleasedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("DevDependency")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("EnrichedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Dictionary<string, string>>("Hashes")
@@ -2234,6 +2384,14 @@ namespace Tamp.Findings.Data.Migrations
 
                     b.Property<int>("FindingsCount")
                         .HasColumnType("integer");
+
+                    b.Property<string>("GateDetails")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<string>("GateStatus")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
                     b.Property<DateTimeOffset>("IngestedAt")
                         .HasColumnType("timestamp with time zone");
@@ -2860,6 +3018,28 @@ namespace Tamp.Findings.Data.Migrations
                     b.ToTable("ZtSystemPicks");
                 });
 
+            modelBuilder.Entity("Tamp.Findings.Domain.Entities.AnalysisCoverageLanguage", b =>
+                {
+                    b.HasOne("Tamp.Findings.Domain.Entities.AnalysisCoverageReport", "Report")
+                        .WithMany("Languages")
+                        .HasForeignKey("AnalysisCoverageReportId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Report");
+                });
+
+            modelBuilder.Entity("Tamp.Findings.Domain.Entities.AnalysisCoverageReport", b =>
+                {
+                    b.HasOne("Tamp.Findings.Domain.Entities.ComponentVersion", "ComponentVersion")
+                        .WithMany()
+                        .HasForeignKey("ComponentVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ComponentVersion");
+                });
+
             modelBuilder.Entity("Tamp.Findings.Domain.Entities.Client", b =>
                 {
                     b.HasOne("Tamp.Findings.Domain.Entities.Framework", null)
@@ -3012,6 +3192,17 @@ namespace Tamp.Findings.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Client");
+                });
+
+            modelBuilder.Entity("Tamp.Findings.Domain.Entities.QualityGateResult", b =>
+                {
+                    b.HasOne("Tamp.Findings.Domain.Entities.ComponentVersion", "ComponentVersion")
+                        .WithMany()
+                        .HasForeignKey("ComponentVersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ComponentVersion");
                 });
 
             modelBuilder.Entity("Tamp.Findings.Domain.Entities.RawReportArtifact", b =>
@@ -3179,6 +3370,11 @@ namespace Tamp.Findings.Data.Migrations
                         .HasForeignKey("SystemId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Tamp.Findings.Domain.Entities.AnalysisCoverageReport", b =>
+                {
+                    b.Navigation("Languages");
                 });
 
             modelBuilder.Entity("Tamp.Findings.Domain.Entities.Client", b =>

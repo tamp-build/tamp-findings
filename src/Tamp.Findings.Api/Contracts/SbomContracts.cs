@@ -40,7 +40,9 @@ public sealed record SbomComponentDto(
     string? License,
     IReadOnlyList<VulnerabilityDto> Vulnerabilities,
     // TFND-21: algorithm → hash value map (SHA-256, SHA-1, …).
-    IReadOnlyDictionary<string, string>? Hashes = null);
+    IReadOnlyDictionary<string, string>? Hashes = null,
+    // Producer-asserted: component is outside every shipping project's closure (tamp:devDependency).
+    bool DevDependency = false);
 
 public sealed record VulnerabilityDto(
     string AdvisoryId,

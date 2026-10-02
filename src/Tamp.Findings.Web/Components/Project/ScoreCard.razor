@@ -87,6 +87,7 @@
 
 @code {
     [Parameter, EditorRequired] public ProjectHubData Data { get; set; } = default!;
+    [Parameter] public string Sha { get; set; } = Routes.LatestBuild;
 
     // History is newest-first; the sparkline reads left (past) to right (now).
     private IReadOnlyList<double> TrendSeries => Data.History.Select(h => h.Score).Reverse().ToArray();
@@ -118,7 +119,7 @@
 
     private string CategoryHref(string key) =>
         Routes.Category(Data.Project.ClientName, Data.Project.ProjectName,
-            Data.CommitSha ?? Routes.LatestBuild, key);
+            Sha, key);
 
     private static string Signed(double d) => d > 0 ? $"+{d:F1}" : d.ToString("F1");
 

@@ -62,8 +62,8 @@ public static class PolicyTemplateDefaults
         ("CM-8", [GateKeys.SbomAge]),                                                                 // component inventory
         ("SR-3", [GateKeys.SbomAge, GateKeys.DeniedLicenses]),                                        // supply chain
         ("IA-5", [GateKeys.VerifiedSecrets]),                                                         // authenticator mgmt
-        ("SA-11", [GateKeys.CriticalSast, GateKeys.HighSast, GateKeys.CoverageFloor]),                // developer testing
-        ("SA-15", [GateKeys.CriticalSast, GateKeys.CoverageFloor]),                                   // dev process/tools
+        ("SA-11", [GateKeys.CriticalSast, GateKeys.HighSast, GateKeys.CoverageFloor, GateKeys.AnalysisCoverage]), // developer testing (static analysis performed + complete)
+        ("SA-15", [GateKeys.CriticalSast, GateKeys.CoverageFloor, GateKeys.QualityGate]),             // dev process/tools (quality gate)
         ("SI-10", [GateKeys.CriticalDast]),                                                           // input validation (web)
         ("SC-7",  [GateKeys.CriticalDast]),                                                           // boundary protection (web)
         ("CA-8",  [GateKeys.CriticalDast]),                                                           // penetration testing (web)
@@ -126,6 +126,13 @@ public static class PolicyTemplateDefaults
         // The meta-gate itself: enabled so coverage is measured; blocking is the
         // enforcement lever (ADR 0004) — advisory until the matrix is clean.
         layer.Gates[GateKeys.NoUnmapped] = On();
+
+        // TFND-175: the code-quality process gates on EVERY federal template. A SonarQube-style
+        // quality gate is the industry standard — a reported FAIL must never be silently swallowed,
+        // and an unanalyzed language is a visible gap. On here so they always surface (and block
+        // under Enforcing mode).
+        layer.Gates[GateKeys.QualityGate] = On(0);
+        layer.Gates[GateKeys.AnalysisCoverage] = On(0);
         return layer;
     }
 
@@ -153,6 +160,10 @@ public static class PolicyTemplateDefaults
             [GateKeys.KevExposure] = On(0),
             [GateKeys.VerifiedSecrets] = On(0),
             [GateKeys.SbomAge] = On(30),   // advisory via the template mode
+            // TFND-175: quality gate + analysis coverage even on the permissive default — a
+            // reported SonarQube gate FAIL surfaces (advisory here, so it shows but doesn't block).
+            [GateKeys.QualityGate] = On(0),
+            [GateKeys.AnalysisCoverage] = On(0),
         },
     };
 
@@ -273,6 +284,9 @@ public static class PolicyTemplateDefaults
             [GateKeys.CriticalSast] = On(0),
             [GateKeys.VerifiedSecrets] = On(0),
             [GateKeys.SbomAge] = On(14),
+            // TFND-175: SonarQube quality gate + analysis coverage on the module templates too.
+            [GateKeys.QualityGate] = On(0),
+            [GateKeys.AnalysisCoverage] = On(0),
         },
     };
 

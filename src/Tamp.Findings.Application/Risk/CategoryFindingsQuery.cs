@@ -46,7 +46,8 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
         var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
         if (cvIds.Length == 0) return [];
 
-        var q = db.Findings.AsNoTracking().Where(f => cvIds.Contains(f.ComponentVersionId));
+        var dupeIds = (await FindingDedupe.DuplicateIdsAsync(db, cvIds, ct)).ToArray();
+        var q = db.Findings.AsNoTracking().Where(f => cvIds.Contains(f.ComponentVersionId) && !dupeIds.Contains(f.Id));
         q = Filter(categoryKey, q);
         if (q is null) return [];
 
@@ -126,15 +127,62 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
 
         var reports = await db.CoverageReports.AsNoTracking()
             .Where(r => cvIds.Contains(r.ComponentVersionId))
-            .Select(r => new { r.CoveredSequences, r.TotalSequences, r.CoveredBranches, r.TotalBranches })
+            .Select(r => new { r.Id, r.CoveredSequences, r.TotalSequences, r.CoveredBranches, r.TotalBranches, r.ToolName, r.ToolVersion, r.IngestedAt })
             .ToListAsync(ct);
         if (reports.Count == 0) return null;
+
+        var reportIds = reports.Select(r => r.Id).ToArray();
+        var classes = await (from c in db.CoverageClasses.AsNoTracking()
+                             join m in db.CoverageModules.AsNoTracking() on c.CoverageModuleId equals m.Id
+                             join f in db.CoverageSourceFiles.AsNoTracking() on c.CoverageSourceFileId equals f.Id
+                             where reportIds.Contains(m.CoverageReportId)
+                             select new { Module = m.Name, c.FullName, f.RelativePath, c.CoveredSequences, c.TotalSequences, c.CoveredBranches, c.TotalBranches })
+            .ToListAsync(ct);
+
+        static double Pct(int c, int t) => t == 0 ? 0 : 100.0 * c / t;
+        static string Ns(string full)
+        {
+            var top = full.Split('/', '+')[0];
+            var i = top.LastIndexOf('.');
+            return i > 0 ? top[..i] : "(global)";
+        }
+        var modules = classes.GroupBy(c => c.Module).Select(mg =>
+        {
+            var nss = mg.GroupBy(c => Ns(c.FullName)).Select(ng =>
+            {
+                var files = ng.GroupBy(c => c.RelativePath).Select(fg =>
+                {
+                    var cs = fg.Sum(x => x.CoveredSequences); var ts = fg.Sum(x => x.TotalSequences);
+                    var cb = fg.Sum(x => x.CoveredBranches); var tb = fg.Sum(x => x.TotalBranches);
+                    return new CoverageFileRow(fg.Key, Pct(cs, ts), cs, ts, Pct(cb, tb), cb, tb);
+                }).OrderBy(f => f.SeqPercent).ThenByDescending(f => f.TotalSeq).ToList();
+                var ncs = ng.Sum(x => x.CoveredSequences); var nts = ng.Sum(x => x.TotalSequences);
+                var ncb = ng.Sum(x => x.CoveredBranches); var ntb = ng.Sum(x => x.TotalBranches);
+                return new CoverageNamespaceRow(ng.Key, Pct(ncs, nts), ncs, nts, Pct(ncb, ntb), ncb, ntb, files);
+            }).OrderBy(n => n.SeqPercent).ThenByDescending(n => n.TotalSeq).ToList();
+            var mcs = nss.Sum(x => x.CoveredSeq); var mts = nss.Sum(x => x.TotalSeq);
+            var mcb = nss.Sum(x => x.CoveredBranch); var mtb = nss.Sum(x => x.TotalBranch);
+            return new CoverageModuleRow(mg.Key, Pct(mcs, mts), mcs, mts, Pct(mcb, mtb), mcb, mtb, nss);
+        }).ToList();
+
+        // Reports ingested before per-class persistence carry module rows only; show those as assemblies
+        // with no namespace/file detail rather than hiding the breakdown.
+        var seen = modules.Select(m => m.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var moduleOnly = await db.CoverageModules.AsNoTracking()
+            .Where(m => reportIds.Contains(m.CoverageReportId))
+            .Select(m => new { m.Name, m.CoveredSequences, m.TotalSequences, m.SequenceCoverage, m.BranchCoverage })
+            .ToListAsync(ct);
+        foreach (var m in moduleOnly.Where(m => !seen.Contains(m.Name)))
+            modules.Add(new CoverageModuleRow(m.Name, m.TotalSequences == 0 ? m.SequenceCoverage : Pct(m.CoveredSequences, m.TotalSequences),
+                m.CoveredSequences, m.TotalSequences, m.BranchCoverage, 0, 0, []));
+        modules = modules.OrderBy(m => m.SeqPercent).ThenByDescending(m => m.TotalSeq).ToList();
 
         var cs = reports.Sum(r => r.CoveredSequences); var ts = reports.Sum(r => r.TotalSequences);
         var cb = reports.Sum(r => r.CoveredBranches); var tb = reports.Sum(r => r.TotalBranches);
         return new CoverageSummary(
             ts == 0 ? 0 : 100.0 * cs / ts, cs, ts,
-            tb == 0 ? 0 : 100.0 * cb / tb, cb, tb);
+            tb == 0 ? 0 : 100.0 * cb / tb, cb, tb,
+            reports[0].ToolName, reports[0].ToolVersion, reports.Max(r => r.IngestedAt), modules);
     }
 
     /// <summary>Test outcomes for the `tests` category. Suite-level — per-test flaky/skipped
@@ -373,19 +421,116 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
             .Where(c => snapIds.Contains(c.SbomSnapshotId)
                 && c.Vulnerabilities.Count == 0
                 && c.LatestVersion != null && c.LatestVersion != "" && c.LatestVersion != c.Version)
-            .Select(c => new { c.Name, c.Version, c.LatestVersion, c.LatestReleasedAt })
+            .Select(c => new { c.Name, c.Version, c.Purl, c.LatestVersion, c.LatestReleasedAt })
             .ToListAsync(ct);
 
+        var exemptions = await StalenessExemptions.LoadAsync(db, projectId, ct);
         var now = DateTimeOffset.UtcNow;
         return rows
-            .Select(c => new StaleComponent(
-                c.Name, c.Version, c.LatestVersion,
-                c.LatestReleasedAt is { } at ? (int)(now - at).TotalDays : null,
-                c.LatestReleasedAt is { } s && s < cutoff))
-            .OrderByDescending(c => c.Stale)
+            .Select(c =>
+            {
+                var ex = StalenessExemptions.Match(exemptions, c.Purl, c.Version);
+                return new StaleComponent(
+                    c.Name, c.Version, c.LatestVersion,
+                    c.LatestReleasedAt is { } at ? (int)(now - at).TotalDays : null,
+                    c.LatestReleasedAt is { } s && s < cutoff,
+                    c.Purl, ex?.VexId, ex?.Justification.ToString());
+            })
+            .OrderBy(c => c.ExemptVexId is not null)
+            .ThenByDescending(c => c.Stale)
             .ThenByDescending(c => c.DaysBehind ?? -1)
             .ThenBy(c => c.Name)
             .Take(100).ToArray();
+    }
+
+    private async Task<int> ExemptCountAsync(Guid projectId, IQueryable<SbomComponent> comps, CancellationToken ct)
+    {
+        var ex = await StalenessExemptions.LoadAsync(db, projectId, ct);
+        if (ex.Count == 0) return 0;
+        var outdated = await comps
+            .Where(c => c.Vulnerabilities.Count == 0 && c.LatestVersion != null && c.LatestVersion != "" && c.LatestVersion != c.Version)
+            .Select(c => new { c.Purl, c.Version }).ToListAsync(ct);
+        return outdated.Count(c => StalenessExemptions.Match(ex, c.Purl, c.Version) is not null);
+    }
+
+    /// <summary>TFND-226. Components that plausibly share the clicked component's fate: outdated
+    /// components reachable only through the same top-level dependencies (graph roots). If the roots
+    /// are build-time-only, everything hanging only off them is too. Flat SBOMs (no edges) degrade
+    /// to just the clicked component.</summary>
+    public async Task<IReadOnlyList<ClosureSuggestion>> StalenessClosureAsync(
+        Guid projectId, string? commitSha, string purl, CancellationToken ct = default)
+    {
+        var snapIds = await SnapshotIdsAsync(projectId, commitSha, ct);
+        if (snapIds.Length == 0) return [];
+
+        var comps = await db.SbomComponents.AsNoTracking()
+            .Where(c => snapIds.Contains(c.SbomSnapshotId))
+            .Select(c => new { c.Id, c.Name, c.Version, c.Purl, c.LatestVersion, c.DevDependency, VulnCount = c.Vulnerabilities.Count })
+            .ToListAsync(ct);
+        var edges = await db.SbomDependencies.AsNoTracking()
+            .Where(d => snapIds.Contains(d.SbomSnapshotId))
+            .Select(d => new { d.ParentComponentId, d.ChildComponentId })
+            .ToListAsync(ct);
+        var byId = comps.ToDictionary(c => c.Id);
+        var parents = edges.GroupBy(e => e.ChildComponentId).ToDictionary(g => g.Key, g => g.Select(e => e.ParentComponentId).ToArray());
+
+        // Top-level (root) ancestors of a component: walk parents up until none. A component with
+        // no parents is its own root.
+        HashSet<Guid> Roots(Guid id)
+        {
+            var roots = new HashSet<Guid>(); var seen = new HashSet<Guid>(); var stack = new Stack<Guid>();
+            stack.Push(id);
+            while (stack.Count > 0)
+            {
+                var cur = stack.Pop();
+                if (!seen.Add(cur)) continue;
+                if (parents.TryGetValue(cur, out var ps) && ps.Length > 0) foreach (var p in ps) stack.Push(p);
+                else roots.Add(cur);
+            }
+            return roots;
+        }
+
+        var bare = VexResolver.StripPurlVersion(purl);
+        var originIds = comps.Where(c => VexResolver.StripPurlVersion(c.Purl) == bare).Select(c => c.Id).ToArray();
+        if (originIds.Length == 0) return [];
+        var originRoots = new HashSet<Guid>();
+        foreach (var o in originIds) originRoots.UnionWith(Roots(o));
+
+        var originIsDev = comps.Any(c => originIds.Contains(c.Id) && c.DevDependency);
+        var exemptions = await StalenessExemptions.LoadAsync(db, projectId, ct);
+        var result = new Dictionary<string, ClosureSuggestion>();
+        foreach (var c in comps)
+        {
+            var key = VexResolver.StripPurlVersion(c.Purl);
+            if (result.ContainsKey(key)) continue;
+            var isOrigin = key == bare;
+            var roots = Roots(c.Id);
+            var devPeer = originIsDev && c.DevDependency;
+            if (!isOrigin && !devPeer && !roots.IsSubsetOf(originRoots)) continue;
+            var outdated = c.VulnCount == 0 && !string.IsNullOrEmpty(c.LatestVersion) && c.LatestVersion != c.Version;
+            if (!isOrigin && !outdated) continue;
+            var via = devPeer && !isOrigin ? "producer: dev-only" : string.Join(", ", roots.Select(r => byId[r].Name).OrderBy(n => n).Take(3));
+            result[key] = new ClosureSuggestion(c.Name, c.Version, c.Purl, isOrigin, outdated,
+                StalenessExemptions.Match(exemptions, c.Purl, c.Version) is not null, via);
+        }
+        return result.Values.OrderByDescending(r => r.Clicked).ThenBy(r => r.Name).ToArray();
+    }
+
+    /// <summary>Provenance + enrichment coverage for the SBOM behind `sbomStaleness`, so "fresh" is
+    /// evidence (how many components were actually checked), not an absence of rows.</summary>
+    public async Task<SbomSummary?> SbomSummaryAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var snapIds = await SnapshotIdsAsync(projectId, commitSha, ct);
+        if (snapIds.Length == 0) return null;
+        var snaps = await db.SbomSnapshots.AsNoTracking().Where(s => snapIds.Contains(s.Id))
+            .Select(s => new { s.ToolName, s.ToolVersion, s.SpecVersion, s.IngestedAt }).ToListAsync(ct);
+        var comps = db.SbomComponents.AsNoTracking().Where(c => snapIds.Contains(c.SbomSnapshotId));
+        var total = await comps.CountAsync(ct);
+        var checkedCount = await comps.CountAsync(c => c.EnrichedAt != null || (c.LatestVersion != null && c.LatestVersion != ""), ct);
+        var outdated = await comps.CountAsync(c => c.LatestVersion != null && c.LatestVersion != "" && c.LatestVersion != c.Version, ct);
+        var vulnerable = await comps.CountAsync(c => c.Vulnerabilities.Count > 0, ct);
+        var head = snaps.OrderByDescending(s => s.IngestedAt).First();
+        return new SbomSummary(head.ToolName, head.ToolVersion, head.SpecVersion, head.IngestedAt, total, checkedCount, outdated, vulnerable, await ExemptCountAsync(projectId, comps, ct));
     }
 
     /// <summary>Scan-run receipts for the `missingScanners` category — which scanners ran.</summary>
@@ -399,6 +544,118 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
             .OrderBy(r => r.Scanner)
             .Select(r => new ReceiptRow(r.Scanner, r.Status.ToString(), r.FindingsCount, r.CompletedAt, r.ToolName, r.ToolVersion, r.Notes))
             .ToListAsync(ct);
+    }
+
+    /// <summary>Everything the quality surfaces show for one build: type-routed findings (SonarQube or
+    /// any quality-lane tool), the SonarQube quality-gate verdict with its named conditions, analysis
+    /// coverage, the scan-run provenance, and per-build history. "Ran" is true only with real evidence
+    /// (a successful quality receipt, a gate verdict or findings) — never inferred from a bare zero.</summary>
+    public async Task<QualityOverview> QualityOverviewAsync(Guid projectId, string? commitSha, CancellationToken ct = default)
+    {
+        var cvIds = await ResolveCvIdsAsync(projectId, commitSha, ct);
+        if (cvIds.Length == 0) return QualityOverview.Empty;
+
+        var dupeIds = (await FindingDedupe.DuplicateIdsAsync(db, cvIds, ct)).ToArray();
+        var findings = await Filter("quality", db.Findings.AsNoTracking().Where(f => cvIds.Contains(f.ComponentVersionId) && !dupeIds.Contains(f.Id)))!
+            .OrderByDescending(f => f.Severity).ThenBy(f => f.FilePath).ThenBy(f => f.Line)
+            .Select(f => new CategoryFinding(
+                f.Id, f.Scanner, f.RuleId, f.Severity, f.Title, f.Description,
+                f.FilePath, f.Line, f.Snippet, f.SubCategory, f.Status, f.FirstSeen))
+            .ToListAsync(ct);
+
+        var qualityKinds = QualityScanners.Append(ScannerKind.SonarQube).ToArray();
+        var receipts = await db.ScanRunReceipts.AsNoTracking()
+            .Where(r => cvIds.Contains(r.ComponentVersionId) && qualityKinds.Contains(r.Scanner))
+            .OrderBy(r => r.Scanner)
+            .Select(r => new ReceiptRow(r.Scanner, r.Status.ToString(), r.FindingsCount, r.CompletedAt, r.ToolName, r.ToolVersion, r.Notes))
+            .ToListAsync(ct);
+
+        var gateRow = await db.QualityGateResults.AsNoTracking()
+            .Where(g => cvIds.Contains(g.ComponentVersionId))
+            .OrderByDescending(g => g.ObservedAt)
+            .FirstOrDefaultAsync(ct);
+        QualityGateView? gate = gateRow is null ? null : new QualityGateView(
+            gateRow.Status, ParseConditions(gateRow.ConditionsJson), ParseMeasures(gateRow.MeasuresJson),
+            gateRow.Source, gateRow.AnalysisId, gateRow.ObservedAt);
+
+        var cov = await db.AnalysisCoverageReports.AsNoTracking().Include(r => r.Languages)
+            .Where(r => cvIds.Contains(r.ComponentVersionId))
+            .OrderByDescending(r => r.ObservedAt)
+            .FirstOrDefaultAsync(ct);
+        AnalysisCoverageView? coverage = cov is null ? null : new AnalysisCoverageView(
+            cov.Languages.OrderByDescending(l => l.LinesTotal)
+                .Select(l => new AnalysisLanguageRow(l.Language, l.FilesAnalyzed, l.FilesTotal, l.LinesTotal, l.PercentAnalyzed, l.AnalyzedBy, l.UnanalyzedSample))
+                .ToList(),
+            SplitList(cov.GapLanguages), SplitList(cov.Excludes), cov.ObservedAt);
+
+        var ran = findings.Count > 0 || gate is not null
+            || receipts.Any(r => r.Status == "Succeeded");
+
+        return new QualityOverview(ran, findings, receipts, gate, coverage, await QualityHistoryAsync(projectId, ct));
+    }
+
+    private async Task<IReadOnlyList<QualityHistoryRow>> QualityHistoryAsync(Guid projectId, CancellationToken ct)
+    {
+        var cvs = await db.ComponentVersions.AsNoTracking()
+            .Where(cv => cv.ProjectId == projectId && cv.CommitSha != null)
+            .OrderByDescending(cv => cv.CreatedAt).Take(12)
+            .Select(cv => new { cv.Id, cv.CommitSha, cv.CreatedAt })
+            .ToListAsync(ct);
+        if (cvs.Count == 0) return [];
+        var ids = cvs.Select(c => c.Id).ToArray();
+
+        var histDupes = (await FindingDedupe.DuplicateIdsAsync(db, ids, ct)).ToArray();
+        var counts = (await Filter("quality", db.Findings.AsNoTracking().Where(f => ids.Contains(f.ComponentVersionId) && !histDupes.Contains(f.Id)))!
+                .GroupBy(f => f.ComponentVersionId)
+                .Select(g => new { CvId = g.Key, Count = g.Count() })
+                .ToListAsync(ct))
+            .ToDictionary(x => x.CvId, x => x.Count);
+        var gates = (await db.QualityGateResults.AsNoTracking()
+                .Where(g => ids.Contains(g.ComponentVersionId))
+                .Select(g => new { g.ComponentVersionId, g.Status, g.ConditionsJson })
+                .ToListAsync(ct))
+            .GroupBy(g => g.ComponentVersionId).ToDictionary(g => g.Key, g => g.First());
+
+        return cvs.Select(c =>
+        {
+            gates.TryGetValue(c.Id, out var g);
+            var conds = g is null ? [] : ParseConditions(g.ConditionsJson);
+            return new QualityHistoryRow(c.CommitSha, c.CreatedAt, counts.GetValueOrDefault(c.Id, 0),
+                g?.Status, conds.Count(x => x.Failed), conds.Count);
+        }).ToList();
+    }
+
+    private static IReadOnlyList<string> SplitList(string? s) =>
+        string.IsNullOrWhiteSpace(s) ? [] : s.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+    private static IReadOnlyList<QualityCondition> ParseConditions(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array) return [];
+            static string? Str(System.Text.Json.JsonElement e, string n) =>
+                e.TryGetProperty(n, out var v) ? (v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : v.ToString()) : null;
+            return doc.RootElement.EnumerateArray()
+                .Select(c => new QualityCondition(Str(c, "Metric") ?? "?", Str(c, "Op"), Str(c, "Threshold"), Str(c, "Actual"),
+                    string.Equals(Str(c, "Status"), "ERROR", StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
+        catch { return []; }
+    }
+
+    private static IReadOnlyList<KeyValuePair<string, string>> ParseMeasures(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return [];
+            return doc.RootElement.EnumerateObject()
+                .Select(p => KeyValuePair.Create(p.Name, p.Value.ToString())).ToList();
+        }
+        catch { return []; }
     }
 
     private async Task<Guid[]> SnapshotIdsAsync(Guid projectId, string? commitSha, CancellationToken ct)
@@ -415,12 +672,25 @@ public sealed class CategoryFindingsQuery(FindingsDbContext db, Licensing.Licens
         "sastSevere" or "sastLow" or "secrets" or "iacSevere";
 
     private static readonly ScannerKind[] Sast = ScannerKinds.Sast.ToArray();
+    private static readonly ScannerKind[] QualityScanners = ScannerKinds.Quality.ToArray();
 
     private static IQueryable<Finding>? Filter(string key, IQueryable<Finding> q) => key switch
     {
-        "sastSevere" => q.Where(f => Sast.Contains(f.Scanner)
+        // Typed-unified routing (TFND-175), mirroring RiskInputsBuilder so the list and the score
+        // agree: the issue TYPE on SubCategory wins over the scanner's default bucket. A code smell
+        // (any tool) is quality and can never ride criticalSast; a security issue (any tool but Trivy,
+        // whose "vulnerability" rows are CVEs) is SAST.
+        "quality" => q.Where(f => QualityScanners.Contains(f.Scanner)
+            || f.SubCategory == "bug" || f.SubCategory == "code_smell"),
+        "sastSevere" => q.Where(f =>
+            f.SubCategory != "bug" && f.SubCategory != "code_smell"
+            && (Sast.Contains(f.Scanner) || f.Scanner == ScannerKind.SonarQube
+                || ((f.SubCategory == "vulnerability" && f.Scanner != ScannerKind.Trivy) || f.SubCategory == "security_hotspot"))
             && (f.Severity == Severity.Critical || f.Severity == Severity.High)),
-        "sastLow" => q.Where(f => Sast.Contains(f.Scanner)
+        "sastLow" => q.Where(f =>
+            f.SubCategory != "bug" && f.SubCategory != "code_smell"
+            && (Sast.Contains(f.Scanner) || f.Scanner == ScannerKind.SonarQube
+                || ((f.SubCategory == "vulnerability" && f.Scanner != ScannerKind.Trivy) || f.SubCategory == "security_hotspot"))
             && (f.Severity == Severity.Medium || f.Severity == Severity.Low)),
         // Secrets: TruffleHog, plus Trivy rows tagged secret.
         "secrets" => q.Where(f => f.Scanner == ScannerKind.TruffleHog
@@ -453,7 +723,13 @@ public sealed record CveRow(
 
 public sealed record CoverageSummary(
     double SequencePercent, int CoveredSequences, int TotalSequences,
-    double BranchPercent, int CoveredBranches, int TotalBranches);
+    double BranchPercent, int CoveredBranches, int TotalBranches,
+    string? ToolName = null, string? ToolVersion = null, DateTimeOffset? IngestedAt = null,
+    IReadOnlyList<CoverageModuleRow>? Modules = null);
+
+public sealed record CoverageFileRow(string Path, double SeqPercent, int CoveredSeq, int TotalSeq, double BranchPercent, int CoveredBranch, int TotalBranch);
+public sealed record CoverageNamespaceRow(string Name, double SeqPercent, int CoveredSeq, int TotalSeq, double BranchPercent, int CoveredBranch, int TotalBranch, IReadOnlyList<CoverageFileRow> Files);
+public sealed record CoverageModuleRow(string Name, double SeqPercent, int CoveredSeq, int TotalSeq, double BranchPercent, int CoveredBranch, int TotalBranch, IReadOnlyList<CoverageNamespaceRow> Namespaces);
 
 public sealed record TestsSummary(
     int Total, int Passed, int Failed, int Skipped, IReadOnlyList<TestSuiteRow> Suites,
@@ -491,7 +767,14 @@ public sealed record LicenseOverview(
     IReadOnlyList<string> PolicyDeny, IReadOnlyList<string> PolicyAllow, bool DenyUnknown,
     int ResolvedApplied);
 
-public sealed record StaleComponent(string Name, string Version, string? LatestVersion, int? DaysBehind, bool Stale);
+public sealed record SbomSummary(string? ToolName, string? ToolVersion, string? SpecVersion, DateTimeOffset IngestedAt, int Components, int Checked, int Outdated, int Vulnerable, int Exempt = 0);
+public sealed record StaleComponent(
+    string Name, string Version, string? LatestVersion, int? DaysBehind, bool Stale,
+    string Purl = "", Guid? ExemptVexId = null, string? ExemptReason = null);
+
+/// <summary>A component suggested for the same staleness VEX as the one the user clicked.
+/// <c>Clicked</c> is the origin; <c>Outdated</c> false means it is in the closure but not itself stale.</summary>
+public sealed record ClosureSuggestion(string Name, string Version, string Purl, bool Clicked, bool Outdated, bool AlreadyExempt, string Via);
 
 public sealed record ReceiptRow(
     ScannerKind Scanner, string Status, int FindingsCount, DateTimeOffset? CompletedAt, string? ToolName,
@@ -502,3 +785,21 @@ public sealed record ReceiptRow(
 public sealed record CveScanHistoryRow(
     string? CommitSha, DateTimeOffset BuiltAt, bool Scanned,
     string? ScannerTool, string? ScannerVersion, string? Notes, int CveCount);
+
+public sealed record QualityCondition(string Metric, string? Op, string? Threshold, string? Actual, bool Failed);
+public sealed record QualityGateView(
+    string Status, IReadOnlyList<QualityCondition> Conditions, IReadOnlyList<KeyValuePair<string, string>> Measures,
+    string? Source, string? AnalysisId, DateTimeOffset ObservedAt);
+public sealed record AnalysisLanguageRow(
+    string Language, int FilesAnalyzed, int FilesTotal, long Lines, double PercentAnalyzed, string? AnalyzedBy, string? UnanalyzedSample);
+public sealed record AnalysisCoverageView(
+    IReadOnlyList<AnalysisLanguageRow> Languages, IReadOnlyList<string> GapLanguages,
+    IReadOnlyList<string> Excludes, DateTimeOffset ObservedAt);
+public sealed record QualityHistoryRow(
+    string? CommitSha, DateTimeOffset BuiltAt, int FindingCount, string? GateStatus, int FailedConditions, int TotalConditions);
+public sealed record QualityOverview(
+    bool Ran, IReadOnlyList<CategoryFinding> Findings, IReadOnlyList<ReceiptRow> Receipts,
+    QualityGateView? Gate, AnalysisCoverageView? Coverage, IReadOnlyList<QualityHistoryRow> History)
+{
+    public static readonly QualityOverview Empty = new(false, [], [], null, null, []);
+}

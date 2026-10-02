@@ -15,11 +15,15 @@ public sealed class SbomComponent
     // CycloneDX "type": library, framework, application, container, file, etc.
     public string? Kind { get; set; }
     public string? License { get; set; }
+    // Producer-asserted reachability fact: not in any shipping project's dependency closure (analyzer/test/build-only).
+    public bool DevDependency { get; set; }
 
     // Outdatedness annotation (TFND-7 / F6.4). Populated by a separate
     // enrichment step that queries the package registry; null until then.
     public string? LatestVersion { get; set; }
     public DateTimeOffset? LatestReleasedAt { get; set; }
+    // Set whenever the registry answered for this component, even when it is current (LatestVersion stays null then).
+    public DateTimeOffset? EnrichedAt { get; set; }
     public DateTimeOffset? CurrentReleasedAt { get; set; }
 
     // TFND-21: CycloneDX component hashes — algorithm → value map, e.g.

@@ -100,6 +100,25 @@ public static class GateKeys
     // Threshold default 0 (any day past due fails).
     public const string PoamPastDue = "poamPastDue";
 
+    // Code-quality process gates (TFND-175). The quality SCORE is finding magnitude;
+    // these are the pass/fail process half of the ship decision.
+    // A SonarQube-style quality-gate verdict: FAIL blocks; no verdict reads Unknown.
+    public const string QualityGate = "qualityGate";
+    // Analysis-coverage completeness: a language above a footprint threshold left
+    // unanalyzed blocks — so "0 findings" only credits SA-11 when coverage is real.
+    public const string AnalysisCoverage = "analysisCoverage";
+
+    // Control posture checks (TFND-212) — boolean gates fed by producer-reported
+    // repo/org settings. A required posture gate with no observation reads Unknown
+    // (blocks), same "unscanned is not clean" rule as the scanner gates. Each maps
+    // to the change-control / authentication controls it provides evidence for, so
+    // a passing check moves those controls off the stopgap "Inherited" disposition.
+    public const string BranchProtection = "branchProtection";
+    public const string PrReviewsRequired = "prReviewsRequired";
+    public const string SignedCommits = "signedCommits";
+    public const string OrgTwoFactor = "orgTwoFactor";
+    public const string Codeowners = "codeowners";
+
     // TFND-185 / ADR 0009 — the "no-unmapped" META-gate. Unlike every other gate
     // it reads no scanner count; it reads the control-disposition set and blocks
     // when any in-scope control has no disposition (gated / inherited / N/A).

@@ -52,7 +52,15 @@ public sealed record IngestFinding(
     //
     // Full purl including version ("pkg:nuget/Log4Net@2.0.5") or bare
     // ("pkg:nuget/Log4Net") — the reconciler normalises both.
-    string? Purl = null);
+    string? Purl = null,
+    // TFND-175 typed-unified routing: the issue TYPE (bug|code_smell|vulnerability|
+    // security_hotspot). Populates Finding.SubCategory and drives quality-vs-SAST
+    // routing, overriding the scanner's default bucket. Prefer this over SubCategory
+    // for quality/SAST sources; if both are sent, Type wins.
+    string? Type = null,
+    // Opaque native-tool provenance (severityRaw, MQR impacts, effort, analysisId),
+    // stored verbatim for drill-down. Findings does not parse it.
+    string? Source = null);
 
 public sealed record IngestResponse(
     Guid ComponentVersionId,

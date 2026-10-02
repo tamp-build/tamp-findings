@@ -78,6 +78,7 @@ public static class SbomIngestEndpoints
                 Version = c.Version,
                 Kind = c.Kind,
                 License = c.License,
+                DevDependency = c.DevDependency,
                 // TFND-21: per-component hash map (algorithm → value).
                 Hashes = c.Hashes is null ? new() : c.Hashes.ToDictionary(kv => kv.Key, kv => kv.Value),
             };

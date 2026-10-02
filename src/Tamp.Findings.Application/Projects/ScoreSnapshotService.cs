@@ -15,7 +15,8 @@ namespace Tamp.Findings.Application.Projects;
 /// Scores the WHOLE commit (all its component versions), exactly as PortfolioQuery/ProjectHubQuery
 /// do, so the stored score matches what a live read would compute.
 /// </summary>
-public sealed class ScoreSnapshotService(FindingsDbContext db, RiskInputsBuilder inputs, Risk.ScoringPolicyResolver scoring)
+public sealed class ScoreSnapshotService(FindingsDbContext db, RiskInputsBuilder inputs, Risk.ScoringPolicyResolver scoring,
+    BuildUpdateNotifier notifier)
 {
     /// <summary>Snapshot the build a component version belongs to. The uniform ingest hook —
     /// each ingest endpoint has a resolved CV in hand. No-ops when the build has no commit sha.</summary>
@@ -67,6 +68,7 @@ public sealed class ScoreSnapshotService(FindingsDbContext db, RiskInputsBuilder
             snap.Breakdown = breakdown; snap.BuiltAt = builtAt; snap.ComputedAt = now; snap.PolicyName = policyName;
         }
         await db.SaveChangesAsync(ct);
+        notifier.Publish(projectId);
     }
 
     private async Task<(RiskPolicyConfig Config, string Name)> ResolvePolicyAsync(Guid projectId, CancellationToken ct)

@@ -35,4 +35,5 @@ public enum ScannerKind
     // (spec §3.1) — until then the typed client maps it to Unknown, so the
     // build posts the wire value directly.
     Nuclei = 23,
+    SonarQube = 24,
 }

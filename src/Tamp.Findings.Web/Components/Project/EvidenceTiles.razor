@@ -31,12 +31,13 @@
     [Parameter, EditorRequired] public ProjectHubData Data { get; set; } = default!;
     [Parameter] public int PoamPastDue { get; set; }
     [Parameter] public string? Sha { get; set; }
+    [Parameter] public string RouteSha { get; set; } = Routes.LatestBuild;
 
     private sealed record Tile(
         string Key, string Label, string Mark, string Color, bool Dashed, string Status, string GateLine, string GateColor);
 
     private string EvidenceHref(string key) =>
-        Routes.Evidence(Data.Project.ClientName, Data.Project.ProjectName, Data.CommitSha ?? Routes.LatestBuild, key);
+        Routes.Evidence(Data.Project.ClientName, Data.Project.ProjectName, RouteSha, key);
 
     // (mark, colour, dashed) for each status.
     private static readonly (string Mark, string Color, bool Dashed) Ok = ("✓", "var(--color-pass)", false);

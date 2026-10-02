@@ -232,6 +232,8 @@ public static class GateEvaluator
         GateKeys.CoverageRegression,
         GateKeys.CoverageFloor,
         GateKeys.PoamPastDue,
+        GateKeys.QualityGate,
+        GateKeys.AnalysisCoverage,
         GateKeys.NoUnmapped,
         GateKeys.AdrConformance,
     ];
@@ -263,6 +265,8 @@ public static class GateEvaluator
         GateKeys.CoverageRegression => "Coverage regression",
         GateKeys.CoverageFloor => "Coverage floor",
         GateKeys.PoamPastDue => "POA&M past due",
+        GateKeys.QualityGate => "Quality gate",
+        GateKeys.AnalysisCoverage => "Analysis coverage",
         GateKeys.NoUnmapped => "Control coverage",
         GateKeys.AdrConformance => "ADR conformance",
         _ => key,
@@ -309,6 +313,13 @@ public static class GateEvaluator
         GateKeys.PoamPastDue =>
             "Blocks on POA&M items past their committed date. UNSCHEDULED items have no date to be "
             + "past, so this gate cannot see them.",
+        GateKeys.QualityGate =>
+            "Blocks when the reported code-quality gate verdict (e.g. SonarQube) is FAIL. No verdict "
+            + "reads Unknown, not pass — the quality SCORE counts findings, this is the process gate (SA-15).",
+        GateKeys.AnalysisCoverage =>
+            "Blocks when a language above the footprint threshold was left unanalyzed. \"0 findings\" only "
+            + "credits static analysis (SA-11) when coverage is real; a language with no analyzer is a visible "
+            + "gap, not a silent pass. Needs an analysis-coverage report.",
         GateKeys.NoUnmapped =>
             "A meta-gate: blocks when any in-scope control has no disposition (not gated, inherited "
             + "or justified N/A). It measures the coverage of the mapping itself, not any one "
@@ -367,6 +378,8 @@ public static class GateEvaluator
             // POA&M items are user-entered records, not scanner output, so
             // this gate is always answerable.
             GateKeys.PoamPastDue         => Threshold(key, cfg, current.OpenPastDuePoams, 0, "past-due POA&M items", true, null),
+            GateKeys.QualityGate         => Threshold(key, cfg, current.QualityGateFailed, 0, "failed quality-gate conditions", current.HasQualityGateVerdict, "quality-gate verdict"),
+            GateKeys.AnalysisCoverage    => Threshold(key, cfg, current.UnanalyzedLanguages, 0, "unanalyzed languages", current.HasAnalysisCoverage, "analysis-coverage report"),
 
             // The evaluator was handed a gate key it does not implement. That
             // is a broken configuration, not a clean build — Error, and it

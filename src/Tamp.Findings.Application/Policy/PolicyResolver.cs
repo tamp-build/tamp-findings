@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Risk;
+using Tamp.Findings.Domain.Values;
 
 namespace Tamp.Findings.Application.Policy;
 
@@ -33,7 +34,10 @@ public sealed class PolicyResolver(FindingsDbContext db)
         // The project's archetype (TFND-203): an ADDITIVE obligation layer for what this project
         // IS — findings-assigned, additive-only, so it can only harden. Unclassified fails upward
         // to Service. Sits above the client baseline, below the project's own hardening.
-        layers.Add((ArchetypeLayers.For(project.Archetype), ArchetypeLayers.Label(project.Archetype)));
+        var effective = project.Archetype ?? ProjectArchetype.ServiceApp;
+        var packed = await db.ArchetypeDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Archetype == effective, ct);
+        layers.Add((packed?.Layer ?? ArchetypeLayers.For(project.Archetype), ArchetypeLayers.Label(project.Archetype)));
         layers.Add((ProjectLayer(project), "this project"));
         return PolicyLayerMerge.Resolve(layers);
     }

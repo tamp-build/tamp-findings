@@ -25,6 +25,12 @@ public sealed class ScanRunReceipt
     public string? ToolVersion { get; set; }    // e.g. "1.22.0"
     public string? Notes { get; set; }          // free-form, e.g. "1059 rules / 258 applicable, scanned 77 files"
 
+    // Quality-gate verdict (TFND-175) — a SonarQube-style pass/fail attested on the scan
+    // that ran. "PASS" | "FAIL" | null; GateDetails carries the failing conditions. Feeds
+    // the qualityGate gate (SA-15). Null for scanners that don't have a gate.
+    public string? GateStatus { get; set; }
+    public string? GateDetails { get; set; }
+
     public DateTimeOffset IngestedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public ComponentVersion? ComponentVersion { get; set; }

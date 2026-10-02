@@ -13,8 +13,8 @@ namespace Tamp.Findings.Domain.Risk;
 /// implements while a Service owns them — so the overlay includes which controls it is even on the
 /// hook for, not just which extra gates it owes.
 ///
-/// Bootstrap-in-code for now; TFND-203 phase B moves these definitions into the distributable
-/// content pack so a baseline/archetype change ships as a DB update, not an app republish.
+/// Bootstrap fallback: a pack-applied ArchetypeDefinition row overrides these (TFND-203 phase B), so a
+/// change ships as a DB update, not an app republish.
 /// </summary>
 public static class ArchetypeLayers
 {

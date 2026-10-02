@@ -28,7 +28,12 @@ public sealed record ScanRunReceiptDto(
     int FindingsCount,
     string? ToolName,
     string? ToolVersion,
-    string? Notes);
+    string? Notes,
+    // Quality-gate verdict (TFND-175): a SonarQube-style pass/fail attested on the scan-ran
+    // receipt. "PASS"/"FAIL"/null; GateDetails carries the failing conditions. Feeds the
+    // qualityGate gate (SA-15). Optional + additive — other scanners leave it null.
+    string? GateStatus = null,
+    string? GateDetails = null);
 
 public sealed record ScanRunIngestResponse(
     Guid ComponentVersionId,

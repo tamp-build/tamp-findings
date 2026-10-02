@@ -49,6 +49,8 @@ public static class ScanRunIngestEndpoints
                     ToolName = r.ToolName,
                     ToolVersion = r.ToolVersion,
                     Notes = r.Notes,
+                    GateStatus = r.GateStatus,
+                    GateDetails = r.GateDetails,
                 });
             }
             else
@@ -60,6 +62,8 @@ public static class ScanRunIngestEndpoints
                 existing.ToolName = r.ToolName;
                 existing.ToolVersion = r.ToolVersion;
                 existing.Notes = r.Notes;
+                existing.GateStatus = r.GateStatus;
+                existing.GateDetails = r.GateDetails;
                 existing.IngestedAt = DateTimeOffset.UtcNow;
             }
             upserted++;

@@ -6,8 +6,10 @@
 @inject Tamp.Findings.Application.Risk.CategoryFindingsQuery CategoryFindings
 @inject Tamp.Findings.Application.Licensing.LicenseResolutionService Licenses
 @inject CurrentUser Me
+@inject Tamp.Findings.Application.Vex.VexQuery VexStatements
 
 <PageTitle>@Label(Key) — tamp.findings</PageTitle>
+<NewBuildBanner ProjectId="@_project?.ProjectId" />
 
 @if (_loading)
 {
@@ -47,18 +49,9 @@ else
             </div>
         </div>
 
-        @* CVE, Tests and Licences each combine everything on one view (their current panels carry their
-           own evidence, rationale and worklist); every other category keeps the Current/History tabs. *@
-        @if (Key != "cve" && Key != "tests" && Key != "license")
-        {
-            <div class="cattabs">
-                <button class="cattab @(_tab == Tab.Current ? "cattab--active" : null)" @onclick="() => _tab = Tab.Current">Current</button>
-                <button class="cattab @(_tab == Tab.History ? "cattab--active" : null)" @onclick="() => _tab = Tab.History">History</button>
-            </div>
-        }
-
-        @if (_tab == Tab.Current)
-        {
+        @* Current evidence first, then (for categories without their own history panel) the compact
+           points trend below — one combined page, no tabs. *@
+        <div>
             @if (!Tamp.Findings.Application.Risk.CategoryFindingsQuery.IsFindingsCategory(Key))
             {
                 @if (Key == "cve")
@@ -205,6 +198,50 @@ else
                                 </div>
                             </div>
                         </Card>
+                        @if (_coverage.ToolName is not null)
+                        {
+                            <p class="field__help mono">@($"{_coverage.ToolName} {_coverage.ToolVersion}".Trim())@(_coverage.IngestedAt is { } ing ? " · ingested " + ing.ToUniversalTime().ToString("yyyy-MM-dd HH:mm") + " UTC" : "")</p>
+                        }
+                        @if (_coverage.Modules is { Count: > 0 } mods)
+                        {
+                            <Card Padded="false">
+                                <div class="card-body">
+                                    <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">By assembly · namespace · file <span class="muted">(lowest coverage first)</span></h2>
+                                    <table class="table table--rows">
+                                        <thead><tr><th>Name</th><th class="align-end">Line %</th><th class="align-end">Lines</th><th class="align-end">Branch %</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var m in mods)
+                                            {
+                                                <tr>
+                                                    <td class="mono"><strong>@m.Name</strong> <span class="muted">assembly</span></td>
+                                                    <td class="mono align-end" style="color: @CovColor(m.SeqPercent)">@m.SeqPercent.ToString("F1")%</td>
+                                                    <td class="mono align-end muted">@m.CoveredSeq.ToString("N0") / @m.TotalSeq.ToString("N0")</td>
+                                                    <td class="mono align-end">@(m.TotalBranch == 0 ? "—" : m.BranchPercent.ToString("F1") + "%")</td>
+                                                </tr>
+                                                @foreach (var n in m.Namespaces)
+                                                {
+                                                    <tr>
+                                                        <td class="mono" style="padding-left: 24px">@n.Name <span class="muted">namespace</span></td>
+                                                        <td class="mono align-end" style="color: @CovColor(n.SeqPercent)">@n.SeqPercent.ToString("F1")%</td>
+                                                        <td class="mono align-end muted">@n.CoveredSeq.ToString("N0") / @n.TotalSeq.ToString("N0")</td>
+                                                        <td class="mono align-end">@(n.TotalBranch == 0 ? "—" : n.BranchPercent.ToString("F1") + "%")</td>
+                                                    </tr>
+                                                    @foreach (var f in n.Files)
+                                                    {
+                                                        <tr>
+                                                            <td class="mono muted" style="padding-left: 48px" title="@f.Path">@CovShorten(f.Path)</td>
+                                                            <td class="mono align-end" style="color: @CovColor(f.SeqPercent)">@f.SeqPercent.ToString("F1")%</td>
+                                                            <td class="mono align-end muted">@f.CoveredSeq.ToString("N0") / @f.TotalSeq.ToString("N0")</td>
+                                                            <td class="mono align-end">@(f.TotalBranch == 0 ? "—" : f.BranchPercent.ToString("F1") + "%")</td>
+                                                        </tr>
+                                                    }
+                                                }
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+                        }
                     }
                 }
                 else if (Key == "tests")
@@ -547,9 +584,51 @@ else
                         }
                     }
                 }
+                else if (Key == "quality")
+                {
+                    <QualityPanel Overview="_quality" />
+                }
                 else if (Key == "sbomStaleness")
                 {
-                    @if (_stale.Count == 0)
+                @if (_sbom is { } sb)
+                {
+                    <Card Padded="false">
+                        <div class="card-body">
+                            <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">SBOM provenance</h2>
+                            <table class="table table--rows">
+                                <thead><tr><th>Tool</th><th>Spec</th><th class="align-end">Components</th><th class="align-end">Version-checked</th><th class="align-end">Outdated</th><th class="align-end">Vulnerable</th><th>Ingested</th></tr></thead>
+                                <tbody><tr>
+                                    <td class="mono">@($"{sb.ToolName} {sb.ToolVersion}".Trim())</td>
+                                    <td class="mono muted">@(sb.SpecVersion ?? "—")</td>
+                                    <td class="mono align-end">@sb.Components.ToString("N0")</td>
+                                    <td class="mono align-end" style="@(sb.Checked < sb.Components ? "color: var(--color-high)" : null)">@sb.Checked.ToString("N0")</td>
+                                    <td class="mono align-end">@sb.Outdated.ToString("N0")</td>
+                                    <td class="mono align-end">@sb.Vulnerable.ToString("N0")</td>
+                                    <td class="mono muted">@sb.IngestedAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                                </tr></tbody>
+                            </table>
+                        </div>
+                    </Card>
+                }
+                    @if (_sbom is null)
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="No SBOM" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="—" />
+                                <span>No SBOM was ingested for this build — freshness is unassessed, not fresh.</span>
+                            </div>
+                        </Card>
+                    }
+                    else if (_sbom.Checked == 0)
+                    {
+                        <Card>
+                            <div class="row">
+                                <Chip Label="Not assessed" Tone="var(--color-high)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+                                <span>No registry version data is recorded for any of the @_sbom.Components.ToString("N0") components (the enrich-versions step did not run, or found nothing), so freshness is unproven — not fresh.</span>
+                            </div>
+                        </Card>
+                    }
+                    else if (_stale.Count == 0)
                     {
                         <Card>
                             <div class="row">
@@ -564,20 +643,36 @@ else
                             <ScrollBox Label="Outdated components">
                                 <table class="table table--rows">
                                     <thead>
-                                        <tr><th>Component</th><th>In build</th><th>Latest</th><th class="align-end">Update age</th><th></th></tr>
+                                        <tr><th>Component</th><th>In build</th><th>Latest</th><th class="align-end">Update age</th><th></th><th></th></tr>
                                     </thead>
                                     <tbody>
                                         @foreach (var c in _stale)
                                         {
-                                            <tr>
+                                            var exempt = c.ExemptVexId is not null;
+                                            <tr style="@(exempt ? "opacity: .5" : null)">
                                                 <td class="mono">@c.Name</td>
                                                 <td class="mono muted">@c.Version</td>
                                                 <td class="mono">@(c.LatestVersion ?? "—")</td>
                                                 <td class="mono align-end">@(c.DaysBehind is { } d ? $"{d:N0}d" : "—")</td>
                                                 <td>
-                                                    @if (c.Stale)
+                                                    @if (exempt)
+                                                    {
+                                                        <span class="contrib__sat mono" style="color: var(--color-neutral-600)">EXEMPT · @Snake(c.ExemptReason)</span>
+                                                    }
+                                                    else if (c.Stale)
                                                     {
                                                         <span class="contrib__sat mono" style="color: var(--color-band-orange)">STALE</span>
+                                                    }
+                                                </td>
+                                                <td class="align-end">
+                                                    @if (exempt)
+                                                    {
+                                                        <a href="@Routes.VexStatement(Client, Project, Tamp.Findings.Application.Risk.VexResolver.StripPurlVersion(c.Purl), Tamp.Findings.Domain.Entities.VexStatement.StalenessAdvisoryId)"
+                                                           title="View the VEX statement that exempts this component" style="text-decoration: none">⋯</a>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span @onclick="() => OpenExemptAsync(c)" title="File a VEX exemption for this component" style="cursor: pointer">⋯</span>
                                                     }
                                                 </td>
                                             </tr>
@@ -587,8 +682,8 @@ else
                             </ScrollBox>
                         </Card>
                         <p class="field__help">
-                            @_stale.Count component@(_stale.Count == 1 ? "" : "s") behind their newest release; @_stale.Count(c => c.Stale) marked
-                            <strong>STALE</strong> (that newer release itself shipped over 180 days ago). Vulnerable components score under Known CVEs, not here.
+                            @_stale.Count component@(_stale.Count == 1 ? "" : "s") behind their newest release; @_stale.Count(c => c.Stale && c.ExemptVexId is null) marked
+                            <strong>STALE</strong> (that newer release itself shipped over 180 days ago)@(_stale.Count(c => c.ExemptVexId is not null) is var nEx and > 0 ? $"; {nEx} exempt by VEX (grey, not scored)" : ""). Vulnerable components score under Known CVEs, not here. Use <strong>⋯</strong> on a row to file a VEX exemption.
                         </p>
                     }
                 }
@@ -651,8 +746,17 @@ else
                         }
                         else
                         {
-                            <Chip Label="Nothing found" Tone="var(--color-pass)" Glyph="✓" />
-                            <span>No findings in this category for this build.</span>
+                            var ran = CategoryReceipts(Key);
+                            @if (ran.Count == 0)
+                            {
+                                <Chip Label="@("No " + ScanKindLabel(Key) + " scan")" Tone="var(--color-medium)" Style="Chip.ChipStyle.Dashed" Glyph="?" />
+                                <span>No @ScanKindLabel(Key) scan was recorded for this build — a “0” here is <strong>unassessed, not clean</strong>.</span>
+                            }
+                            else
+                            {
+                                <Chip Label="Scanned · clean" Tone="var(--color-pass)" Glyph="✓" />
+                                <span>No findings in this category for this build — @ran.Count scan@(ran.Count == 1 ? "" : "s") ran (below).</span>
+                            }
                         }
                     </div>
                     <p class="field__help">A missing scan is not a clean scan — check the Missing scanners category.</p>
@@ -699,8 +803,37 @@ else
                 </Card>
                 <p class="field__help">@_findings.Count finding@(_findings.Count == 1 ? "" : "s") contributing to this category.</p>
             }
-        }
-        else
+
+            @if (CategoryReceipts(Key) is { Count: > 0 } prov)
+            {
+                <Card Padded="false">
+                    <div class="card-body">
+                        <h2 style="font-size: 14px; margin: 0 0 var(--space-2)">Scan provenance</h2>
+                        <table class="table table--rows">
+                            <thead><tr><th>Scanner</th><th>Tool</th><th>Status</th><th class="align-end">Findings</th><th>Completed</th></tr></thead>
+                            <tbody>
+                                @foreach (var r in prov)
+                                {
+                                    <tr>
+                                        <td class="mono">@r.Scanner</td>
+                                        <td class="mono muted">@($"{r.ToolName} {r.ToolVersion}".Trim())</td>
+                                        <td class="mono">@ReceiptStatus(r.Status)</td>
+                                        <td class="mono align-end">@_findings.Count(f => f.Scanner.ToString() == r.Scanner.ToString()).ToString("N0")</td>
+                                        <td class="mono muted">@(r.CompletedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                                    </tr>
+                                    @if (!string.IsNullOrWhiteSpace(r.Notes))
+                                    {
+                                        <tr><td colspan="5" class="mono muted">@r.Notes</td></tr>
+                                    }
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+            }
+        </div>
+
+        @if (Key != "cve" && Key != "tests" && Key != "license" && Key != "quality")
         {
             var hist = _history
                 .Select(h => (h.CommitSha, h.VersionString, h.IngestedAt, Row: h.Breakdown.FirstOrDefault(b => b.Key == Key)))
@@ -761,13 +894,73 @@ else
     </div>
 }
 
+<Dialog Open="_exempting is not null" OpenChanged="v => { if (!v) _exempting = null; }" Title="File VEX exemption — SBOM staleness" Width="780">
+    <ChildContent>
+        @if (_exempting is { } ex)
+        {
+            <p class="field__help">Exempting <code class="mono">@ex.Name @ex.Version</code> from the staleness score. The component stays on the page, greyed, with this statement attached.</p>
+            <div class="field">
+                <span class="field__label">Justification</span>
+                <div class="row" style="gap: var(--space-2); flex-wrap: wrap">
+                    @foreach (var j in ExemptJustifications)
+                    {
+                        <span @onclick="() => _exJustification = j" style="cursor: pointer">
+                            <Chip Label="@Snake(j.ToString())" Tone="var(--color-accent)"
+                                  Style="@(_exJustification == j ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                        </span>
+                    }
+                </div>
+            </div>
+            <div class="field">
+                <span class="field__label">Applies to</span>
+                <div class="row" style="gap: var(--space-2)">
+                    <span @onclick="() => _exAllVersions = false" style="cursor: pointer">
+                        <Chip Label="@($"this version ({ex.Version})")" Tone="var(--color-accent)" Style="@(!_exAllVersions ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                    </span>
+                    <span @onclick="() => _exAllVersions = true" style="cursor: pointer">
+                        <Chip Label="all versions" Tone="var(--color-accent)" Style="@(_exAllVersions ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                    </span>
+                </div>
+                <span class="field__help">"This version" re-flags the component when it is upgraded, so the decision is looked at again.</span>
+            </div>
+            <TextField Label="Rationale" Multiline="true" Rows="3" @bind-Value="_exRationale"
+                       Help="What an assessor reads: why this component's age does not matter." />
+
+            @if (_closure.Count > 1)
+            {
+                <div class="field">
+                    <span class="field__label">Also exempt — sits only under the same top-level dependencies</span>
+                    @foreach (var cs in _closure)
+                    {
+                        <label class="row" style="gap: var(--space-2); align-items: center">
+                            <input type="checkbox" disabled="@(cs.Clicked || cs.AlreadyExempt)"
+                                   checked="@(cs.Clicked || _exPicked.Contains(cs.Purl))"
+                                   @onchange="e => TogglePick(cs.Purl, (bool)e.Value!)" />
+                            <span class="mono">@cs.Name @cs.Version</span>
+                            <span class="muted mono" style="font-size: 12px">via @cs.Via@(cs.AlreadyExempt ? " · already exempt" : "")</span>
+                        </label>
+                    }
+                    <span class="field__help">Derived from the SBOM dependency graph; uncheck anything that does ship.</span>
+                </div>
+            }
+            @if (_exError is not null)
+            {
+                <p style="color: var(--color-critical)">@_exError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="SaveExemptAsync">File exemption</Button>
+        <Button OnClick="() => _exempting = null">Cancel</Button>
+        <span class="field__help">Writes a risk-class audit entry. Needs the publish-VEX capability.</span>
+    </Footer>
+</Dialog>
+
 @code {
     [Parameter] public string Client { get; set; } = "";
     [Parameter] public string Project { get; set; } = "";
     [Parameter] public string Sha { get; set; } = "";
     [Parameter] public string Key { get; set; } = "";
-
-    private enum Tab { Current, History }
 
     private ProjectRef? _project;
     private Tamp.Findings.Domain.Risk.RiskCategoryBreakdown? _row;
@@ -775,18 +968,22 @@ else
     private IReadOnlyList<Tamp.Findings.Application.Risk.CveRow> _cves = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.CveScanHistoryRow> _cveHistory = [];
     private Tamp.Findings.Application.Risk.CoverageSummary? _coverage;
+    private static string CovColor(double pct) => pct >= 80 ? "var(--color-pass)" : pct >= 50 ? "var(--color-high)" : "var(--color-critical)";
+    private static string CovShorten(string p) => p.Length <= 70 ? p : "…" + p[^69..];
     private Tamp.Findings.Application.Risk.TestsSummary? _tests;
     private IReadOnlyList<Tamp.Findings.Application.Risk.TestFailureRow> _testFailures = [];
     private IReadOnlyList<Tamp.Findings.Application.Risk.TestScanHistoryRow> _testHistory = [];
     private Tamp.Findings.Application.Risk.BuildRawArtifacts? _testArtifacts;
     private IReadOnlyList<Tamp.Findings.Application.Risk.LicenseGroup> _licenses = [];
     private Tamp.Findings.Application.Risk.LicenseOverview? _licenseOverview;
+    private Tamp.Findings.Application.Risk.QualityOverview? _quality;
     private bool _canResolveLicense;
     private readonly Dictionary<string, string> _resolveSpdx = new();
     private readonly Dictionary<string, string> _resolveNote = new();
     private string? _resolveError;
     private string? _resolveBusyPurl;
     private IReadOnlyList<Tamp.Findings.Application.Risk.StaleComponent> _stale = [];
+    private Tamp.Findings.Application.Risk.SbomSummary? _sbom;
     private IReadOnlyList<Tamp.Findings.Application.Risk.ReceiptRow> _receipts = [];
     private int _sbomComponents;
     // The dependency-vuln (SCA) scan receipt, if one ran — the evidence behind "0 CVEs" (TFND-217).
@@ -794,7 +991,6 @@ else
         (r.Scanner == Tamp.Findings.Domain.Values.ScannerKind.OsvScanner || r.Scanner == Tamp.Findings.Domain.Values.ScannerKind.Grype)
         && r.Status == "Succeeded");
     private IReadOnlyList<BuildHistoryRow> _history = [];
-    private Tab _tab = Tab.Current;
     private bool _loading = true;
     private string? _commitSha;
 
@@ -810,7 +1006,6 @@ else
     {
         Scope.SetProject(Client, Project, Sha);
         _loading = true;
-        _tab = Tab.Current;
         try
         {
             _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
@@ -824,7 +1019,10 @@ else
             if (_project is not null && _row is not null)
             {
                 if (Tamp.Findings.Application.Risk.CategoryFindingsQuery.IsFindingsCategory(Key))
+                {
                     _findings = await CategoryFindings.LoadAsync(_project.ProjectId, _commitSha, Key);
+                    _receipts = await CategoryFindings.ReceiptsAsync(_project.ProjectId, _commitSha);
+                }
                 else if (Key == "cve")
                 {
                     _cves = await CategoryFindings.CvesAsync(_project.ProjectId, _commitSha);
@@ -846,8 +1044,13 @@ else
                     _canResolveLicense = (await Me.CanAsync(
                         Capability.EditPolicyWeights, new ScopeTarget(_project.ClientId, _project.ProjectId))).Allowed;
                 }
+                else if (Key == "quality")
+                    _quality = await CategoryFindings.QualityOverviewAsync(_project.ProjectId, _commitSha);
                 else if (Key == "sbomStaleness")
+                {
                     _stale = await CategoryFindings.SbomStalenessAsync(_project.ProjectId, _commitSha);
+                    _sbom = await CategoryFindings.SbomSummaryAsync(_project.ProjectId, _commitSha);
+                }
                 else if (Key == "missingScanners")
                     _receipts = await CategoryFindings.ReceiptsAsync(_project.ProjectId, _commitSha);
             }
@@ -866,7 +1069,9 @@ else
             _testArtifacts = null;
             _licenses = [];
             _licenseOverview = null;
+            _quality = null;
             _stale = [];
+            _sbom = null;
             _receipts = [];
             _history = [];
         }
@@ -879,6 +1084,26 @@ else
         sev is Domain.Values.Severity.Critical or Domain.Values.Severity.High ? "gated" : "—";
 
     // A receipt's status, glyphed. Succeeded is clean; Failed/Skipped are the gaps.
+    private List<Tamp.Findings.Application.Risk.ReceiptRow> CategoryReceipts(string key)
+    {
+        var kinds = key switch
+        {
+            "sastSevere" or "sastLow" => Tamp.Findings.Domain.Values.ScannerKinds.Sast
+                .Append(Tamp.Findings.Domain.Values.ScannerKind.SonarQube).ToHashSet(),
+            "secrets" => new HashSet<Tamp.Findings.Domain.Values.ScannerKind> { Tamp.Findings.Domain.Values.ScannerKind.TruffleHog },
+            "iacSevere" => new HashSet<Tamp.Findings.Domain.Values.ScannerKind> { Tamp.Findings.Domain.Values.ScannerKind.Trivy },
+            _ => new HashSet<Tamp.Findings.Domain.Values.ScannerKind>(),
+        };
+        return _receipts.Where(r => kinds.Contains(r.Scanner)).ToList();
+    }
+
+    private static string ScanKindLabel(string key) => key switch
+    {
+        "secrets" => "secret-detection",
+        "iacSevere" => "IaC",
+        _ => "static-analysis",
+    };
+
     private static string ReceiptStatus(string status) => status switch
     {
         "Succeeded" => "✓ ran",
@@ -929,6 +1154,63 @@ else
         Tamp.Findings.Application.Risk.LicensePolicy.Tier.Denied => "var(--color-critical)",
         _ => "var(--color-medium)",
     };
+
+    // TFND-226: staleness VEX exemption, prefilled from the clicked row + dependency-graph closure.
+    private static readonly Tamp.Findings.Domain.Entities.VexJustification[] ExemptJustifications = [Tamp.Findings.Domain.Entities.VexJustification.BuildTimeOnly, Tamp.Findings.Domain.Entities.VexJustification.DoesNotShip, Tamp.Findings.Domain.Entities.VexJustification.FrozenContract, Tamp.Findings.Domain.Entities.VexJustification.AcceptedRisk];
+    private Tamp.Findings.Application.Risk.StaleComponent? _exempting;
+    private IReadOnlyList<Tamp.Findings.Application.Risk.ClosureSuggestion> _closure = [];
+    private readonly HashSet<string> _exPicked = new();
+    private Tamp.Findings.Domain.Entities.VexJustification _exJustification = Tamp.Findings.Domain.Entities.VexJustification.BuildTimeOnly;
+    private bool _exAllVersions;
+    private string? _exRationale;
+    private string? _exError;
+
+    private static string Snake(string? s) => s is null ? "" : System.Text.RegularExpressions.Regex.Replace(s, "(?<!^)([A-Z])", "_$1").ToLowerInvariant();
+
+    private void TogglePick(string purl, bool on) { if (on) _exPicked.Add(purl); else _exPicked.Remove(purl); }
+
+    private async Task OpenExemptAsync(Tamp.Findings.Application.Risk.StaleComponent c)
+    {
+        if (_project is null) return;
+        _exError = null; _exRationale = null; _exAllVersions = false;
+        _exJustification = Tamp.Findings.Domain.Entities.VexJustification.BuildTimeOnly;
+        _closure = await CategoryFindings.StalenessClosureAsync(_project.ProjectId, _commitSha, c.Purl);
+        _exPicked.Clear();
+        foreach (var cs in _closure.Where(x => !x.Clicked && x.Outdated && !x.AlreadyExempt)) _exPicked.Add(cs.Purl);
+        _exempting = c;
+    }
+
+    private async Task SaveExemptAsync()
+    {
+        if (_project is null || _exempting is not { } origin) return;
+        _exError = null;
+        var scope = new ScopeTarget(_project.ClientId, _project.ProjectId);
+        var actor = await Me.AtAsync(scope);
+        if (actor is null) { _exError = "You are not signed in."; return; }
+        if (string.IsNullOrWhiteSpace(_exRationale)) { _exError = "Add a rationale - it is what an assessor reads."; return; }
+
+        var targets = _closure.Where(x => x.Clicked || _exPicked.Contains(x.Purl)).Where(x => !x.AlreadyExempt).ToList();
+        if (targets.Count == 0)
+            targets.Add(new Tamp.Findings.Application.Risk.ClosureSuggestion(origin.Name, origin.Version, origin.Purl, true, true, false, ""));
+        foreach (var t in targets)
+        {
+            var draft = new Tamp.Findings.Application.Vex.VexDraft(
+                Tamp.Findings.Domain.Entities.VexStatement.StalenessAdvisoryId,
+                Tamp.Findings.Application.Risk.VexResolver.StripPurlVersion(t.Purl),
+                _exAllVersions ? null : t.Version,
+                Tamp.Findings.Domain.Entities.VexStatementStatus.NotAffected,
+                _exJustification, _exRationale.Trim(), null);
+            var res = await VexStatements.SaveAsync(actor, scope, _project.ProjectId, null, draft);
+            if (!res.Success) { _exError = $"{t.Name}: {res.Error}"; return; }
+        }
+        _exempting = null;
+
+        _stale = await CategoryFindings.SbomStalenessAsync(_project.ProjectId, _commitSha);
+        _sbom = await CategoryFindings.SbomSummaryAsync(_project.ProjectId, _commitSha);
+        var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
+        var data = await Hub.LoadAsync(_project, sha);
+        _row = data?.Risk.Breakdown.FirstOrDefault(b => b.Key == Key);
+    }
 
     // Attest a license for an unresolved package. The write is global (TFND-222); it
     // changes the score, so we reload both the overview and the header afterward.

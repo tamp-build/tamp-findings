@@ -94,4 +94,60 @@ public class PolicyPackIntegrationTests
             Assert.True(denied.WasDenied);
         }
     }
+
+    [SkippableFact]
+    public async Task An_applied_archetype_layer_overrides_the_in_code_bootstrap_for_projects_of_that_archetype()
+    {
+        Skip.IfNot(_fx.Available);
+        var s = Guid.NewGuid().ToString("N")[..8];
+        Guid userId, projectId; string login;
+        using (var scope = _fx.Scope())
+        {
+            var db = _fx.Db(scope);
+            var user = new User { Login = $"pa-{s}", DisplayName = "pa", Email = $"pa{s}@e.test", IsApproved = true };
+            var client = new Client { Name = $"pa-client-{s}" };
+            var project = new Project { ClientId = client.Id, Name = $"pa-project-{s}", Archetype = ProjectArchetype.Library };
+            db.Users.Add(user); db.Clients.Add(client); db.Projects.Add(project);
+            await db.SaveChangesAsync();
+            (userId, login, projectId) = (user.Id, user.Login, project.Id);
+        }
+        var admin = Principal.For(userId, login, isAdmin: true, []);
+
+        try
+        {
+            using (var scope = _fx.Scope())
+            {
+                var before = await scope.ServiceProvider.GetRequiredService<PolicyResolver>().ForProjectAsync(projectId);
+                Assert.False(before.Gates.TryGetValue(GateKeys.KevExposure, out var g0) && g0.Enabled);
+            }
+
+            var pack = new PolicyPack
+            {
+                PackVersion = "arch-1",
+                Archetypes = [new PolicyPackArchetype { Archetype = "library", Layer = new PolicyLayer { Gates = { [GateKeys.KevExposure] = On(0) } } }],
+            };
+            using (var scope = _fx.Scope())
+            {
+                var r = await scope.ServiceProvider.GetRequiredService<PolicyPackService>().ApplyAsync(admin, pack);
+                Assert.True(r.Success);
+                Assert.Equal(1, r.Value!.Created);
+                var bad = await scope.ServiceProvider.GetRequiredService<PolicyPackService>().ApplyAsync(admin,
+                    new PolicyPack { Archetypes = [new PolicyPackArchetype { Archetype = "nope", Layer = new PolicyLayer() }] });
+                Assert.False(bad.Success);
+            }
+            using (var scope = _fx.Scope())
+            {
+                var after = await scope.ServiceProvider.GetRequiredService<PolicyResolver>().ForProjectAsync(projectId);
+                Assert.True(after.Gates[GateKeys.KevExposure].Enabled);
+            }
+        }
+        finally
+        {
+            // Global state: other tests rely on the in-code Library layer.
+            using var scope = _fx.Scope();
+            var db = _fx.Db(scope);
+            db.ArchetypeDefinitions.RemoveRange(db.ArchetypeDefinitions);
+            await db.SaveChangesAsync();
+        }
+    }
 }

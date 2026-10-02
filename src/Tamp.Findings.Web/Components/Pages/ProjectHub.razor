@@ -6,7 +6,11 @@
 @inject Tamp.Findings.Application.Poam.PoamQuery Poam
 @inject Tamp.Findings.Application.Attestation.SsdfAttestationBuilder Ssdf
 @inject CurrentUser Me
+@inject IServiceScopeFactory Scopes
+@inject Tamp.Findings.Application.Projects.BuildUpdateNotifier Updates
+@implements IDisposable
 @using Tamp.Findings.Domain.Risk
+@using Microsoft.Extensions.DependencyInjection
 
 <PageTitle>@Project — tamp.findings</PageTitle>
 
@@ -75,7 +79,11 @@ else
                 <p class="muted">
                     @_data.Project.ClientName@(_data.ComplianceBaseline is { Length: > 0 } bl ? $" · {bl}" : "") · policy @_data.PolicyName
                 </p>
-                <p class="muted hubhead__build">Latest build: <span class="mono">@ShortSha</span> · @_data.BuiltAt.ToString("yyyy-MM-dd HH:mm")</p>
+                @if (_newerSha is not null)
+                {
+                    <p class="muted"><a href="@Routes.ProjectHub(_data.Project.ClientName, _data.Project.ProjectName)">A newer build (<span class="mono">@(_newerSha.Length > 7 ? _newerSha[..7] : _newerSha)</span>) has landed — view latest</a></p>
+                }
+                <p class="muted hubhead__build">@(IsLatest ? "Latest build" : "Build"): <span class="mono">@ShortSha</span> · @_data.BuiltAt.ToString("yyyy-MM-dd HH:mm")</p>
             </div>
             <div class="hubhead__stats">
                 <div class="statcard" style="--band: @BandColour">
@@ -108,7 +116,7 @@ else
         </div>
 
         <div class="hubrow">
-            <ScoreCard Data="_data" />
+            <ScoreCard Data="_data" Sha="@Sha" />
             <GateRail Gates="_data.Gates" />
         </div>
 
@@ -116,7 +124,7 @@ else
             <ProjectKeyCard Project="_data.Project" />
         </div>
 
-        <EvidenceTiles Data="_data" PoamPastDue="_poamPastDue" Sha="@ShortSha" />
+        <EvidenceTiles Data="_data" PoamPastDue="_poamPastDue" Sha="@ShortSha" RouteSha="@Sha" />
 
         @if (_ssdf is not null)
         {
@@ -170,38 +178,88 @@ else
     private string ShipColour => Colour(_status!.ShipBand);
     private IReadOnlyList<string> ShipReasons => _status!.ShipReasons;
 
+    private bool IsLatest => string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase);
+    private string? _newerSha;
+    private IDisposable? _sub;
+    private Guid _subProject;
+
+    public void Dispose() => _sub?.Dispose();
+
+    private sealed record Loaded(ProjectHubData? Data, Tamp.Findings.Application.Projects.ProjectStatus? Status, int PoamPastDue,
+        Tamp.Findings.Application.Attestation.SsdfAttestationDoc? Ssdf);
+
+    // "latest" is a sentinel, not a commit prefix. Passing it through would filter for builds whose
+    // sha starts with "latest", match nothing, and render a scanned project as never-scanned.
+    private static async Task<Loaded> LoadAsync(ProjectHubQuery hub, Tamp.Findings.Application.Poam.PoamQuery poam,
+        Tamp.Findings.Application.Attestation.SsdfAttestationBuilder ssdf, ProjectRef project, string? sha)
+    {
+        var data = await hub.LoadAsync(project, sha);
+        if (data is null) return new Loaded(null, null, 0, null);
+        var past = (await poam.BoardAsync(project.ProjectId, DateTimeOffset.UtcNow)).Stats.PastDue;
+        var doc = await ssdf.BuildAsync(project.ProjectId, data.CommitSha);
+        return new Loaded(data, Tamp.Findings.Application.Projects.ProjectStatus.From(data), past, doc);
+    }
+
+    // Ingest landed for this project: an unpinned view re-loads in place; a pinned one only learns
+    // that a newer build exists. Own DI scope — the circuit's DbContext may be mid-query.
+    private async Task OnBuildUpdated()
+    {
+        if (_project is null) return;
+        var sha = Sha;
+        await InvokeAsync(async () =>
+        {
+            try
+            {
+                using var scope = Scopes.CreateScope();
+                var sp = scope.ServiceProvider;
+                var hub = sp.GetRequiredService<ProjectHubQuery>();
+                if (string.Equals(sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase))
+                {
+                    var l = await LoadAsync(hub, sp.GetRequiredService<Tamp.Findings.Application.Poam.PoamQuery>(),
+                        sp.GetRequiredService<Tamp.Findings.Application.Attestation.SsdfAttestationBuilder>(), _project, null);
+                    if (l.Data is null || Sha != sha) return;   // navigated away mid-reload: don't clobber the new view
+                    (_data, _status, _poamPastDue, _ssdf) = (l.Data, l.Status, l.PoamPastDue, l.Ssdf);
+                }
+                else
+                {
+                    var latest = await hub.LoadAsync(_project, null);
+                    if (Sha != sha) return;
+                    _newerSha = latest is not null && latest.CommitSha != _data?.CommitSha ? latest.CommitSha : null;
+                }
+                StateHasChanged();
+            }
+            catch { /* keep showing what we have; the next ingest or a refresh recovers */ }
+        });
+    }
+
     protected override async Task OnParametersSetAsync()
     {
         Scope.SetProject(Client, Project, Sha);
 
         _loading = true;
         _error = null;
+        _newerSha = null;
         try
         {
             _project = await Hub.ResolveAsync(Client, Project, await Me.VisibleAsync());
-            // "latest" is a sentinel, not a commit prefix. Passing it through
-            // would filter for builds whose sha starts with "latest", match
-            // nothing, and render a scanned project as never-scanned.
-            var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
-            _data = _project is null ? null : await Hub.LoadAsync(_project, sha);
-            _status = _data is null ? null : Tamp.Findings.Application.Projects.ProjectStatus.From(_data);
-            // POA&M past-due count feeds the evidence tile; a cheap board read
-            // reusing the same past-due rule the gate uses.
-            _poamPastDue = _data is null || _project is null
-                ? 0
-                : (await Poam.BoardAsync(_project.ProjectId, DateTimeOffset.UtcNow)).Stats.PastDue;
-            // SSDF practice answers feed the attestation-evidence tiles (PS.2.1,
-            // RV.3.1, RV.3.2). Built for the build being shown.
-            _ssdf = _data is null || _project is null
-                ? null
-                : await Ssdf.BuildAsync(_project.ProjectId, _data.CommitSha);
+            if (_project is not null)
+            {
+                var l = await LoadAsync(Hub, Poam, Ssdf, _project, IsLatest ? null : Sha);
+                (_data, _status, _poamPastDue, _ssdf) = (l.Data, l.Status, l.PoamPastDue, l.Ssdf);
+                if (_subProject != _project.ProjectId)
+                {
+                    _sub?.Dispose();
+                    _subProject = _project.ProjectId;
+                    _sub = Updates.Subscribe(_subProject, OnBuildUpdated);
+                }
+            }
+            else { _data = null; _status = null; _poamPastDue = 0; _ssdf = null; }
         }
         catch (Exception ex)
         {
-            // Deliberately broad: any failure to reach the data — connection
-            // refused, timeout, a migration mid-flight — has the same meaning
-            // for the reader, and an unhandled one would 500 the whole shell
-            // including the navigation they need to get somewhere else.
+            // Deliberately broad: any failure to reach the data — connection refused, timeout, a
+            // migration mid-flight — reads the same to the user, and an unhandled one would 500 the
+            // whole shell including the navigation they need to get somewhere else.
             _project = null;
             _data = null;
             _error = ex.GetType().Name;

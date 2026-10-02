@@ -23,13 +23,24 @@ public sealed class PolicyPackService(FindingsDbContext db, CapabilityEvaluator 
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    private static ProjectArchetype? ParseArchetype(string? s) => s?.Trim().ToLowerInvariant() switch
+    {
+        "library" => ProjectArchetype.Library,
+        "container" or "containeraction" => ProjectArchetype.ContainerAction,
+        "service" or "serviceapp" => ProjectArchetype.ServiceApp,
+        _ => null,
+    };
+
     public async Task<Result<PolicyPackResult>> ApplyAsync(
         Principal actor, PolicyPack pack, CancellationToken ct = default)
     {
         var decision = capabilities.Evaluate(actor, Capability.EditPolicyWeights);
         if (!decision.Allowed) return Result<PolicyPackResult>.Denied(decision.Reason!);
-        if (pack.Templates.Count == 0)
-            return Result<PolicyPackResult>.Invalid("The pack contains no templates.");
+        if (pack.Templates.Count == 0 && pack.Archetypes.Count == 0)
+            return Result<PolicyPackResult>.Invalid("The pack contains no templates or archetypes.");
+        foreach (var a in pack.Archetypes)
+            if (ParseArchetype(a.Archetype) is null)
+                return Result<PolicyPackResult>.Invalid($"Unknown archetype '{a.Archetype}' (expected library, container or service).");
 
         var defaultPolicyId = await db.RiskPolicies.AsNoTracking()
             .Where(p => p.IsDefault).Select(p => (Guid?)p.Id).FirstOrDefaultAsync(ct);
@@ -76,6 +87,27 @@ public sealed class PolicyPackService(FindingsDbContext db, CapabilityEvaluator 
             }
         }
 
+        foreach (var a in pack.Archetypes)
+        {
+            if (a.Layer is null) continue;
+            var kind = ParseArchetype(a.Archetype)!.Value;
+            var existing = await db.ArchetypeDefinitions.FirstOrDefaultAsync(x => x.Archetype == kind, ct);
+            if (existing is null)
+            {
+                db.ArchetypeDefinitions.Add(new ArchetypeDefinition { Archetype = kind, Layer = a.Layer, UpdatedByLogin = actor.Login });
+                created++;
+            }
+            else if (JsonSerializer.Serialize(existing.Layer, Json) != JsonSerializer.Serialize(a.Layer, Json))
+            {
+                existing.Layer = a.Layer;
+                existing.Version += 1;
+                existing.UpdatedByLogin = actor.Login;
+                existing.UpdatedAt = now;
+                updated++;
+            }
+            else unchanged++;
+        }
+
         if (created + updated > 0)
         {
             // Risk class: it changes the baseline every client and project inherits.
@@ -94,6 +126,14 @@ public sealed class PolicyPack
 {
     public string? PackVersion { get; set; }
     public List<PolicyPackTemplate> Templates { get; set; } = [];
+    /// <summary>Overrides for the additive archetype layers (library | container | service).</summary>
+    public List<PolicyPackArchetype> Archetypes { get; set; } = [];
+}
+
+public sealed class PolicyPackArchetype
+{
+    public required string Archetype { get; set; }
+    public required PolicyLayer Layer { get; set; }
 }
 
 public sealed class PolicyPackTemplate

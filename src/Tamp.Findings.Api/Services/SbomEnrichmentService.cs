@@ -66,6 +66,7 @@ public sealed class SbomEnrichmentService(
                     _ => null,
                 };
                 if (lookup is null) return;
+                c.EnrichedAt = DateTimeOffset.UtcNow;
 
                 if (lookup.Latest is { } latest)
                 {
@@ -186,7 +187,30 @@ public sealed class SbomEnrichmentService(
             license = await TryFetchNuGetLicenseFromCatalogAsync(http, name, latest, ct);
         }
 
-        return new Lookup(latest, null, license);
+        DateTimeOffset? releasedAt = latest is null ? null : await TryFetchNuGetPublishedAsync(http, name, latest, ct);
+        return new Lookup(latest, releasedAt, license);
+    }
+
+    // The registration leaf carries `published`; nuget uses 1900-01-01 for unlisted packages, which says nothing about age.
+    private static async Task<DateTimeOffset?> TryFetchNuGetPublishedAsync(
+        HttpClient http, string name, string version, CancellationToken ct)
+    {
+        try
+        {
+            var regUrl = $"https://api.nuget.org/v3/registration5-semver1/{name.ToLowerInvariant()}/{version.ToLowerInvariant()}.json";
+            using var resp = await http.GetAsync(regUrl, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            using var stream = await resp.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            if (doc.RootElement.TryGetProperty("published", out var pub) && pub.ValueKind == JsonValueKind.String &&
+                DateTimeOffset.TryParse(pub.GetString(), out var at) && at.Year > 1900)
+                return at;
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private async Task<string?> TryFetchNuGetLicenseFromCatalogAsync(
