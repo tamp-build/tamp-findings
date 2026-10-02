@@ -284,6 +284,16 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             .Distinct()
             .Count();
 
+        // Posture checks (TFND-212): the latest producer-reported state per check for this project.
+        // Project-scoped (branch protection / org 2FA are not properties of a commit); absent when the
+        // caller did not pass a project.
+        IReadOnlyDictionary<string, PostureReading>? posture = projectId is { } postureProjectId
+            ? (await db.PostureObservations.AsNoTracking()
+                .Where(o => o.ProjectId == postureProjectId)
+                .ToListAsync(ct))
+                .ToDictionary(o => o.CheckId, o => new PostureReading(o.Status, o.Detail, o.ObservedAt), StringComparer.OrdinalIgnoreCase)
+            : null;
+
         var ranAccessibility = A11ySet.Any(s => receiptSet.Contains(s));
         // TFND-216: an SBOM is inventory; only an SCA scan (OSV/Grype receipt) assesses it. The CVE/KEV
         // gates read this, so a build with an SBOM but no SCA scan is Unknown, not clean.
@@ -356,7 +366,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             HasQualityGateVerdict: hasQualityGateVerdict,
             UnanalyzedLanguages: unanalyzedLanguages,
             HasAnalysisCoverage: hasAnalysisCoverage,
-            UnauthorizedComponents: unauthorizedComponents);
+            UnauthorizedComponents: unauthorizedComponents,
+            Posture: posture);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the

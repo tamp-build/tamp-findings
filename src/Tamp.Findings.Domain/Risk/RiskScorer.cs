@@ -88,7 +88,12 @@ public sealed record RiskInputs(
     int UnanalyzedLanguages = 0,
     bool HasAnalysisCoverage = false,
     // Components in the build's SBOM that match the banned / known-malicious list (CM-8(3), TFND-211).
-    int UnauthorizedComponents = 0);
+    int UnauthorizedComponents = 0,
+    // Producer-reported posture, keyed by PostureCheck.Id (TFND-212). Null/absent = never reported.
+    IReadOnlyDictionary<string, PostureReading>? Posture = null);
+
+/// <summary>The latest producer-reported state of one posture check.</summary>
+public sealed record PostureReading(Values.PostureStatus Status, string? Detail, DateTimeOffset ObservedAt);
 
 public sealed record RiskCategoryBreakdown(
     string Key,

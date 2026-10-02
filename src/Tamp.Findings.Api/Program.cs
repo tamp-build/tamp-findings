@@ -720,6 +720,7 @@ app.MapCoverageIngest();
 app.MapScanRunIngest();
 app.MapAnalysisCoverageIngest();
 app.MapQualityGateIngest();
+app.MapPostureIngest();
 app.MapScanUsageIngest();   // TFND-204: LLM usage/cost telemetry per build
 // TFND-134: the image a build produced, and the base image behind it.
 app.MapContainerImageIngest();
