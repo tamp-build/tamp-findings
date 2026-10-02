@@ -133,7 +133,11 @@ public class ApiBSbomEnrichmentTests
         Assert.Equal(1, result.Cleared);          // Pkg.Current is already the latest
         Assert.True(result.Updated >= 7, $"updated={result.Updated}");
         Assert.True(result.LicensesFilled >= 7, $"licenses={result.LicensesFilled}");
-        Assert.DoesNotContain(handler.Requests, u => !u.StartsWith("https://azuresearch-usnc.nuget.org/", StringComparison.Ordinal)
+        // The app's own background feed workers (KEV, OSV malicious packages) share the "registries" named
+        // client, so on a slow runner their requests can land in this handler too. They are not enrichment.
+        Assert.DoesNotContain(handler.Requests, u => !u.StartsWith("https://www.cisa.gov/", StringComparison.Ordinal)
+            && !u.StartsWith("https://osv-vulnerabilities.storage.googleapis.com/", StringComparison.Ordinal)
+            && !u.StartsWith("https://azuresearch-usnc.nuget.org/", StringComparison.Ordinal)
             && !u.StartsWith("https://api.nuget.org/", StringComparison.Ordinal)
             && !u.StartsWith("https://registry.npmjs.org/", StringComparison.Ordinal)
             && !u.StartsWith("https://catalog.test/", StringComparison.Ordinal));
