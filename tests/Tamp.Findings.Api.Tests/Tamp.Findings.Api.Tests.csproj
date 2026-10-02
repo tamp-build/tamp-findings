@@ -33,5 +33,10 @@
          project graph. -->
     <Compile Include="$(MSBuildThisFileDirectory)../../build/Adapters/SarifResultKindFilter.cs"
              Link="Build/SarifResultKindFilter.cs" />
+    <!-- TFND-227: the pure SonarQube Cloud mapper and the ingest DTOs it targets, linked for the same reason. -->
+    <Compile Include="$(MSBuildThisFileDirectory)../../build/Adapters/SonarCloudIngestMapper.cs"
+             Link="Build/SonarCloudIngestMapper.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)../../build/Adapters/IngestDtos.cs"
+             Link="Build/IngestDtos.cs" />
   </ItemGroup>
 </Project>

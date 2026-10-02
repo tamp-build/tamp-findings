@@ -2,6 +2,8 @@ using Tamp;
 using Tamp.Findings.Build;
 using Tamp.Findings.Build.Adapters;
 using Tamp.Findings.Build.Ingest;
+using Tamp.Findings.Domain.Entities;
+using Tamp.Findings.Domain.Values;
 using Tamp.Grype;
 using Tamp.NetCli.V10;
 using Tamp.Sarif;
@@ -1415,6 +1417,69 @@ class Build : SecurityPipelineBuild
     Target Sonar => _ => _
         .DependsOn(nameof(SonarBegin), nameof(Test), nameof(SonarEnd))
         .Description("Full SonarCloud analysis: begin, build + test with coverage, end.");
+
+    // Pulls the SonarQube Cloud analysis for THIS commit back into findings (TFND-227): open issues and
+    // security hotspots as SonarQube findings (typed bug / code_smell / vulnerability / security_hotspot, so
+    // findings routes smells to quality and vulnerabilities to SAST), the quality-gate verdict with its
+    // conditions, and a scan-run receipt so the build shows SonarQube as having run. Run it after the Sonar
+    // target. It binds to HEAD only: findings picks the latest build by creation order, so ingesting an
+    // older analysis would make an older commit look like the newest build. If SonarCloud has not analysed
+    // this commit yet it says so and exits cleanly.
+    Target IngestSonar => _ => _
+        .RequiresNetwork().Capability(CapabilityTier.SideEffectful)
+        .Description("Ingest this commit's SonarQube Cloud issues, hotspots and quality-gate verdict into tamp.findings.")
+        .Executes(async () =>
+        {
+            var ctx = BuildIngestContext();
+            WarnIfRemote();
+            if (string.IsNullOrWhiteSpace(IngestToken))
+                throw new InvalidOperationException("TAMP_FINDINGS_INGEST_TOKEN is not set.");
+            var branch = ctx.Branch ?? "main";
+            var sonar = new SonarCloudClient(SonarHostUrl, Environment.GetEnvironmentVariable("SONAR_TOKEN"));
+
+            var analysis = await sonar.LatestAnalysisAsync(SonarProjectKey, branch);
+            if (analysis is null)
+            {
+                Console.WriteLine($"[ingest] Sonar      — no analysis for branch '{branch}' in {SonarProjectKey}; nothing to ingest");
+                return;
+            }
+            if (ctx.CommitSha is not null && !string.Equals(analysis.Revision, ctx.CommitSha, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine($"[ingest] Sonar      — latest analysis is of {analysis.Revision?[..Math.Min(7, analysis.Revision.Length)]}, not {ctx.CommitSha[..7]}; skipping (SonarCloud has not analysed this commit yet)");
+                return;
+            }
+
+            var client = new IngestClient(IngestUrl, IngestToken);
+            var issues = await sonar.OpenIssuesAsync(SonarProjectKey, branch);
+            var hotspots = await sonar.OpenHotspotsAsync(SonarProjectKey, branch);
+            var findings = SonarCloudIngestMapper.MapIssues(issues, SonarProjectKey)
+                .Concat(SonarCloudIngestMapper.MapHotspots(hotspots, SonarProjectKey)).ToList();
+
+            var resp = await client.PostFindingsAsync(new IngestRequestDto(
+                ctx.Client, ctx.Project, ctx.Component, ctx.ComponentKind, ctx.Flavor, ctx.Version,
+                ctx.CommitSha, ctx.Branch, ctx.BuildId, ctx.PullRequestRef,
+                ScannerKind.SonarQube, findings, ctx.Actor));
+            Console.WriteLine($"[ingest] Sonar      → {findings.Count} finding(s) ({issues.Count} issues, {hotspots.Count} hotspots)  response={resp}");
+
+            var receipts = new[]
+            {
+                new ScanRunReceiptDto(ScannerKind.SonarQube, ScanRunStatus.Succeeded, analysis.Date, analysis.Date,
+                    findings.Count, "SonarQube Cloud", null, $"analysis {analysis.Key}"),
+            };
+            await client.PostScanRunsAsync(new ScanRunIngestRequestDto(
+                ctx.Client, ctx.Project, ctx.Component, ctx.ComponentKind, ctx.Flavor, ctx.Version,
+                ctx.CommitSha, ctx.Branch, ctx.BuildId, ctx.PullRequestRef, receipts, ctx.Actor));
+
+            if (await sonar.QualityGateAsync(SonarProjectKey, branch) is { } gate)
+            {
+                var (status, conditions) = SonarCloudIngestMapper.MapQualityGate(gate);
+                var measures = SonarCloudIngestMapper.MapMeasures(await sonar.MeasuresAsync(SonarProjectKey, branch));
+                await client.PostQualityGateAsync(new QualityGateIngestRequestDto(
+                    ctx.Client, ctx.Project, ctx.Flavor, ctx.Version, ctx.CommitSha, ctx.Branch, ctx.BuildId, ctx.PullRequestRef,
+                    status, conditions, analysis.Key, measures, $"sonarcloud:{SonarProjectKey}", analysis.Date, ctx.Actor));
+                Console.WriteLine($"[ingest] SonarGate  → {status} ({conditions.Count} condition(s))");
+            }
+        });
 
     Target Ci => _ => _
         .DependsOn(nameof(Info), nameof(Compile), nameof(Test), nameof(Coverage))

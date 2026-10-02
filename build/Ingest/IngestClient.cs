@@ -82,6 +82,13 @@ public sealed class IngestClient
         return await ReadResponseAsync(resp, ct);
     }
 
+    /// <summary>TFND-227: the SonarQube Cloud quality-gate verdict for the build (feeds the qualityGate gate).</summary>
+    public async Task<JsonElement> PostQualityGateAsync<TPayload>(TPayload payload, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("/ingest/quality-gate", payload, JsonOptions, ct);
+        return await ReadResponseAsync(resp, ct);
+    }
+
     public async Task<JsonElement> PostTestResultsAsync<TPayload>(TPayload payload, CancellationToken ct = default)
     {
         var resp = await _http.PostAsJsonAsync("/ingest/test-results", payload, JsonOptions, ct);
