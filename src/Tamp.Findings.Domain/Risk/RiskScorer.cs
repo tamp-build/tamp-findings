@@ -86,7 +86,9 @@ public sealed record RiskInputs(
     bool HasQualityGateVerdict = false,
     // UnanalyzedLanguages>0 blocks the analysisCoverage gate; HasAnalysisCoverage is its ran-flag.
     int UnanalyzedLanguages = 0,
-    bool HasAnalysisCoverage = false);
+    bool HasAnalysisCoverage = false,
+    // Components in the build's SBOM that match the banned / known-malicious list (CM-8(3), TFND-211).
+    int UnauthorizedComponents = 0);
 
 public sealed record RiskCategoryBreakdown(
     string Key,

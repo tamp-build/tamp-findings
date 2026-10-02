@@ -264,6 +264,26 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         var unanalyzedLanguages = string.IsNullOrWhiteSpace(acGap)
             ? 0
             : acGap.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+        // CM-8(3) unauthorized components (TFND-211): SBOM components whose purl is on the banned /
+        // known-malicious list (and, when the entry names versions, whose version is one of them).
+        var sbomPurls = await db.SbomComponents.AsNoTracking()
+            .Where(c => db.SbomSnapshots.Any(sn => sn.Id == c.SbomSnapshotId && cvIds.Contains(sn.ComponentVersionId)))
+            .Select(c => new { c.Purl, c.Version })
+            .ToListAsync(ct);
+        var purlKeys = sbomPurls.Select(c => BannedComponentMatcher.Key(c.Purl)).OfType<string>().Distinct().ToArray();
+        var banned = purlKeys.Length == 0
+            ? []
+            : await db.BannedComponents.AsNoTracking()
+                .Where(b => b.Active && purlKeys.Contains(b.Purl))
+                .Select(b => new { b.Purl, b.Versions })
+                .ToListAsync(ct);
+        var unauthorizedComponents = sbomPurls
+            .Where(c => BannedComponentMatcher.Key(c.Purl) is { } k
+                && banned.Any(b => b.Purl == k && BannedComponentMatcher.VersionMatches(b.Versions, c.Version)))
+            .Select(c => c.Purl)
+            .Distinct()
+            .Count();
+
         var ranAccessibility = A11ySet.Any(s => receiptSet.Contains(s));
         // TFND-216: an SBOM is inventory; only an SCA scan (OSV/Grype receipt) assesses it. The CVE/KEV
         // gates read this, so a build with an SBOM but no SCA scan is Unknown, not clean.
@@ -335,7 +355,8 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             QualityGateFailed: qualityGateFailed,
             HasQualityGateVerdict: hasQualityGateVerdict,
             UnanalyzedLanguages: unanalyzedLanguages,
-            HasAnalysisCoverage: hasAnalysisCoverage);
+            HasAnalysisCoverage: hasAnalysisCoverage,
+            UnauthorizedComponents: unauthorizedComponents);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the

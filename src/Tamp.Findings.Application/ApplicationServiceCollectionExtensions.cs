@@ -56,6 +56,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Risk.RiskInputsBuilder>();
         services.AddScoped<Risk.ScoringPolicyResolver>();
         services.AddScoped<Risk.VexResolver>();
+        services.AddScoped<Risk.BannedComponentService>();   // TFND-211
         services.AddScoped<Risk.EnforcementResolver>();
         services.AddScoped<Risk.CategoryFindingsQuery>();
         services.AddScoped<Evidence.EvidenceQuery>();

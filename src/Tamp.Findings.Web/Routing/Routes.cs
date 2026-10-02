@@ -127,6 +127,7 @@ public static class Routes
     /// <summary>System → Policy pack import (TFND-203 phase B). Apply a versioned content pack of
     /// baseline templates — a DB update, so a baseline change ships without an app republish.</summary>
     public static string PolicyPack() => "/system/policy-pack";
+    public static string BannedComponents() => "/system/banned-components";
 
     /// <summary>Manage → Policy templates (ADR 0007). The list, or one template's editor.</summary>
     public static string PolicyTemplates(Guid? id = null) =>

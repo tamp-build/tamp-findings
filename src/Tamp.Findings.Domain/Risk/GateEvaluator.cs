@@ -226,6 +226,7 @@ public static class GateEvaluator
         GateKeys.CriticalIac,
         GateKeys.VerifiedSecrets,
         GateKeys.DeniedLicenses,
+        GateKeys.UnauthorizedComponent,
         GateKeys.BaseImageAge,
         GateKeys.SbomAge,
         GateKeys.TestFailures,
@@ -259,6 +260,7 @@ public static class GateEvaluator
         GateKeys.CriticalIac => "Critical IaC",
         GateKeys.VerifiedSecrets => "Verified secrets",
         GateKeys.DeniedLicenses => "Denied licences",
+        GateKeys.UnauthorizedComponent => "Unauthorized components",
         GateKeys.BaseImageAge => "Base image age",
         GateKeys.SbomAge => "SBOM age",
         GateKeys.TestFailures => "Test failures",
@@ -297,6 +299,9 @@ public static class GateEvaluator
         GateKeys.VerifiedSecrets =>
             "Blocks on secrets a scanner verified as live. Needs a secret scan.",
         GateKeys.DeniedLicenses => "Blocks on dependencies under a denied licence tier. Needs an SBOM.",
+        GateKeys.UnauthorizedComponent =>
+            "Blocks when the SBOM contains a component on the banned / known-malicious list (CM-8(3)). "
+            + "Needs an SBOM; the list is the org's own entries plus the synced OSV malicious-package feed.",
         GateKeys.BaseImageAge =>
             "Blocks when the base image was older than the threshold on the day this was built. "
             + "Needs a container-image inspect, AND the base image to be identifiable.",
@@ -357,6 +362,7 @@ public static class GateEvaluator
             GateKeys.HighCves            => Threshold(key, cfg, current.CveHigh, 0, "high CVEs", current.RanSca, "dependency (SCA) scan"),
             // Denied licences stay on RanSbom — that IS a property of the inventory, not a vuln scan.
             GateKeys.DeniedLicenses      => Threshold(key, cfg, current.LicenseDenied, 0, "denied licenses", current.RanSbom, "SBOM"),
+            GateKeys.UnauthorizedComponent => Threshold(key, cfg, current.UnauthorizedComponents, 0, "unauthorized components", current.RanSbom, "SBOM"),
 
             // TFND-134. Not a Threshold() call, because this gate has THREE
             // ways of not knowing rather than one, and collapsing them would
