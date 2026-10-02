@@ -23,6 +23,7 @@ public static class AggregatesEndpoints
     private static async Task<Ok<AggregatesResponse>> GetAsync(
         FindingsDbContext db,
         Tamp.Findings.Application.Risk.VexResolver vexResolver,
+        ScoringPolicyResolver scoring,
         CancellationToken ct,
         Guid? clientId = null,
         Guid? projectId = null,
@@ -404,7 +405,7 @@ public static class AggregatesEndpoints
         // adjusts how SAST + IaC + Secrets severities feed into the
         // scorer. Display data (byScannerDetail, iacCounts, etc.) stays
         // at the ingested severity; only the score inputs are adjusted.
-        var policy = await ResolveEffectivePolicyAsync(db, clientId, projectId, componentId, ct);
+        var policy = await ResolveEffectivePolicyAsync(scoring, clientId, projectId, ct);
         var overrides = policy?.Config.ScannerOverrides ?? new Dictionary<string, ScannerOverride>();
 
         // SAST severity counts: flatten byScannerDetail to (Scanner,
@@ -539,39 +540,11 @@ public static class AggregatesEndpoints
         q.Where(v => v.PullRequestRef == null
                   && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"));
 
-    // Project > Client > Default fallback. Returns null only if NO
-    // RiskPolicy rows exist at all (the seeder should have prevented that).
-    private static async Task<RiskPolicy?> ResolveEffectivePolicyAsync(
-        FindingsDbContext db, Guid? clientId, Guid? projectId, Guid? componentId, CancellationToken ct)
-    {
-        Guid? projectPolicyId = null;
-        Guid? clientPolicyId = null;
-
-        if (projectId is { } prj)
-        {
-            var pair = await db.Projects.AsNoTracking()
-                .Where(p => p.Id == prj)
-                .Select(p => new { p.RiskPolicyId, ClientPolicy = p.Client!.RiskPolicyId })
-                .FirstOrDefaultAsync(ct);
-            projectPolicyId = pair?.RiskPolicyId;
-            clientPolicyId = pair?.ClientPolicy;
-        }
-        else if (clientId is { } cli)
-        {
-            clientPolicyId = await db.Clients.AsNoTracking()
-                .Where(c => c.Id == cli)
-                .Select(c => c.RiskPolicyId)
-                .FirstOrDefaultAsync(ct);
-        }
-
-        var effectiveId = projectPolicyId ?? clientPolicyId;
-        if (effectiveId is { } id)
-        {
-            var byId = await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
-            if (byId is not null) return byId;
-        }
-        return await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
-    }
+    // Project > client > client's template > default (the shared ScoringPolicyResolver chain).
+    // Returns null only if NO RiskPolicy rows exist at all (the seeder should have prevented that).
+    private static Task<RiskPolicy?> ResolveEffectivePolicyAsync(
+        ScoringPolicyResolver scoring, Guid? clientId, Guid? projectId, CancellationToken ct) =>
+        scoring.ResolveRowAsync(clientId, projectId, ct);
 
     private static async Task<AggregateScope> ResolveScopeAsync(
         FindingsDbContext db,

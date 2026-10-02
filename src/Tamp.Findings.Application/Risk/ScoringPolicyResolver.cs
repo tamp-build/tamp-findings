@@ -23,18 +23,27 @@ public sealed class ScoringPolicyResolver
 
     public ScoringPolicyResolver(FindingsDbContext db) => _db = db;
 
-    public async Task<ScoringPolicy> ForProjectAsync(Guid projectId, CancellationToken ct = default)
+    /// <summary>The stored policy row for a project (or, with no project, a client): project override →
+    /// client override → the client's template link → instance default. No archetype adjustment — this
+    /// is the policy as authored, what a fork or an "effective policy" view should show. Null only if
+    /// no RiskPolicy rows exist at all.</summary>
+    public async Task<RiskPolicy?> ResolveRowAsync(Guid? clientId, Guid? projectId, CancellationToken ct = default)
     {
-        var project = await _db.Projects.AsNoTracking()
-            .Where(p => p.Id == projectId)
-            .Select(p => new { p.ClientId, p.RiskPolicyId, p.Archetype })
-            .FirstOrDefaultAsync(ct);
+        Guid? id = null;
+        if (projectId is { } prj)
+        {
+            var project = await _db.Projects.AsNoTracking()
+                .Where(p => p.Id == prj)
+                .Select(p => new { p.ClientId, p.RiskPolicyId })
+                .FirstOrDefaultAsync(ct);
+            id = project?.RiskPolicyId;
+            clientId ??= project?.ClientId;
+        }
 
-        var id = project?.RiskPolicyId;
-        if (id is null && project is not null)
+        if (id is null && clientId is { } cid)
         {
             var client = await _db.Clients.AsNoTracking()
-                .Where(c => c.Id == project.ClientId)
+                .Where(c => c.Id == cid)
                 .Select(c => new { c.RiskPolicyId, c.PolicyTemplateId })
                 .FirstOrDefaultAsync(ct);
 
@@ -54,7 +63,16 @@ public sealed class ScoringPolicyResolver
         var policy = id is { } pid
             ? await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == pid, ct)
             : null;
-        policy ??= await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
+        return policy ?? await _db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
+    }
+
+    public async Task<ScoringPolicy> ForProjectAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var archetype = await _db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => p.Archetype)
+            .FirstOrDefaultAsync(ct);
+        var policy = await ResolveRowAsync(null, projectId, ct);
 
         // No policy at all should be impossible — Program.cs seeds one — but falling back to the
         // built-in defaults beats throwing on a screen whose whole job is to report posture.
@@ -65,7 +83,7 @@ public sealed class ScoringPolicyResolver
         // Make the score archetype-aware: categories the component cannot produce evidence for
         // (IaC for a library, DAST/base-image for anything that isn't a running service) are
         // dropped from the weight basis instead of sitting there as a permanent 0/N (TFND-203).
-        ArchetypeScoring.ApplyCapability(config, ArchetypeLayers.Capability(project?.Archetype));
+        ArchetypeScoring.ApplyCapability(config, ArchetypeLayers.Capability(archetype));
 
         return new ScoringPolicy(id2, name, config);
     }
