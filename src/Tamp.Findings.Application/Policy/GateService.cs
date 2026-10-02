@@ -80,8 +80,8 @@ public sealed class GateService
         var project = await _db.Projects.SingleOrDefaultAsync(p => p.Id == projectId, ct);
         if (project is null) return Result<int>.Invalid("That project no longer exists.");
 
-        foreach (var gate in gates.Where(g => g.Enabled && g.Threshold is < 0))
-            return Result<int>.Invalid($"{gate.Label} cannot have a negative threshold.");
+        if (gates.FirstOrDefault(g => g.Enabled && g.Threshold is < 0) is { } negative)
+            return Result<int>.Invalid($"{negative.Label} cannot have a negative threshold.");
 
         var before = project.GatesConfig ?? ProjectGatesDefaults.Empty();
         var after = new ProjectGatesConfig { SchemaVersion = before.SchemaVersion };
@@ -136,12 +136,16 @@ public sealed class GateService
 
             if (wasEnabled != now.Enabled)
                 changes.Add($"{key} {(now.Enabled ? "enabled" : "DISABLED")}");
-            else if (now.Enabled && was?.Threshold != now.Threshold)
+            else if (now.Enabled && ThresholdChanged(was?.Threshold, now.Threshold))
                 changes.Add($"{key} threshold {Show(was?.Threshold)} → {Show(now.Threshold)}");
         }
 
         return changes;
     }
+
+    // Thresholds are doubles, so compare with a tolerance rather than exact (in)equality.
+    private static bool ThresholdChanged(double? before, double? after) =>
+        before.HasValue != after.HasValue || (before.HasValue && Math.Abs(before.Value - after!.Value) > 1e-9);
 
     private static string Show(double? value) => value?.ToString("0.##") ?? "default";
 

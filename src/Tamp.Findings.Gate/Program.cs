@@ -1,3 +1,4 @@
+using Tamp.Findings.Gate;
 using System.Net;
 using System.Text.Json;
 using Tamp.Findings.Domain.Risk;
@@ -172,6 +173,8 @@ static string RenderJson(GateResponse? d, GateOutcome outcome, EnforcementMode m
         gates = (d?.Gates ?? []).Select(g => new { g.Key, g.Verdict, g.Blocks, g.Observed, g.Reason }),
     }, new JsonSerializerOptions { WriteIndented = true });
 
+namespace Tamp.Findings.Gate
+{
 // ---- args + wire types ----------------------------------------------------
 
 sealed record GateOptions(
@@ -232,3 +235,4 @@ sealed record GateResponse(
     List<GateVerdictRow>? Gates);
 
 sealed record GateVerdictRow(string Key, string Verdict, bool Blocks, string Observed, string? Reason);
+}

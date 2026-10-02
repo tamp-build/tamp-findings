@@ -124,7 +124,12 @@ public class AppCovSystemAdminTests
             Assert.Equal(0, (await svc.SetExpectedScannersAsync(actors.Admin, [])).Value);
             var changed = await svc.SetExpectedScannersAsync(actors.Admin, [ScannerKind.Syft, ScannerKind.Zap]);
             Assert.Equal(2, changed.Value);
-            Assert.Equal(3, (await svc.SetExpectedScannersAsync(actors.Admin, [ScannerKind.OpenGrep, ScannerKind.Zap, ScannerKind.Nuclei])).Value);
+            // The database is shared with every other test, so "silent" (expected but never reported) cannot
+            // be assumed of any fixed scanner: include one that has genuinely never reported right now.
+            var fixedKinds = new[] { ScannerKind.Syft, ScannerKind.OpenGrep, ScannerKind.Zap, ScannerKind.Nuclei };
+            var reported = db.ScanRunReceipts.Select(r => r.Scanner).Distinct().ToHashSet();
+            var quiet = Enum.GetValues<ScannerKind>().Last(k => !reported.Contains(k) && !fixedKinds.Contains(k));
+            Assert.Equal(4, (await svc.SetExpectedScannersAsync(actors.Admin, [ScannerKind.OpenGrep, ScannerKind.Zap, ScannerKind.Nuclei, quiet])).Value);
 
             var rows = await svc.ScannersAsync(DateTimeOffset.UtcNow);
             Assert.Equal(Enum.GetValues<ScannerKind>().Length, rows.Count);

@@ -37,7 +37,7 @@ public static class PseudoLocale
     // Placeholders must survive untouched — mangling them would break the very
     // substitution being tested. Covers {0}, {name}, {0:F1} and the composed
     // fragments the hand-off requires instead of embedded markup.
-    private static readonly Regex Preserve = new(@"(\{[^{}]*\})", RegexOptions.Compiled);
+    private static readonly Regex Preserve = new(@"(\{[^{}]*\})", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     private static readonly Dictionary<char, string> Map = new()
     {
