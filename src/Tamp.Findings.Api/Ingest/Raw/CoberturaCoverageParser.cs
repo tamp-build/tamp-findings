@@ -77,7 +77,7 @@ public static class CoberturaCoverageParser
             SourceFiles: [.. files.Values]);
     }
 
-    private static readonly System.Text.RegularExpressions.Regex ConditionRx = new(@"\((\d+)/(\d+)\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex ConditionRx = new(@"\((\d+)/(\d+)\)", System.Text.RegularExpressions.RegexOptions.Compiled, TimeSpan.FromSeconds(1));
 
     // Coverlet writes absolute `filename`s and lists the roots under <sources>; strip the matching root so
     // the same path reads the same across build agents. Falls back to the normalized filename itself.

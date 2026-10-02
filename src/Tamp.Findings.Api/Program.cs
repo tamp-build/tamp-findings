@@ -150,15 +150,16 @@ builder.Services.AddSingleton(Tamp.Findings.Application.Provenance.AttestationSi
 
 builder.Services.AddCors(options =>
 {
-    // POC dev posture: any origin allowed. The SPA uses Vite's /api proxy
-    // so same-origin via the dev server is the normal path — this opens
-    // direct API access for ad-hoc curl from other machines, the MCP
-    // server, and any future tools. Tighten to an allow-list before any
-    // non-local deployment.
+    // Closed by default (Sonar S5122). Browsers are not a client of this API: the UI is same-origin Blazor
+    // Server, and ingest, MCP and the CLI gate are not browsers, so none of them needs CORS. An operator who
+    // genuinely hosts a browser client on another origin allows it explicitly, by origin, with
+    // Cors:AllowedOrigins (env: Cors__AllowedOrigins__0, Cors__AllowedOrigins__1, ...).
+    var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
     options.AddDefaultPolicy(p =>
-        p.AllowAnyOrigin()
-         .AllowAnyHeader()
-         .AllowAnyMethod());
+    {
+        if (allowedOrigins.Length > 0)
+            p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+    });
 });
 
 // TFND-4 OIDC sign-in. Cookie session + GitHub OAuth challenge.

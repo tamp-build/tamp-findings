@@ -1165,7 +1165,7 @@ else
     private string? _exRationale;
     private string? _exError;
 
-    private static string Snake(string? s) => s is null ? "" : System.Text.RegularExpressions.Regex.Replace(s, "(?<!^)([A-Z])", "_$1").ToLowerInvariant();
+    private static string Snake(string? s) => s is null ? "" : System.Text.RegularExpressions.Regex.Replace(s, "(?<!^)([A-Z])", "_$1", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1)).ToLowerInvariant();
 
     private void TogglePick(string purl, bool on) { if (on) _exPicked.Add(purl); else _exPicked.Remove(purl); }
 

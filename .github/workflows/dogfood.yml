@@ -101,32 +101,65 @@ jobs:
         run: |
           set -uo pipefail
           B=/usr/local/bin
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh  | sh -s -- -b $B || echo "::warning::syft install failed"
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b $B || echo "::warning::grype install failed"
-          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $B || echo "::warning::trivy install failed"
-          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b $B || echo "::warning::trufflehog install failed"
+
+          # Supply-chain hardening (TFND-227; Sonar S8482 + S6506). Nothing downloaded is piped into a shell
+          # or run unchecked: everything is fetched over HTTPS only, then VERIFIED before it runs.
+          #  - Installer scripts are pinned to an upstream COMMIT and a SHA-256, so a changed or tampered
+          #    script fails the check instead of executing. To bump one: fetch the script at the new commit,
+          #    review it, and update both values here.
+          #  - Release binaries are checked against the checksums file the project publishes.
+          # Each install stays best-effort on its own: one failing or non-verifying download costs that
+          # scanner's leg (and says so), not the whole run.
+          fetch() { curl --proto '=https' --tlsv1.2 -sSfL "$1" -o "$2"; }
+
+          # run_pinned_installer <name> <repo> <commit> <path-in-repo> <sha256> <shell> [installer args...]
+          run_pinned_installer() {
+            local name=$1 repo=$2 commit=$3 path=$4 sha=$5 shell=$6; shift 6
+            local f="/tmp/install-$name.sh"
+            fetch "https://raw.githubusercontent.com/$repo/$commit/$path" "$f" \
+              && echo "$sha  $f" | sha256sum -c --quiet - \
+              && "$shell" "$f" "$@" \
+              || echo "::warning::$name install failed or did not verify"
+          }
+
+          run_pinned_installer syft       anchore/syft                 cc326e45a6213360266dda4b30cc68095946d676 install.sh         787fe2aa12311f7dd8e1d9337dfc6e25f091396c958937293a2d3c0eca2ff8ce sh -b $B
+          run_pinned_installer grype      anchore/grype                2dca57778b4fda20c9b769f964aa71f76dbadb27 install.sh         4bc8e844d1ca0b74082cb51e1587d58c35150756954660db3d3078e57c81cbfd sh -b $B
+          run_pinned_installer trivy      aquasecurity/trivy           75c4dc0f45c5d7ffd05ae26df1e0c666787bdf2a contrib/install.sh e00df553be558995b994758bc8995956554a16937f456dc6615b0cc411bfec7a sh -b $B
+          run_pinned_installer trufflehog trufflesecurity/trufflehog   f37f2eff68c31620fd88bc37ff2b7d57ea0c700c scripts/install.sh c394defeaea8a7c48f828a2051b608a9b19f43f34b891407b66a386c3e2591e2 sh -b $B
 
           # OpenGrep — the primary SAST leg. Without it the sast gate has
           # nothing behind it.
-          curl -sSfL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash || echo "::warning::opengrep install failed"
+          run_pinned_installer opengrep   opengrep/opengrep            a08950f1afd943aab8bba0b4398384c13455502b install.sh         169ed90fb8a5116d01bc0e51ee810dbd67188cda44c6f6c743ffe42ae04059b8 bash
           echo "$HOME/.opengrep/cli/latest" >> "$GITHUB_PATH"
 
           # OSV-Scanner — cross-ecosystem CVE rows that Grype's SBOM pass can
-          # miss (TFND-16 reconciles the two).
-          curl -sSfL -o $B/osv-scanner \
-            https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 \
-            && chmod +x $B/osv-scanner || echo "::warning::osv-scanner install failed"
+          # miss (TFND-16 reconciles the two). Verified against the release's published SHA256SUMS.
+          OSV=https://github.com/google/osv-scanner/releases/latest/download
+          if fetch "$OSV/osv-scanner_linux_amd64" /tmp/osv-scanner_linux_amd64 \
+             && fetch "$OSV/osv-scanner_SHA256SUMS" /tmp/osv-scanner.sums \
+             && grep ' osv-scanner_linux_amd64$' /tmp/osv-scanner.sums | (cd /tmp && sha256sum -c --quiet -); then
+            install -m 0755 /tmp/osv-scanner_linux_amd64 $B/osv-scanner
+          else
+            echo "::warning::osv-scanner install failed or did not verify"
+          fi
 
           # Nuclei — template-driven DAST against the container started below.
           # The asset filename carries the version, so
           # `releases/latest/download/<fixed-name>` 404s the moment upstream
           # ships a release — it was pinned to 3.3.7 while latest was 3.11.1.
-          # Resolve the real asset from the API instead.
-          NUCLEI_URL=$(curl -sSfL https://api.github.com/repos/projectdiscovery/nuclei/releases/latest \
+          # Resolve the real asset from the API instead, then verify it against that release's checksums file.
+          NUCLEI_URL=$(curl --proto '=https' --tlsv1.2 -sSfL https://api.github.com/repos/projectdiscovery/nuclei/releases/latest \
             | grep -oE 'https://[^"]+nuclei_[0-9.]+_linux_amd64\.zip' | head -1)
           if [ -n "${NUCLEI_URL:-}" ]; then
-            curl -sSfL -o /tmp/nuclei.zip "$NUCLEI_URL" \
-              && unzip -oq /tmp/nuclei.zip -d $B && chmod +x $B/nuclei || echo "::warning::nuclei install failed"
+            NUCLEI_ZIP=$(basename "$NUCLEI_URL")
+            NUCLEI_SUMS="${NUCLEI_ZIP%_linux_amd64.zip}_checksums.txt"
+            if fetch "$NUCLEI_URL" "/tmp/$NUCLEI_ZIP" \
+               && fetch "${NUCLEI_URL%/*}/$NUCLEI_SUMS" /tmp/nuclei.sums \
+               && grep " $NUCLEI_ZIP\$" /tmp/nuclei.sums | (cd /tmp && sha256sum -c --quiet -); then
+              unzip -oq "/tmp/$NUCLEI_ZIP" -d $B && chmod +x $B/nuclei
+            else
+              echo "::warning::nuclei install failed or did not verify"
+            fi
           else
             echo "::warning::could not resolve a nuclei release asset"
           fi
@@ -268,7 +301,9 @@ jobs:
           # ~/.browser-driver-manager/.env, which is where @axe-core/cli reads
           # CHROME_TEST_PATH and CHROMEDRIVER_TEST_PATH from — so this is the
           # mechanism the tool is built around rather than a workaround.
-          npx -y browser-driver-manager install chrome             || echo "::warning::browser-driver-manager failed — the accessibility scan will likely fail"
+          # Pinned in build/tools/node/package.json and run from there (pnpm exec) rather than `npx -y`,
+          # which would fetch whatever is newest at run time and run its lifecycle scripts (Sonar S6505).
+          (cd build/tools/node && pnpm exec browser-driver-manager install chrome) || echo "::warning::browser-driver-manager failed — the accessibility scan will likely fail"
 
           # Prove it before a scan can claim to have run. "Installed the
           # package" and "can actually drive a browser" have been different
