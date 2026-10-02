@@ -166,6 +166,27 @@ jobs:
         continue-on-error: true
         run: dotnet run --project build -- Coverage --configuration Release
 
+      # SonarQube Cloud nightly (TFND-227). Scheduled and manual runs only: a push to main is already
+      # analysed by ci.yml, and analysing the same commit twice just doubles the history. Best-effort like
+      # every scan here: a Sonar problem is data, not a reason to stop the ingest below.
+      - uses: actions/setup-java@v4
+        if: steps.creds.outputs.configured == 'true' && github.event_name != 'push'
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: SonarCloud analysis (nightly)
+        if: steps.creds.outputs.configured == 'true' && github.event_name != 'push'
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          TAMP_FINDINGS_TEST_DB: "Host=localhost;Port=5432;Database=tamp_findings_test;Username=tamp;Password=tamp"
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then echo "::notice::SONAR_TOKEN not configured - skipping SonarCloud."; exit 0; fi
+          dotnet tool install --global dotnet-sonarscanner --version 10.4.1
+          export PATH="$HOME/.dotnet/tools:$PATH"
+          dotnet run --project build -- Sonar --configuration Release
+
       - name: Static scans
         if: steps.creds.outputs.configured == 'true'
         continue-on-error: true

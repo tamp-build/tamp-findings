@@ -6,6 +6,7 @@ using Tamp.Grype;
 using Tamp.NetCli.V10;
 using Tamp.Sarif;
 using Tamp.Sbom;
+using Tamp.SonarScanner.V10;
 using Tamp.Security.Pipeline;
 using Tamp.Syft;
 using Tamp.TruffleHog.V3;
@@ -1365,6 +1366,55 @@ class Build : SecurityPipelineBuild
                 Console.WriteLine($"[ingest] ScanRuns   → {resp.GetProperty("receiptsUpserted")} receipt(s) ({string.Join(", ", dedup.Select(r => $"{r.Scanner}={r.FindingsCount}"))})");
             }
         });
+
+    // ----- SonarQube Cloud (TFND-227) --------------------------------------
+    //
+    // A two-phase scan: Begin before the build, End after the tests, so the scanner collects the MSBuild
+    // inputs and the OpenCover coverage. Same shape as tamp-observer. dotnet-sonarscanner is a DLL-based
+    // .NET tool that CI installs globally; it is Optional so targets that never scan do not need it.
+    // Automatic Analysis must be OFF on the SonarCloud project (it conflicts with a CI-driven scan).
+
+#pragma warning disable CS0649
+    [FromPath("dotnet-sonarscanner", Optional = true)]
+    readonly Tool SonarTool = null!;
+#pragma warning restore CS0649
+
+    [Secret("SonarCloud token", EnvironmentVariable = "SONAR_TOKEN")]
+    readonly Secret SonarToken = null!;
+
+    [Parameter("Sonar host URL", EnvironmentVariable = "SONAR_HOST_URL")]
+    readonly string SonarHostUrl = "https://sonarcloud.io";
+
+    [Parameter("SonarCloud organization")]
+    readonly string SonarOrganization = "tamp-build";
+
+    [Parameter("SonarCloud project key")]
+    readonly string SonarProjectKey = "tamp-build_tamp-findings";
+
+    Target SonarBegin => _ => _
+        .Description("Initialize the SonarCloud pre-build phase.")
+        .Before(nameof(Compile))
+        .Requires(() => SonarToken != null)
+        .Executes(() => SonarScanner.Begin(SonarTool, s => s
+            .SetProjectKey(SonarProjectKey)
+            .SetOrganization(SonarOrganization)
+            .SetHostUrl(SonarHostUrl)
+            .SetToken(SonarToken)
+            // Build tooling is not shipped product code; EF migrations are generated.
+            .SetProperty("sonar.exclusions", "build/**,**/Migrations/**,**/obj/**,**/bin/**")
+            .SetProperty("sonar.coverage.exclusions", "build/**,**/Migrations/**")
+            .SetProperty("sonar.cs.opencover.reportsPaths", $"{TestResults.Value}/**/coverage.opencover.xml")
+            .SetProperty("sonar.cs.vstest.reportsPaths", $"{TestResults.Value}/**/*.trx")));
+
+    Target SonarEnd => _ => _
+        .After(nameof(Test))
+        .DependsOn(nameof(SonarBegin))
+        .Description("Finalize SonarCloud and submit results.")
+        .Executes(() => SonarScanner.End(SonarTool, s => s.SetToken(SonarToken)));
+
+    Target Sonar => _ => _
+        .DependsOn(nameof(SonarBegin), nameof(Test), nameof(SonarEnd))
+        .Description("Full SonarCloud analysis: begin, build + test with coverage, end.");
 
     Target Ci => _ => _
         .DependsOn(nameof(Info), nameof(Compile), nameof(Test), nameof(Coverage))
