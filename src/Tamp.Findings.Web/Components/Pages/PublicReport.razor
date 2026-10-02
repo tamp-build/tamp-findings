@@ -1,0 +1,182 @@
+@* Public, read-only evidence report (TFND-215): the "show your work" companion to the status badge.
+
+   Static SSR on purpose — a visitor needs no circuit, and nothing here is interactive. Anonymous: the
+   unguessable key in the URL is the capability, and it only resolves while the project's public-report
+   toggle is on. Everything shown comes from PublicReportQuery's allow-list (posture + counts; no file
+   paths, snippets, finding text, receipt notes or justifications). Served no-store, and stamped with the
+   build sha and generation time so a cached copy is self-evidently stale. *@
+@page "/report/{Key}"
+@attribute [AllowAnonymous]
+@layout PublicReportLayout
+@inject PublicReportQuery Reports
+@using Tamp.Findings.Domain.Risk
+@using Microsoft.AspNetCore.Http
+
+<PageTitle>@(_report is null ? "Report" : _report.Project + " — evidence report")</PageTitle>
+
+@if (_report is null)
+{
+    <div class="stack">
+        <h1>Report not found</h1>
+        <p class="muted">This report does not exist, is not public, or its link has been rotated.</p>
+    </div>
+}
+else if (_report.Body is not { } b)
+{
+    <div class="stack">
+        <h1>@_report.Project</h1>
+        <p class="muted">@_report.Client · no build has been ingested yet, so there is no evidence to report.</p>
+    </div>
+}
+else
+{
+    var s = b.Status;
+    <div class="stack">
+        <div>
+            <div class="kicker">Evidence report · read-only</div>
+            <h1>@_report.Project</h1>
+            <p class="muted">
+                @_report.Client@(s.Baseline is { Length: > 0 } ? " · " + s.Baseline : "") · policy @b.Hub.PolicyName
+            </p>
+            <p class="muted">
+                Build <span class="mono">@s.CommitShaShort</span> · @s.BuiltAt.ToString("yyyy-MM-dd HH:mm") UTC ·
+                generated @_report.GeneratedAt.ToString("yyyy-MM-dd HH:mm") UTC.
+                This page is a point-in-time view; a copy older than the build it names is stale.
+            </p>
+        </div>
+
+        <Card>
+            <h2>Posture</h2>
+            <table class="table">
+                <tbody>
+                    <tr><th>Risk score</th><td>@s.RiskScore.ToString("F1") / 10 · @s.RiskBand</td></tr>
+                    <tr><th>Clear to ship</th><td>@(s.ClearToShip ? "Yes" : "No — " + string.Join("; ", s.ShipReasons))</td></tr>
+                    <tr><th>Coverage</th><td>@(s.CoverageMeasured ? s.CoveragePercent.ToString("F1") + "%" : "Not measured")</td></tr>
+                    <tr><th>Tests</th><td>@(s.TestsMeasured ? s.TestsPassed + " passed / " + s.TestsTotal + " total (" + s.TestsFailed + " failed)" : "Not measured")</td></tr>
+                </tbody>
+            </table>
+        </Card>
+
+        <Card>
+            <h2>Gates</h2>
+            <p class="field__help">@b.Hub.Gates.Passed passed · @b.Hub.Gates.Failed failed · @b.Hub.Gates.Unknown not measured · @b.Hub.Gates.NotApplicable not applicable</p>
+            <table class="table">
+                <thead><tr><th>Gate</th><th>Result</th><th>Observed</th></tr></thead>
+                <tbody>
+                @foreach (var g in b.Hub.Gates.Results.Where(r => r.Enabled))
+                {
+                    <tr><td>@GateEvaluator.Label(g.Key)</td><td>@g.Verdict</td><td>@g.Observed</td></tr>
+                }
+                </tbody>
+            </table>
+        </Card>
+
+        <Card>
+            <h2>Scans run against this build</h2>
+            @if (b.Receipts.Count == 0)
+            {
+                <p class="muted">No scan receipts were recorded for this build.</p>
+            }
+            else
+            {
+                <table class="table">
+                    <thead><tr><th>Scanner</th><th>Status</th><th>Findings</th><th>Tool</th><th>Completed</th></tr></thead>
+                    <tbody>
+                    @foreach (var r in b.Receipts)
+                    {
+                        <tr>
+                            <td>@r.Scanner</td><td>@r.Status</td><td>@r.FindingsCount</td>
+                            <td>@r.Tool @r.ToolVersion</td>
+                            <td>@(r.CompletedAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </Card>
+
+        <Card>
+            <h2>Coverage and tests</h2>
+            <table class="table">
+                <tbody>
+                    <tr><th>Statement coverage</th><td>@(b.Coverage is { } c ? c.SequencePercent.ToString("F1") + "% (" + c.CoveredSequences + "/" + c.TotalSequences + ")" : "Not measured")</td></tr>
+                    <tr><th>Branch coverage</th><td>@(b.Coverage is { } c2 ? c2.BranchPercent.ToString("F1") + "% (" + c2.CoveredBranches + "/" + c2.TotalBranches + ")" : "Not measured")</td></tr>
+                    <tr><th>Tests</th><td>@(b.Tests is { } t ? t.Passed + " passed, " + t.Failed + " failed, " + t.Skipped + " skipped of " + t.Total : "Not measured")</td></tr>
+                </tbody>
+            </table>
+        </Card>
+
+        <Card>
+            <h2>Software bill of materials</h2>
+            @if (b.Sbom is null)
+            {
+                <p class="muted">No SBOM was ingested for this build.</p>
+            }
+            else
+            {
+                <table class="table">
+                    <tbody>
+                        <tr><th>Generated by</th><td>@b.Sbom.ToolName @b.Sbom.ToolVersion (CycloneDX @b.Sbom.SpecVersion)</td></tr>
+                        <tr><th>Components</th><td>@b.Sbom.Components</td></tr>
+                        <tr><th>Outdated</th><td>@b.Sbom.Outdated of @b.Sbom.Checked version-checked</td></tr>
+                        <tr><th>With known vulnerabilities</th><td>@b.Sbom.Vulnerable</td></tr>
+                    </tbody>
+                </table>
+            }
+            @if (b.Cves.Count > 0)
+            {
+                <h3>Known vulnerabilities</h3>
+                <table class="table">
+                    <thead><tr><th>Advisory</th><th>Severity</th><th>Component</th><th>Fixed in</th></tr></thead>
+                    <tbody>
+                    @foreach (var v in b.Cves)
+                    {
+                        <tr><td class="mono">@v.AdvisoryId</td><td>@v.Severity</td><td>@v.Package @v.Version</td><td>@(v.FixedIn ?? "—")</td></tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </Card>
+
+        @if (b.Controls is { } k)
+        {
+            <Card>
+                <h2>Control coverage</h2>
+                <table class="table">
+                    <tbody>
+                        <tr><th>In scope</th><td>@k.InScope</td></tr>
+                        <tr><th>Evidenced by a gate</th><td>@k.Gated</td></tr>
+                        <tr><th>Inherited</th><td>@k.Inherited</td></tr>
+                        <tr><th>Not applicable</th><td>@k.NotApplicable</td></tr>
+                        <tr><th>Unmapped</th><td>@k.Unmapped</td></tr>
+                    </tbody>
+                </table>
+            </Card>
+        }
+
+        <Card>
+            <h2>Plan of action and milestones</h2>
+            <p>@b.Poam.Open open · @b.Poam.InProgress in progress · @b.Poam.PastDue past due · @b.Poam.Completed completed · @b.Poam.RiskAccepted risk accepted</p>
+        </Card>
+    </div>
+}
+
+@code {
+    [Parameter] public string Key { get; set; } = "";
+    [CascadingParameter] private HttpContext? Http { get; set; }
+
+    private PublicReportData? _report;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Http is { } ctx)
+        {
+            ctx.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate, max-age=0";
+            ctx.Response.Headers.Pragma = "no-cache";
+            ctx.Response.Headers.Expires = "0";
+            ctx.Response.Headers["X-Robots-Tag"] = "noindex, nofollow";
+        }
+        _report = await Reports.LoadAsync(Key);
+        if (_report is null && Http is { } c) c.Response.StatusCode = 404;
+    }
+}

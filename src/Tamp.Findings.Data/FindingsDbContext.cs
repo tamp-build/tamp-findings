@@ -120,6 +120,8 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => new { x.ClientId, x.Name }).IsUnique();
             e.Property(x => x.BadgeKey).HasMaxLength(64);
             e.HasIndex(x => x.BadgeKey).IsUnique();
+            e.Property(x => x.ReportKey).HasMaxLength(64);
+            e.HasIndex(x => x.ReportKey).IsUnique();
             e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
             // Project acceptance gates — jsonb. Null = no gates wired
             // (every build passes). Distinct from RiskPolicy which is

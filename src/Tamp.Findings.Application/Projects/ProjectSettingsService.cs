@@ -163,6 +163,41 @@ public sealed class ProjectSettingsService
         return Result<bool>.Ok(true);
     }
 
+    // ---- Public evidence report (TFND-215) ---------------------------------
+
+    public async Task<(bool Enabled, string? Key)> PublicReportAsync(Guid projectId, CancellationToken ct = default)
+    {
+        var p = await _db.Projects.AsNoTracking().Where(x => x.Id == projectId)
+            .Select(x => new { x.PublicReportEnabled, x.ReportKey }).SingleOrDefaultAsync(ct);
+        return p is null ? (false, null) : (p.PublicReportEnabled, p.ReportKey);
+    }
+
+    /// <summary>Turn the public report on or off. Enabling mints a key if there is none. This PUBLISHES
+    /// project posture to anyone holding the link, so it is a Risk-class audited act gated like gates.</summary>
+    public async Task<Result<string?>> SetPublicReportAsync(
+        Principal actor, ScopeTarget scope, Guid projectId, bool enabled, bool rotateKey = false,
+        CancellationToken ct = default)
+    {
+        var decision = _capabilities.Evaluate(actor, Capability.EditGates);
+        if (!decision.Allowed) return Result<string?>.Denied(decision.Reason!);
+
+        var project = await _db.Projects.SingleOrDefaultAsync(p => p.Id == projectId, ct);
+        if (project is null) return Result<string?>.Invalid("That project no longer exists.");
+
+        var changed = project.PublicReportEnabled != enabled;
+        project.PublicReportEnabled = enabled;
+        if (rotateKey || (enabled && string.IsNullOrWhiteSpace(project.ReportKey)))
+            project.ReportKey = Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+
+        if (changed || rotateKey)
+            _audit.Record(actor, rotateKey ? "project.public_report_key_rotated" : "project.public_report_changed",
+                AuditClass.Risk, scope, subjectId: project.Id, subjectKind: nameof(Project),
+                detail: rotateKey ? "report key rotated" : (enabled ? "public report enabled" : "public report disabled"));
+
+        await _db.SaveChangesAsync(ct);
+        return Result<string?>.Ok(project.ReportKey);
+    }
+
     public static string ArchetypeName(ProjectArchetype? a) => a switch
     {
         ProjectArchetype.Library => "library",

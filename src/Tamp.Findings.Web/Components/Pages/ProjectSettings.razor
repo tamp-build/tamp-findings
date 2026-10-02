@@ -247,6 +247,43 @@ else
             </Card>
         }
 
+        @if (Current == TabReport)
+        {
+            <Card>
+                <h2>Public evidence report</h2>
+                <p class="field__help">
+                    A read-only page anyone with the link can open, no account needed: the build's score and
+                    gates, the scans that ran, coverage and test totals, the SBOM summary and known
+                    vulnerabilities, control coverage and POA&amp;M counts. It deliberately omits file paths,
+                    code, finding descriptions, scan notes and justifications. <strong>Turning it on publishes
+                    this project's posture to whoever has the link</strong>; rotate the link to revoke a copy
+                    that has been shared. It is separate from the status badge's key.
+                </p>
+
+                @if (_reportError is not null)
+                {
+                    <p style="color: var(--color-critical)">@_reportError</p>
+                }
+
+                <p>Status: <strong>@(_reportEnabled ? "Public" : "Private")</strong></p>
+                @if (_reportEnabled && _reportKey is not null)
+                {
+                    <p>Link: <a class="mono" href="@ReportUrl">@ReportUrl</a></p>
+                }
+
+                <div class="row" style="gap: var(--space-2); margin-top: var(--space-3)">
+                    <Button Variant="Button.ButtonVariant.Primary"
+                            Disabled="@(!_canEditGates.Allowed)" DisabledReason="@_canEditGates.Reason"
+                            OnClick="@(() => SetReport(!_reportEnabled, false))">@(_reportEnabled ? "Make private" : "Make public")</Button>
+                    @if (_reportEnabled)
+                    {
+                        <Button Disabled="@(!_canEditGates.Allowed)" DisabledReason="@_canEditGates.Reason"
+                                OnClick="@(() => SetReport(true, true))">Rotate link</Button>
+                    }
+                </div>
+            </Card>
+        }
+
         @if (Current == TabAgents)
         {
             <Card Padded="false">
@@ -574,11 +611,13 @@ else
     private const string TabAccount = "account";
 
     private const string TabArchetype = "archetype";
+    private const string TabReport = "report";
 
     private static readonly KeyValuePair<string, string>[] Tabs =
     [
         new(TabKeys, "Ingest tokens"),
         new(TabArchetype, "Archetype"),
+        new(TabReport, "Public report"),
         new(TabAgents, "Agent access"),
         new(TabDisclosure, "Disclosure policy"),
         new(TabAccount, "Account"),
@@ -598,6 +637,11 @@ else
     private AuthorizationDecision _canEditGates = AuthorizationDecision.Deny("Checking…");
 
     // Archetype (TFND-203): "" = unclassified (null), else the ProjectArchetype int.
+    // Public evidence report (TFND-215).
+    private bool _reportEnabled;
+    private string? _reportKey;
+    private string? _reportError;
+
     private string _archetypeSel = "";
     private string? _archetypeError;
     private bool _archetypeSaved;
@@ -657,6 +701,8 @@ else
             _canEditVdp = await Me.CanAsync(Capability.EditDisclosurePolicy, Here);
             _canEditGates = await Me.CanAsync(Capability.EditGates, Here);
             _repository = await Settings.RepositoryAsync(_project.ProjectId);
+
+            (_reportEnabled, _reportKey) = await Settings.PublicReportAsync(_project.ProjectId);
 
             var arc = await Settings.ArchetypeAsync(_project.ProjectId);
             _archetypeSel = arc is null ? "" : ((int)arc.Value).ToString();
@@ -774,6 +820,19 @@ else
         if (!result.Success) { _repoError = result.Error; return; }
 
         _repoSaved = true;
+    }
+
+    private string ReportUrl => $"{_instanceUrl}/report/{_reportKey}";
+
+    private async Task SetReport(bool enabled, bool rotate)
+    {
+        if (_project is null) return;
+        _reportError = null;
+        var actor = await Me.AtAsync(Here);
+        if (actor is null) { _reportError = "You are not signed in."; return; }
+        var result = await Settings.SetPublicReportAsync(actor, Here, _project.ProjectId, enabled, rotate);
+        if (!result.Success) { _reportError = result.Error; return; }
+        (_reportEnabled, _reportKey) = (enabled, result.Value);
     }
 
     private async Task SaveArchetype()
