@@ -227,6 +227,11 @@ public static class GateEvaluator
         GateKeys.VerifiedSecrets,
         GateKeys.DeniedLicenses,
         GateKeys.UnauthorizedComponent,
+        GateKeys.BranchProtection,
+        GateKeys.PrReviewsRequired,
+        GateKeys.SignedCommits,
+        GateKeys.OrgTwoFactor,
+        GateKeys.Codeowners,
         GateKeys.BaseImageAge,
         GateKeys.SbomAge,
         GateKeys.TestFailures,
@@ -261,6 +266,11 @@ public static class GateEvaluator
         GateKeys.VerifiedSecrets => "Verified secrets",
         GateKeys.DeniedLicenses => "Denied licences",
         GateKeys.UnauthorizedComponent => "Unauthorized components",
+        GateKeys.BranchProtection => "Branch protection",
+        GateKeys.PrReviewsRequired => "PR review required",
+        GateKeys.SignedCommits => "Signed commits",
+        GateKeys.OrgTwoFactor => "Org 2FA",
+        GateKeys.Codeowners => "CODEOWNERS",
         GateKeys.BaseImageAge => "Base image age",
         GateKeys.SbomAge => "SBOM age",
         GateKeys.TestFailures => "Test failures",
@@ -299,6 +309,12 @@ public static class GateEvaluator
         GateKeys.VerifiedSecrets =>
             "Blocks on secrets a scanner verified as live. Needs a secret scan.",
         GateKeys.DeniedLicenses => "Blocks on dependencies under a denied licence tier. Needs an SBOM.",
+        GateKeys.BranchProtection or GateKeys.PrReviewsRequired or GateKeys.SignedCommits
+            or GateKeys.OrgTwoFactor or GateKeys.Codeowners =>
+            PostureChecks.ByGateKey(key) is { } pc
+                ? $"Blocks when the producer reports that '{pc.Title}' is not configured. {pc.Description} "
+                  + "Unanswerable until a producer reports it, and an observation older than the threshold (days, default 30) is treated as unassessed."
+                : "A producer-reported posture check.",
         GateKeys.UnauthorizedComponent =>
             "Blocks when the SBOM contains a component on the banned / known-malicious list (CM-8(3)). "
             + "Needs an SBOM; the list is the org's own entries plus the synced OSV malicious-package feed.",
@@ -362,6 +378,8 @@ public static class GateEvaluator
             GateKeys.HighCves            => Threshold(key, cfg, current.CveHigh, 0, "high CVEs", current.RanSca, "dependency (SCA) scan"),
             // Denied licences stay on RanSbom — that IS a property of the inventory, not a vuln scan.
             GateKeys.DeniedLicenses      => Threshold(key, cfg, current.LicenseDenied, 0, "denied licenses", current.RanSbom, "SBOM"),
+            GateKeys.BranchProtection or GateKeys.PrReviewsRequired or GateKeys.SignedCommits
+                or GateKeys.OrgTwoFactor or GateKeys.Codeowners => EvaluatePosture(key, cfg, current),
             GateKeys.UnauthorizedComponent => Threshold(key, cfg, current.UnauthorizedComponents, 0, "unauthorized components", current.RanSbom, "SBOM"),
 
             // TFND-134. Not a Threshold() call, because this gate has THREE
@@ -393,6 +411,32 @@ public static class GateEvaluator
             _                            => new GateResult(key, true, GateVerdict.Error, "(unknown gate)", cfg.Threshold,
                                                 $"no evaluator is registered for gate '{key}'"),
         };
+    }
+
+    // Posture checks (TFND-212). The producer reports a FACT about a repo/org setting; this gate turns it
+    // into a verdict. Posture is a property of the project at a point in time, so a stale observation is
+    // unassessed rather than trusted: cfg.Threshold is the maximum observation age in days (default 30).
+    private static GateResult EvaluatePosture(string key, GateConfig cfg, RiskInputs current)
+    {
+        var check = PostureChecks.ByGateKey(key);
+        var maxAgeDays = (int)(cfg.Threshold ?? 30);
+        if (check is null || current.Posture is null || !current.Posture.TryGetValue(check.Id, out var reading)
+            || reading.Status == Values.PostureStatus.Unknown)
+            return new GateResult(key, true, GateVerdict.Unknown, "not reported", maxAgeDays,
+                $"cannot evaluate '{check?.Title ?? key}': no producer has reported it, so absence of a failure means nobody looked");
+
+        if (reading.Status == Values.PostureStatus.NotApplicable)
+            return new GateResult(key, true, GateVerdict.NotApplicable, "not applicable", maxAgeDays, reading.Detail);
+
+        var age = (DateTimeOffset.UtcNow - reading.ObservedAt).TotalDays;
+        if (age > maxAgeDays)
+            return new GateResult(key, true, GateVerdict.Unknown, $"last observed {(int)age} days ago", maxAgeDays,
+                $"the observation is {(int)age} days old, older than the {maxAgeDays}-day limit, so it is unassessed");
+
+        return reading.Status == Values.PostureStatus.Pass
+            ? new GateResult(key, true, GateVerdict.Pass, reading.Detail ?? "configured", maxAgeDays, reading.Detail)
+            : new GateResult(key, true, GateVerdict.Fail, reading.Detail ?? "not configured", maxAgeDays,
+                reading.Detail ?? $"'{check.Title}' is not configured");
     }
 
     // Generic threshold gate: fail when observed > threshold (0 by default).

@@ -57,6 +57,14 @@ public static class PolicyTemplateDefaults
     // ongoing compliance work, not a code change.
     private static readonly (string Control, string[] Gates)[] StarterGatedMap =
     [
+        // TFND-212: the process/config controls the posture checks evidence (CM-3, CM-5, IA-2(1)…), derived
+        // from the PostureChecks registry so a new check maps itself. These only become Gated once a template
+        // ENABLES the check's gate: an enabled posture gate with no producer report is Unknown, which blocks,
+        // so they are off by default and switched on (a pack update) once a producer reports posture.
+        .. PostureChecks.All
+            .SelectMany(c => c.ControlRefs.Select(r => (Control: r, c.GateKey)))
+            .GroupBy(x => x.Control)
+            .Select(g => (g.Key, g.Select(x => x.GateKey).ToArray())),
         ("RA-5", [GateKeys.KevExposure, GateKeys.CriticalCves, GateKeys.HighCves, GateKeys.SbomAge]), // vuln scanning
         ("SI-2", [GateKeys.KevExposure, GateKeys.CriticalCves, GateKeys.PoamPastDue]),                // flaw remediation
         ("CM-8", [GateKeys.SbomAge]),                                                                 // component inventory

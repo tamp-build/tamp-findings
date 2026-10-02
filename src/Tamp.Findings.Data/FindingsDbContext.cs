@@ -49,6 +49,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<PolicyTemplate> PolicyTemplates => Set<PolicyTemplate>();
     public DbSet<ArchetypeDefinition> ArchetypeDefinitions => Set<ArchetypeDefinition>();
     public DbSet<BannedComponent> BannedComponents => Set<BannedComponent>();
+    public DbSet<PostureObservation> PostureObservations => Set<PostureObservation>();
     public DbSet<ControlCatalog> ControlCatalogs => Set<ControlCatalog>();
     public DbSet<Framework> Frameworks => Set<Framework>();
     public DbSet<ConformanceFinding> ConformanceFindings => Set<ConformanceFinding>();
@@ -656,6 +657,17 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => new { x.Name, x.Version }).IsUnique();
             // Link the scoring policy; SetNull so deleting it drops the link.
             e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<PostureObservation>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.CheckId).HasMaxLength(64).IsRequired();
+            e.Property(x => x.Detail).HasMaxLength(512);
+            e.Property(x => x.Source).HasMaxLength(128);
+            e.HasOne(x => x.Project).WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+            // The latest observation per check IS the current posture.
+            e.HasIndex(x => new { x.ProjectId, x.CheckId }).IsUnique();
         });
 
         b.Entity<BannedComponent>(e =>
