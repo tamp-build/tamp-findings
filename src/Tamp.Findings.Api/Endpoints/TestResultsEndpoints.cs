@@ -39,6 +39,15 @@ public static class TestResultsEndpoints
         return app;
     }
 
+    // Column limits (FindingsDbContext). A producer-supplied name must never 500 the whole ingest and lose every
+    // result for the build: theory display names carrying long data routinely exceed a sane column.
+    private const int MaxAssemblyName = 512;
+    private const int MaxClassName = 1024;
+    private const int MaxCaseName = 1024;
+
+    private static string Clamp(string value, int max) =>
+        value.Length <= max ? value : value[..(max - 1)] + "…";
+
     private static Task<IResult> IngestAsync(TestResultsIngestRequest req, HttpContext ctx, FindingsDbContext db, AuditLog audit, Tamp.Findings.Application.Projects.ScoreSnapshotService snapshots, CancellationToken ct)
         => IngestCoreAsync(req, ctx, db, audit, snapshots, raw: null, rawFormat: null, rawFileName: null, ct);
 
@@ -95,7 +104,7 @@ public static class TestResultsEndpoints
         // ingest must be tolerant of well-formed evidence, not brittle to how it was serialised.
         var groups = req.Suites
             .Where(s => !string.IsNullOrWhiteSpace(s.ClassName))
-            .GroupBy(s => (Assembly: s.AssemblyName ?? "", s.ClassName))
+            .GroupBy(s => (Assembly: Clamp(s.AssemblyName ?? "", MaxAssemblyName), ClassName: Clamp(s.ClassName, MaxClassName)))
             .ToList();
 
         // Replace only the assemblies this payload carries; leave suites from other files intact.
@@ -124,7 +133,7 @@ public static class TestResultsEndpoints
                 DurationMs = g.Sum(s => s.DurationMs),
                 Cases = g.SelectMany(s => s.Cases).Select(c => new TestCaseResult
                 {
-                    Name = c.Name,
+                    Name = Clamp(c.Name, MaxCaseName),
                     Outcome = c.Outcome,
                     DurationMs = c.DurationMs,
                     ErrorMessage = c.ErrorMessage,
