@@ -35,6 +35,14 @@ public sealed class Project
     /// admin to revoke a leaked embed. Null means the badge is not yet minted for this project.</summary>
     public string? BadgeKey { get; set; }
 
+    /// <summary>Opt-in switch for the PUBLIC read-only evidence report (GET /report/{ReportKey}, TFND-215).
+    /// Default off. Separate from <see cref="BadgeKey"/> so a leaked badge embed does not open the report.</summary>
+    public bool PublicReportEnabled { get; set; }
+
+    /// <summary>Opaque unguessable token that is the capability for the public report. Rotatable to revoke a
+    /// shared link. The report 404s unless <see cref="PublicReportEnabled"/> is true.</summary>
+    public string? ReportKey { get; set; }
+
     // TFND-32: vulnerability disclosure policy metadata. Federal
     // procurement (per CISA BOD 20-01 / NIST SSDF RV.3.1) expects a
     // published path for coordinated disclosure. When any of these are

@@ -67,7 +67,7 @@ public static class BadgeEndpoints
             project.BadgeKey = NewKey();
             await db.SaveChangesAsync(ct);
         }
-        return Results.Ok(Info(ctx, project.BadgeKey!));
+        return Results.Ok(Info(ctx, project.BadgeKey!, project));
     }
 
     private static async Task<IResult> RotateBadgeAsync(
@@ -79,19 +79,22 @@ public static class BadgeEndpoints
         if (project is null) return Results.NotFound();
         project.BadgeKey = NewKey();
         await db.SaveChangesAsync(ct);
-        return Results.Ok(Info(ctx, project.BadgeKey!));
+        return Results.Ok(Info(ctx, project.BadgeKey!, project));
     }
 
-    private static object Info(HttpContext ctx, string key)
+    private static object Info(HttpContext ctx, string key, Project project)
     {
         var origin = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
         var url = $"{origin}/badge/{key}.svg";
+        // TFND-215: when the public report is on, the badge links to the full evidence behind it.
+        var target = project.PublicReportEnabled && !string.IsNullOrWhiteSpace(project.ReportKey)
+            ? $"{origin}/report/{project.ReportKey}" : origin;
         return new
         {
             key,
             url,
-            markdown = $"[![tamp-findings]({url})]({origin})",
-            html = $"<a href=\"{origin}\"><img src=\"{url}\" alt=\"tamp-findings status\"></a>",
+            markdown = $"[![tamp-findings]({url})]({target})",
+            html = $"<a href=\"{target}\"><img src=\"{url}\" alt=\"tamp-findings status\"></a>",
         };
     }
 
