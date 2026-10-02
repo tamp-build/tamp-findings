@@ -248,7 +248,7 @@ public static class RiskPolicyEndpoints
     }
 
     private static async Task<IResult> GetProjectPolicyAndGatesAsync(
-        Guid projectId, FindingsDbContext db, CancellationToken ct)
+        Guid projectId, FindingsDbContext db, Tamp.Findings.Application.Risk.ScoringPolicyResolver scoring, CancellationToken ct)
     {
         var project = await db.Projects.AsNoTracking()
             .Where(p => p.Id == projectId)
@@ -260,12 +260,8 @@ public static class RiskPolicyEndpoints
             .FirstOrDefaultAsync(ct);
         if (project is null) return Results.NotFound();
 
-        // Resolution: project > client > system default.
-        var effectiveId = project.RiskPolicyId ?? project.ClientRiskPolicyId;
-        RiskPolicy? effective = null;
-        if (effectiveId is { } id)
-            effective = await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
-        effective ??= await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
+        // Resolution: project > client > the client's template link > system default.
+        var effective = await scoring.ResolveRowAsync(null, projectId, ct);
         if (effective is null) return Results.Conflict("no default risk policy exists");
 
         return Results.Ok(new ProjectPolicyAndGatesView(
@@ -273,12 +269,12 @@ public static class RiskPolicyEndpoints
             EffectivePolicyId: effective.Id,
             EffectivePolicyName: effective.Name,
             EffectiveFromProject: project.RiskPolicyId is not null,
-            EffectiveFromClient: project.RiskPolicyId is null && project.ClientRiskPolicyId is not null,
+            EffectiveFromClient: project.RiskPolicyId is null && !effective.IsDefault,   // inherited from the client or its template
             Gates: project.GatesConfig ?? ProjectGatesDefaults.Empty()));
     }
 
     private static async Task<IResult> ForkProjectPolicyAsync(
-        Guid projectId, HttpContext ctx, FindingsDbContext db, CancellationToken ct)
+        Guid projectId, HttpContext ctx, FindingsDbContext db, Tamp.Findings.Application.Risk.ScoringPolicyResolver scoring, CancellationToken ct)
     {
         var (user, deny) = await RequireAdminAsync(ctx, db, ct);
         if (deny is not null) return deny;
@@ -291,11 +287,7 @@ public static class RiskPolicyEndpoints
         // Resolve the current effective policy — same chain as the
         // scorer uses. Then clone it with a project-scoped name and
         // assign it back to the project.
-        var effectiveId = project.RiskPolicyId ?? project.Client?.RiskPolicyId;
-        RiskPolicy? source = null;
-        if (effectiveId is { } id)
-            source = await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id, ct);
-        source ??= await db.RiskPolicies.AsNoTracking().FirstOrDefaultAsync(p => p.IsDefault, ct);
+        var source = await scoring.ResolveRowAsync(null, projectId, ct);
         if (source is null) return Results.Conflict("no default risk policy to fork from");
 
         // Round-trip through System.Text.Json so the clone owns its own
