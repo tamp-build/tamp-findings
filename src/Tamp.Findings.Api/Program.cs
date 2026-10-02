@@ -552,6 +552,9 @@ app.UseForwardedHeaders();
 // response carries a parseable JSON payload. Specifically catches
 // the minimal-API deserialization 400 (record-binding failure) that
 // otherwise returns Content-Length: 0.
+// An unhandled exception becomes a Problem Details 500 (never an empty body), so an adopter can see
+// that the sink failed instead of bisecting their payload.
+app.UseExceptionHandler();
 app.UseStatusCodePages();
 
 app.UseCors();

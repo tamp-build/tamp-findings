@@ -85,7 +85,7 @@ public static class SbomIngestEndpoints
             db.SbomComponents.Add(comp);
             purlToId[c.Purl] = comp.Id;
 
-            foreach (var v in c.Vulnerabilities)
+            foreach (var v in c.Vulnerabilities ?? [])
             {
                 db.Vulnerabilities.Add(new Vulnerability
                 {
