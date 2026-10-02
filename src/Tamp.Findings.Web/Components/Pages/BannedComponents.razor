@@ -1,0 +1,152 @@
+@* Unauthorized-component list (CM-8(3), TFND-211). The org's own banned packages plus the entries synced
+   from the OSV malicious-package feed. Every project's SBOM is judged against this list by the
+   unauthorizedComponent gate. Editing it needs EditPolicyWeights; every change is audited. *@
+@page "/system/banned-components"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using Tamp.Findings.Application.Authorization
+@using Tamp.Findings.Application.Risk
+@using Tamp.Findings.Domain.Entities
+@inject BannedComponentService Banned
+@inject CurrentUser Me
+
+<PageTitle>Unauthorized components — tamp.findings</PageTitle>
+
+<div class="stack">
+    <div>
+        <div class="kicker">system · supply chain (CM-8(3) / TFND-211)</div>
+        <h1>Unauthorized components</h1>
+    </div>
+
+    <Card>
+        <p class="field__help">
+            A package on this list that appears in a build's SBOM fails the <strong>Unauthorized components</strong>
+            gate. Entries marked <em>malicious</em> are synced daily from the OSV / OpenSSF malicious-packages
+            feed (NuGet and npm); entries marked <em>manual</em> are yours. Removing a feed entry deactivates it,
+            so the next sync does not bring it back.
+        </p>
+        <div class="row" style="gap: var(--space-4)">
+            <Stat Label="Manual entries" Value="@_manual" />
+            <Stat Label="Feed entries" Value="@_feed" />
+            <div><div class="field__label">Feed last synced</div><div class="mono">@(_lastSynced?.ToString("yyyy-MM-dd HH:mm") ?? "not yet")</div></div>
+        </div>
+    </Card>
+
+    <Card>
+        <h2>Ban a package</h2>
+        <label class="field">
+            <span class="field__label">Package URL</span>
+            <input class="field__input mono" @bind="_purl" @bind:event="oninput" disabled="@(!_can.Allowed)"
+                   placeholder="pkg:npm/left-pad" spellcheck="false" />
+        </label>
+        <label class="field">
+            <span class="field__label">Versions (optional, comma-separated — blank bans every version)</span>
+            <input class="field__input mono" @bind="_versions" @bind:event="oninput" disabled="@(!_can.Allowed)" placeholder="1.0.0, 1.0.1" />
+        </label>
+        <label class="field">
+            <span class="field__label">Reason</span>
+            <input class="field__input" @bind="_reason" @bind:event="oninput" disabled="@(!_can.Allowed)" placeholder="Why this package is not permitted" />
+        </label>
+        @if (_error is not null)
+        {
+            <p style="color: var(--color-critical)">@_error</p>
+        }
+        <div class="row" style="margin-top: var(--space-3)">
+            <Button Variant="Button.ButtonVariant.Primary"
+                    Disabled="@(!_can.Allowed || _busy || string.IsNullOrWhiteSpace(_purl))"
+                    DisabledReason="@(_can.Allowed ? null : _can.Reason)"
+                    OnClick="Add">Ban package</Button>
+        </div>
+    </Card>
+
+    <Card>
+        <h2>Entries</h2>
+        <label class="field">
+            <span class="field__label">Filter</span>
+            <input class="field__input mono" @bind="_search" @bind:event="oninput" @onkeyup="Reload" placeholder="pkg:npm/…" />
+        </label>
+        <table class="table">
+            <thead><tr><th>Package</th><th>Versions</th><th>Kind</th><th>Source</th><th>Reason</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var b in _rows)
+            {
+                <tr style="@(b.Active ? null : "opacity: .5")">
+                    <td class="mono">@b.Purl</td>
+                    <td class="mono">@(b.Versions.Count == 0 ? "all" : string.Join(", ", b.Versions.Take(4)) + (b.Versions.Count > 4 ? $" +{b.Versions.Count - 4}" : ""))</td>
+                    <td>@(b.Kind == BannedComponentKind.Malicious ? "malicious" : "manual")</td>
+                    <td>@b.Source@(b.SourceId is null ? "" : " · " + b.SourceId)</td>
+                    <td>@b.Reason</td>
+                    <td>
+                        @if (b.Active)
+                        {
+                            <Button Disabled="@(!_can.Allowed || _busy)" OnClick="@(() => Remove(b.Id))">Remove</Button>
+                        }
+                        else
+                        {
+                            <span class="muted">deactivated</span>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        @if (_rows.Count == 0)
+        {
+            <p class="muted">No entries match.</p>
+        }
+    </Card>
+</div>
+
+@code {
+    private IReadOnlyList<BannedComponent> _rows = [];
+    private int _manual, _feed;
+    private DateTimeOffset? _lastSynced;
+    private string _purl = "", _versions = "", _reason = "", _search = "";
+    private string? _error;
+    private bool _busy;
+    private AuthorizationDecision _can = AuthorizationDecision.Deny("Checking…");
+
+    protected override async Task OnInitializedAsync()
+    {
+        _can = await Me.CanAsync(Capability.EditPolicyWeights, ScopeTarget.Instance);
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        _rows = await Banned.ListAsync(200, _search);
+        (_manual, _feed, _lastSynced) = await Banned.CountsAsync();
+    }
+
+    private async Task Add()
+    {
+        if (_busy) return;
+        _busy = true; _error = null;
+        try
+        {
+            var actor = await Me.AtAsync(ScopeTarget.Instance);
+            if (actor is null) { _error = "You must be signed in."; return; }
+            var versions = _versions.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var r = await Banned.AddAsync(actor, _purl, versions, _reason);
+            if (!r.Success) { _error = r.Error; return; }
+            _purl = _versions = _reason = "";
+            await Reload();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task Remove(Guid id)
+    {
+        if (_busy) return;
+        _busy = true; _error = null;
+        try
+        {
+            var actor = await Me.AtAsync(ScopeTarget.Instance);
+            if (actor is null) { _error = "You must be signed in."; return; }
+            var r = await Banned.RemoveAsync(actor, id);
+            if (!r.Success) { _error = r.Error; return; }
+            await Reload();
+        }
+        finally { _busy = false; }
+    }
+}

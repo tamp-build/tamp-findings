@@ -110,6 +110,8 @@ builder.Services.AddHostedService<Tamp.Findings.Api.Services.RetentionWorker>();
 
 builder.Services.AddScoped<Tamp.Findings.Api.Services.KevFeedSyncService>();
 builder.Services.AddHostedService<Tamp.Findings.Api.Services.KevFeedSyncWorker>();
+builder.Services.AddScoped<Tamp.Findings.Api.Services.MaliciousPackageFeedSyncService>();
+builder.Services.AddHostedService<Tamp.Findings.Api.Services.MaliciousPackageFeedSyncWorker>();   // TFND-211
 
 // TFND-149 / ADR 0004 §3.3: the gate-enforcement lock is sourced from
 // deployment CONFIG, not the database. When the platform team locks it here it

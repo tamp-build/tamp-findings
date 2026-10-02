@@ -60,6 +60,7 @@ public static class PolicyTemplateDefaults
         ("RA-5", [GateKeys.KevExposure, GateKeys.CriticalCves, GateKeys.HighCves, GateKeys.SbomAge]), // vuln scanning
         ("SI-2", [GateKeys.KevExposure, GateKeys.CriticalCves, GateKeys.PoamPastDue]),                // flaw remediation
         ("CM-8", [GateKeys.SbomAge]),                                                                 // component inventory
+        ("CM-8(3)", [GateKeys.UnauthorizedComponent]),                                                // automated unauthorized-component detection (TFND-211)
         ("SR-3", [GateKeys.SbomAge, GateKeys.DeniedLicenses]),                                        // supply chain
         ("IA-5", [GateKeys.VerifiedSecrets]),                                                         // authenticator mgmt
         ("SA-11", [GateKeys.CriticalSast, GateKeys.HighSast, GateKeys.CoverageFloor, GateKeys.AnalysisCoverage]), // developer testing (static analysis performed + complete)
@@ -77,6 +78,8 @@ public static class PolicyTemplateDefaults
     // posture).
     private static PolicyLayer WithCoverageMapping(PolicyLayer layer)
     {
+        // The federal baselines require CM-8(3), so they enable the gate that evidences it (TFND-211).
+        layer.Gates.TryAdd(GateKeys.UnauthorizedComponent, On(0));
         var enabled = layer.Gates.Where(g => g.Value.Enabled).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         foreach (var (control, gates) in StarterGatedMap)
         {

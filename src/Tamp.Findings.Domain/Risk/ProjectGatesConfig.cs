@@ -75,6 +75,7 @@ public static class GateKeys
     public const string VerifiedSecrets = "verifiedSecrets";
     // Any denied-license component.
     public const string DeniedLicenses = "deniedLicenses";
+    public const string UnauthorizedComponent = "unauthorizedComponent";
 
     // TFND-134. How old the base image was when the build ran, in days.
     public const string BaseImageAge = "baseImageAge";

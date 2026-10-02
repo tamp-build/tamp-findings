@@ -48,6 +48,7 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
     public DbSet<RiskPolicy> RiskPolicies => Set<RiskPolicy>();
     public DbSet<PolicyTemplate> PolicyTemplates => Set<PolicyTemplate>();
     public DbSet<ArchetypeDefinition> ArchetypeDefinitions => Set<ArchetypeDefinition>();
+    public DbSet<BannedComponent> BannedComponents => Set<BannedComponent>();
     public DbSet<ControlCatalog> ControlCatalogs => Set<ControlCatalog>();
     public DbSet<Framework> Frameworks => Set<Framework>();
     public DbSet<ConformanceFinding> ConformanceFindings => Set<ConformanceFinding>();
@@ -655,6 +656,19 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             e.HasIndex(x => new { x.Name, x.Version }).IsUnique();
             // Link the scoring policy; SetNull so deleting it drops the link.
             e.HasOne<RiskPolicy>().WithMany().HasForeignKey(x => x.RiskPolicyId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        b.Entity<BannedComponent>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Purl).HasMaxLength(512).IsRequired();
+            e.Property(x => x.Source).HasMaxLength(64).IsRequired();
+            e.Property(x => x.SourceId).HasMaxLength(128);
+            e.Property(x => x.AddedByLogin).HasMaxLength(256);
+            e.Property(x => x.Versions).HasColumnType("jsonb");
+            e.HasIndex(x => x.Purl);
+            // One row per (purl, source, advisory): a feed re-sync updates in place.
+            e.HasIndex(x => new { x.Purl, x.Source, x.SourceId }).IsUnique();
         });
 
         b.Entity<ArchetypeDefinition>(e =>
