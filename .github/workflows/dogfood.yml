@@ -346,6 +346,20 @@ jobs:
           CI_BUILD_ID: ${{ github.run_id }}
         run: dotnet run --project build -- InspectContainerImage --configuration Release
 
+      # Pull this commit's SonarQube Cloud analysis back into findings (TFND-227): issues + hotspots as
+      # SonarQube findings, the quality-gate verdict, and a scan-run receipt. On the nightly / dispatch run
+      # the scan above has just analysed HEAD. On a push to main the ci.yml scan may not have finished, and
+      # the target then skips cleanly ("SonarCloud has not analysed this commit yet") rather than ingesting
+      # an older commit's results as the newest build.
+      - name: Ingest SonarCloud results
+        if: steps.creds.outputs.configured == 'true'
+        continue-on-error: true
+        env:
+          TAMP_FINDINGS_URL: ${{ secrets.TAMP_FINDINGS_URL }}
+          TAMP_FINDINGS_INGEST_TOKEN: ${{ secrets.TAMP_FINDINGS_INGEST_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: dotnet run --project build -- IngestSonar --configuration Release
+
       - name: App logs
         if: always() && steps.app.outputs.up == 'true'
         continue-on-error: true
