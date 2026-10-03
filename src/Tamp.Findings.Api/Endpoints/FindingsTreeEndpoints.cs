@@ -97,7 +97,10 @@ public static class FindingsTreeEndpoints
     }
 
     private static async Task<IResult> GetFileAsync(
-        string path,
+        // Nullable on purpose (TFND-230): a required non-nullable parameter that is missing fails model binding
+        // before this method runs, which surfaces as a 500 wherever binding failures are thrown (Development, and
+        // the test host) instead of the 400 the check below returns.
+        string? path,
         FindingsDbContext db,
         CancellationToken ct,
         Guid? clientId = null,
