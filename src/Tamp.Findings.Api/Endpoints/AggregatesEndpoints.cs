@@ -267,9 +267,16 @@ public static class AggregatesEndpoints
         // Scanned flag: include closed/suppressed/accepted in the "did we
         // ever see Trivy data" check so a once-found-now-fixed finding
         // still counts as evidence the scanner ran.
-        var trivySeenAnywhere = await db.Findings
+        //
+        // Scoped to the same client/project as the rest of the aggregate (TFND-231): this used to be a global
+        // "any Trivy finding in the database" check, so one tenant's IaC scan made every other project read as
+        // "scanned" even though nothing had ever scanned it.
+        var trivySeenQ = db.Findings
             .AsNoTracking()
-            .AnyAsync(f => f.Scanner == ScannerKind.Trivy, ct);
+            .Where(f => f.Scanner == ScannerKind.Trivy);
+        if (projectId is { } prj5s) trivySeenQ = trivySeenQ.Where(f => f.ComponentVersion!.ProjectId == prj5s);
+        if (clientId is { } cli5s) trivySeenQ = trivySeenQ.Where(f => f.ComponentVersion!.Project!.ClientId == cli5s);
+        var trivySeenAnywhere = await trivySeenQ.AnyAsync(ct);
 
         // Coverage rollup: latest CoverageReport per CV in scope, sum the
         // covered/total counts, recompute the percentage. If no report

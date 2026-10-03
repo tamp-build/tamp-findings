@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text.Json;
 using Tamp.Findings.Domain.Entities;
@@ -46,6 +47,22 @@ public class ApiAFindingsQueryTests
             F(cvNew, ScannerKind.Roslyn, Severity.Medium, "CA-S", FindingStatus.Suppressed, path: "src/Tamp.Api/Foo.cs", line: 40),
             F(cvNew, ScannerKind.Roslyn, Severity.Low, "CA-F", FindingStatus.Fixed, path: "src/Tamp.Api/Foo.cs", line: 41),
             F(cvLinux, ScannerKind.OpenGrep, Severity.Critical, "OG-L", path: "src/Tamp.Core/Baz.cs", line: 2, lastSeen: now.AddHours(-1)));
+
+        // CA-S is Suppressed, so a suppression has to actually COVER it. Without one, the SuppressionExpiryWorker
+        // (which sweeps shortly after the host starts, then periodically) legitimately reopens it, and on a slow
+        // runner that landed between this seed and the assertions, turning the expected 10 open into 11.
+        using (var scope = _fx.Scope())
+        {
+            var db = _fx.Db(scope);
+            db.Suppressions.Add(new Suppression
+            {
+                Scope = SuppressionScope.RuleEverywhere, RuleId = "CA-S",
+                ClientId = tree.ClientId, ProjectId = tree.ProjectId,
+                CreatedByUserId = admin, CreatedByRole = ProjectRole.InfoSecOfficer,
+                Reason = "seeded: covers the suppressed CA-S finding so the expiry sweep leaves it alone",
+            });
+            await db.SaveChangesAsync();
+        }
 
         return new World(tree, admin, cvOld, cvNew, cvLinux);
     }
@@ -271,6 +288,24 @@ public class ApiAFindingsQueryTests
         Assert.Equal("High", files[1].GetProperty("maxSeverity").GetString());
         Assert.Equal(3, r.GetProperty("counts").GetProperty("critical").GetInt32());
         Assert.Equal(1, r.GetProperty("counts").GetProperty("info").GetInt32());
+    }
+
+    [SkippableFact]
+    public async Task The_seed_is_stable_under_the_suppression_expiry_sweep()
+    {
+        Skip.IfNot(_fx.Available);
+        var w = await SeedAsync();
+        var http = Http(_fx, w.Admin);
+
+        // The SuppressionExpiryWorker runs this same sweep in the background at unpredictable moments. A
+        // Suppressed finding that no suppression covers is reopened by it, which used to make the open count here
+        // 11 instead of 10 whenever a tick landed mid-test. Run it explicitly and prove the seed is immune.
+        using (var scope = _fx.Scope())
+            await scope.ServiceProvider.GetRequiredService<Tamp.Findings.Application.Suppressions.SuppressionExpiryService>()
+                .SweepAsync(DateTimeOffset.UtcNow, default);
+
+        var everything = await GetJsonAsync(http, $"/findings/tree?projectId={w.Tree.ProjectId}&latest=false");
+        Assert.Equal(10, everything.GetProperty("totalCount").GetInt32());
     }
 
     [SkippableFact]

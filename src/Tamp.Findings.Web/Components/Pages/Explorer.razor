@@ -114,7 +114,7 @@ else
                     <p class="field__help">Absent evidence is not clean evidence. @_error</p>
                 </div>
             }
-            else if (Spine == Spines.Dast)
+            else if (Spine == Spines.Dast && !ByRule)
             {
                 @if (_dast is null || _dast.Hosts.Count == 0)
                 {
