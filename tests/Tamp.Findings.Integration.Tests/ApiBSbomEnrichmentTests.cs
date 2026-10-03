@@ -200,15 +200,14 @@ public class ApiBSbomEnrichmentTests
     }
 
     [SkippableFact]
-    public async Task A_snapshot_with_no_components_yields_an_empty_summary()
+    public async Task A_snapshot_that_does_not_exist_is_a_404_not_an_empty_summary()
     {
         Skip.IfNot(_fx.Available);
         var (_, token, _) = await SeedAsync();
         var http = WithFakeRegistries(new ApiBFakeRegistryHandler()).Bearer(token);
 
         var resp = await http.PostAsync($"/sbom-components/enrich-versions?snapshotId={Guid.NewGuid()}", null);
-        var result = (await resp.Content.ReadFromJsonAsync<SbomEnrichmentService.Result>(ApiBSupport.Json))!;
 
-        Assert.Equal(0, result.Checked + result.Updated + result.Errors + result.Skipped);
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 }
