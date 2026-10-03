@@ -138,6 +138,8 @@ public sealed class SbomEnrichmentService(
         return (Uri.UnescapeDataString(name), version is null ? null : Uri.UnescapeDataString(version));
     }
 
+    // Registry timestamps are parsed as UTC instants (TFND-233): the default parse would give a zone-less string the
+    // host's local offset, which Postgres rejects for timestamptz on any non-UTC host.
     // ----- NuGet lookup -------------------------------------------------------
 
     private async Task<Lookup?> LookupNuGetAsync(
@@ -203,7 +205,7 @@ public sealed class SbomEnrichmentService(
             using var stream = await resp.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
             if (doc.RootElement.TryGetProperty("published", out var pub) && pub.ValueKind == JsonValueKind.String &&
-                DateTimeOffset.TryParse(pub.GetString(), out var at) && at.Year > 1900)
+                DateTimeOffset.TryParse(pub.GetString(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var at) && at.Year > 1900)
                 return at;
             return null;
         }
@@ -287,7 +289,7 @@ public sealed class SbomEnrichmentService(
         if (doc.RootElement.TryGetProperty("time", out var time) &&
             time.TryGetProperty(latest, out var timeEl) &&
             timeEl.ValueKind == JsonValueKind.String &&
-            DateTimeOffset.TryParse(timeEl.GetString(), out var parsed))
+            DateTimeOffset.TryParse(timeEl.GetString(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsed))
         {
             releasedAt = parsed;
         }
