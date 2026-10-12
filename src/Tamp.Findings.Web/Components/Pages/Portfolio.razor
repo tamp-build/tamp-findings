@@ -8,6 +8,7 @@
 @inject PortfolioQuery Query
 @inject NavigationManager Nav
 @inject HierarchyService Hierarchy
+@using Tamp.Findings.Web.Services
 @inject CurrentUser Me
 
 <PageTitle>Portfolio — tamp.findings</PageTitle>
@@ -401,56 +402,42 @@
         // Instance scope: a client sits above every project, so nothing
         // narrower can grant the right to create one.
         _canCreateProject = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Instance);
-        _isAdmin = (await Me.AtAsync(ScopeTarget.Instance))?.Actors.Contains(Actor.Admin) == true;
+        _isAdmin = ClientCreation.MayCreate(await Me.AtAsync(ScopeTarget.Instance));
         _loading = false;
     }
 
     private void OpenNewClient()
     {
-        _clientError = null;
-        _clientName = null;
-        _newClient = true;
+        (_clientError, _clientName, _newClient) = (null, null, true);
     }
 
-    /// <summary>
-    /// Create a client, then reload the list. Returns the new id, or null when
-    /// it failed — the caller decides what to do next, because the two entry
-    /// points want different things: the standalone dialog closes, and the
-    /// one inside the project dialog carries straight on into the project form
-    /// with the new client selected.
-    /// </summary>
+    // Both entry points run the same orchestration (ClientCreation), then do
+    // the one thing that differs: the dialog closes and reloads, the inline one
+    // stays put and selects what was just made.
     private async Task<Guid?> CreateClientCoreAsync()
     {
-        _clientError = null;
+        var (id, error) = await ClientCreation.CreateAsync(
+            await Me.AtAsync(ScopeTarget.Instance), Hierarchy, _clientName);
 
-        var actor = await Me.AtAsync(ScopeTarget.Instance);
-        if (actor is null) { _clientError = "You are not signed in."; return null; }
-
-        var result = await Hierarchy.CreateClientAsync(actor, _clientName ?? "");
-        if (!result.Success) { _clientError = result.Error; return null; }
+        _clientError = error;
+        if (id is null) return null;
 
         _clients = await Hierarchy.ClientsAsync();
         _clientName = null;
-        return result.Value;
+        return id;
     }
 
     private async Task CreateClient()
     {
         if (await CreateClientCoreAsync() is null) return;
-
         _newClient = false;
         await Reload();
     }
 
     private async Task CreateClientInline()
     {
-        // Invoked from the New-project dialog's empty state. Stay in the dialog
-        // and select what was just created, so the operator lands exactly where
-        // they were trying to get to.
         if (await CreateClientCoreAsync() is not { } id) { _formError = _clientError; return; }
-
-        _selectedClientId = id;
-        _formError = null;
+        (_selectedClientId, _formError) = (id, null);
     }
 
     private async Task OpenNewProject()
