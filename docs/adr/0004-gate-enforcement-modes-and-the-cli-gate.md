@@ -79,18 +79,43 @@ invoking the gate.
 * **`enforcing`**: a blocking verdict — or an unreachable/no-verdict situation — returns non-zero.
 
 Mode is stored on `InstanceSettings.enforcement { mode, locked }` (ships `advisory` / `false`) and,
-per-project, on `Project.GatesConfig.enforcementMode` (optional; omitted = inherit). It resolves
-along the existing risk-policy chain: **Project → Client → Instance default**, most-specific wins —
-with one exception.
+per-project, on `Project.GatesConfig.enforcementMode` (optional; omitted = inherit).
+
+> **Amended 2026-10-12 (TFND-247): resolution is strictest-across-layers, not most-specific-wins.**
+>
+> This section originally said mode resolved **Project → Client → Instance default, most-specific
+> wins**. That contradicted [ADR 0007](0007-three-layer-harden-only-policy.md), whose table lists
+> enforcement mode as *"strictest wins (`Enforcing` > `Advisory`)"* and whose whole thesis is that
+> no lower layer can weaken an upper one. Both could not be true, and 0007 was right.
+>
+> The implementations disagreed accordingly. `PolicyLayerMerge` computed a strictest-wins mode with
+> provenance — exactly what 0007 promised — and `EnforcementResolution` then ignored it and applied
+> most-specific-wins instead, so a client set to `enforcing` was undercut by a project set to
+> `advisory`.
+>
+> In practice it was worse than a precedence disagreement: the resolver read the legacy
+> `Client.EnforcementMode` scalar, which nothing has written since the policy layers landed. That
+> arm was always null, so a client-level mode authored through the only screen that writes it had
+> **no effect on enforcement at all**, and a template's mode never applied either.
+>
+> **The rule now:** the authored mode is the strictest across `template → client → archetype →
+> project`, as the merge resolves it, and the instance mode is a floor when locked. `Client`'s
+> scalar is obsolete and unread.
 
 ### 2. The locked floor (the platform lever)
 
 The instance default carries an optional `locked` flag.
 
-* **Unlocked** (OSS default): most-specific-wins; a project may set advisory or enforcing freely.
+* **Unlocked** (OSS default): the **authored** mode stands — the strictest any layer asked for. A
+  project may still set `enforcing` freely and raise its own bar; what it cannot do is sit below a
+  mode an upper layer authored.
 * **Locked**: the instance mode becomes a **floor**, not merely a default. Effective mode =
-  the stricter of (instance floor, project setting). A project may match or exceed the floor; it
+  the stricter of (instance floor, authored mode). The layers may match or exceed the floor; they
   cannot weaken it.
+
+The lock sits **above** the layer stack rather than inside it, because it is sourced from
+deployment configuration rather than the database — a platform team's mandate that an in-app
+administrator cannot lower.
 
 The contractor's platform team sets instance = `enforcing` + `locked`; no project can then quietly
 downgrade to advisory, and the guarantee holds fleet-wide. OSS leaves it unlocked and advisory, and

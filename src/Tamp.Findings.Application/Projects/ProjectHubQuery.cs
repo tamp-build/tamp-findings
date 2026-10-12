@@ -107,10 +107,32 @@ public sealed class ProjectHubQuery
 
         if (builds.Length == 0) return null;
 
+        // TFND-244: the DEFAULT head is the newest CANONICAL build — main or
+        // master, no pull-request ref — which is the build the gate judges.
+        //
+        // It used to be builds[0], the most recent by CreatedAt whatever its
+        // branch. So on a project with an open pull request the dashboard
+        // scored the PR build while the CLI gate, asked about the same project
+        // at the same moment, answered about main. Those are the two surfaces
+        // this class's own comment insists must agree, citing the "9 gates
+        // enabled" drift bug as the reason it returns domain types at all.
+        //
+        // A PR build is still viewable — pass its commitSha — and the result
+        // says which kind you are looking at, so "show me the branch I just
+        // pushed" survives while the unasked-for default stops being a
+        // different answer than the gate's.
+        static bool IsCanonical(Domain.Entities.ComponentVersion cv) =>
+            cv.PullRequestRef == null
+            && (cv.BranchName == null || cv.BranchName == "main" || cv.BranchName == "master");
+
         var selected = commitSha is null
-            ? builds
+            ? builds.Where(IsCanonical).ToArray()
             : builds.Where(b => b.CommitSha != null && b.CommitSha.StartsWith(commitSha, StringComparison.OrdinalIgnoreCase)).ToArray();
 
+        // A project whose only builds are from pull-request branches has no
+        // canonical head. Falling back to a PR build would reinstate exactly
+        // the confusion this fixes, so the hub renders "no scan" — which is the
+        // truth about main.
         if (selected.Length == 0) return null;
 
         // The build under inspection is every component version sharing that
@@ -193,7 +215,10 @@ public sealed class ProjectHubQuery
             && cf.Enabled && cf.Threshold is { } thr ? thr : Math.Max(0, coverageTarget - 10);
 
         return new ProjectHubData(project, head.CommitSha, head.VersionString, head.CreatedAt,
-            policy.Name, baseline, coverageTarget, coverageFloor, result, gates, inputs, history, images);
+            policy.Name, baseline, coverageTarget, coverageFloor, result, gates, inputs, history, images,
+            IsCanonicalBuild: IsCanonical(head),
+            BranchName: head.BranchName,
+            PullRequestRef: head.PullRequestRef);
     }
 
     /// <summary>
@@ -215,7 +240,12 @@ public sealed class ProjectHubQuery
         Domain.Compliance.ComponentCapability capability,   // TFND-203: archetype-derived, per project
         CancellationToken ct)
     {
+        // Canonical commits only (TFND-244), matching the head above and the
+        // gate. A trend line that mixed PR builds into main's history would
+        // show movement nobody shipped.
         var shas = builds
+            .Where(b => b.PullRequestRef == null
+                     && (b.BranchName == null || b.BranchName == "main" || b.BranchName == "master"))
             .Select(b => b.CommitSha)
             .Where(s => s is not null)
             .Distinct()
@@ -287,7 +317,20 @@ public sealed record ProjectHubData(
     RiskInputs Inputs,
     IReadOnlyList<BuildHistoryRow> History,
     /// <summary>Images this commit produced (TFND-134). Empty when none was inspected.</summary>
-    IReadOnlyList<ContainerImageRow> Images);
+    IReadOnlyList<ContainerImageRow> Images,
+    /// <summary>
+    /// The build on screen is a canonical one — main or master, no pull-request
+    /// ref — and therefore the build the gate judges (TFND-244).
+    ///
+    /// False only when a caller asked for a specific non-canonical commit. The
+    /// default head is always canonical, so a reader who navigated here without
+    /// a commitSha is looking at the gated build. Surfaced rather than inferred
+    /// because "is this the verdict that blocks my release" is the question the
+    /// page is most often opened to answer.
+    /// </summary>
+    bool IsCanonicalBuild = true,
+    string? BranchName = null,
+    string? PullRequestRef = null);
 
 /// <summary>
 /// One image a build produced, and the base image behind it (TFND-134).

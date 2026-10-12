@@ -47,7 +47,7 @@ Per field:
 
 | Field | Merge rule |
 |---|---|
-| Enforcement mode | strictest wins (`Enforcing` > `Advisory`) |
+| Enforcement mode | strictest wins (`Enforcing` > `Advisory`) — honoured by enforcement resolution since TFND-247; see the amendment in [0004](0004-gate-enforcement-modes-and-the-cli-gate.md) §1 |
 | Required scanners | union (a lower layer adds, never removes) |
 | Gates — enabled | logical OR |
 | Gates — threshold | minimum of the provided values (lower is stricter); an unset threshold loses to any real value |
@@ -55,9 +55,19 @@ Per field:
 | POA&M deadlines (per severity) | minimum days (a shorter deadline is stricter) |
 
 The **write side** enforces harden-only (a project cannot save a value looser than what it
-inherits — the editor disables the affordance and the service validates it). The **merge side**
-only computes the strictest state; it never needs to reject anything, which is what keeps it
-pure.
+inherits — the editor disables the affordance). The **merge side** only computes the strictest
+state; it never needs to reject anything, which is what keeps it pure.
+
+> **Corrected 2026-10-12 (TFND-247).** This paragraph used to add "and the service validates it".
+> `GateService.SaveAsync` does not: it checks the `EditGates` capability and rejects negative
+> thresholds, then stores what it is given. The guarantee holds anyway, and the merge is what holds
+> it — `Enabled` is OR'd across layers and a threshold is the minimum, so a looser project value is
+> discarded at resolution rather than refused at write. Where **no** upper layer sets a gate there
+> is nothing to be looser than, and a project owning its own gate is the normal case.
+>
+> So no validation was added. `GateService.HardenAsync` (TFND-252) is a separate, narrower
+> operation that *does* check the direction itself, because it accepts a wider capability
+> (`HardenGates`) and that check is what keeps the wider grant safe.
 
 ### 2. What a layer carries, and what it deliberately does not
 

@@ -84,6 +84,26 @@ else
                     <p class="muted"><a href="@Routes.ProjectHub(_data.Project.ClientName, _data.Project.ProjectName)">A newer build (<span class="mono">@(_newerSha.Length > 7 ? _newerSha[..7] : _newerSha)</span>) has landed — view latest</a></p>
                 }
                 <p class="muted hubhead__build">@(IsLatest ? "Latest build" : "Build"): <span class="mono">@ShortSha</span> · @_data.BuiltAt.ToString("yyyy-MM-dd HH:mm")</p>
+                @if (!_data.IsCanonicalBuild)
+                {
+                    @* TFND-244: say so when the build on screen is NOT the one the gate
+                       judges. Only reachable by asking for a specific commit — the
+                       default head is canonical — but a reader who followed a link
+                       here has no other way to know the verdict below is not the
+                       release decision. *@
+                    <p class="muted hubhead__build">
+                        <Chip Label="Not the gated build" Tone="var(--color-warning)" />
+                        @if (_data.PullRequestRef is { Length: > 0 } pr)
+                        {
+                            <span>Pull request #@pr</span>
+                        }
+                        else if (_data.BranchName is { Length: > 0 } br)
+                        {
+                            <span>Branch <span class="mono">@br</span></span>
+                        }
+                        <span>— gates judge the latest build on main. This page scores the commit you asked for.</span>
+                    </p>
+                }
             </div>
             <div class="hubhead__stats">
                 <div class="statcard" style="--band: @BandColour">
