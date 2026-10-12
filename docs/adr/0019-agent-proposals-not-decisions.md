@@ -1,6 +1,6 @@
 # ADR 0019: An agent may propose; only a person decides
 
-* Status: Proposed
+* Status: Accepted (2026-10-12) — the shape is accepted; see **Staging** for what that does and does not commit to building
 * Date: 2026-10-12
 * Deciders: scott
 * Tracking: TFND-240 (under epic TFND-234, the MCP agent surface)
