@@ -56,6 +56,26 @@ public enum Capability
     /// <summary>Edit acceptance gates. Admin and InfoSec only — gates are the release contract.</summary>
     EditGates,
 
+    /// <summary>
+    /// Tighten a gate, and only tighten: enable one, or lower a threshold
+    /// (TFND-252).
+    ///
+    /// Split from <see cref="EditGates"/> because editing and hardening are
+    /// genuinely different privileges, and the matrix already splits a
+    /// permission by direction elsewhere — a Lead Dev may draft a VEX statement
+    /// while publishing it stays with InfoSec.
+    ///
+    /// Anyone holding EditGates holds this implicitly, so the grants below are
+    /// the roles that may harden but not loosen. The direction is what makes it
+    /// safe to give out more widely: a tightening fails loudly, blocks
+    /// something, and gets reverted by whoever it inconvenienced; a loosening
+    /// ships a build and the record says it was allowed to.
+    ///
+    /// This is also the capability an agent token can carry (ADR 0019 §5), which
+    /// is why it exists as its own value rather than as a flag on a call.
+    /// </summary>
+    HardenGates,
+
     CreateProject,
 
     /// <summary>

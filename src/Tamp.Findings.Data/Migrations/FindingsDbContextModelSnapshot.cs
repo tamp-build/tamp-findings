@@ -1364,6 +1364,9 @@ namespace Tamp.Findings.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("AgentPolicyAuthoring")
+                        .HasColumnType("boolean");
+
                     b.PrimitiveCollection<List<string>>("AllowedEmailDomains")
                         .IsRequired()
                         .HasColumnType("text[]");

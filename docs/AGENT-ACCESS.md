@@ -8,9 +8,16 @@ Written for the case this was first needed for: a tenant whose remediation is do
 
 ## What the agent gets
 
-A read-only [MCP](https://modelcontextprotocol.io) endpoint at `/mcp`, and five tools on it. No write path: an agent can read every piece of evidence its token reaches and change none of it.
+An [MCP](https://modelcontextprotocol.io) endpoint at `/mcp` with seventeen tools on it. Fourteen are reads: an agent can see every piece of evidence its token reaches and change none of it.
 
-That is a design decision, not an omission. An agent able to file a suppression is an agent able to retire the finding it was asked to fix, and the only reason this product is worth running is that the evidence is not negotiable. Whether agents get a *propose-only* path — ask for a suppression, and a human decides — is an open question tracked as TFND-240.
+That is a design decision, not an omission. An agent able to file a suppression is an agent able to retire the finding it was asked to fix, and the only reason this product is worth running is that the evidence is not negotiable. ADR 0019 settles the shape for anything beyond reading: an agent may propose, and only a person decides.
+
+Two narrow writes exist on top of that, and neither touches evidence:
+
+- **`create_project`** — in the token's own client, for an Architect-roled token. Not reversible.
+- **`harden_gate`** — *tighten* one gate. Never loosen, never disable, never lower enforcement. Off until an administrator enables **Let agents help configure policy** under System → Instance settings, and closed outright when the deployment locks enforcement through configuration.
+
+The default is closed on both counts, and the choice is yours to make: a small team may want an agent that helps configure the gates, while somewhere with real exposure will want policy to be a human act. The product does not decide that.
 
 | Tool | Answers |
 |---|---|
@@ -28,6 +35,9 @@ That is a design decision, not an omission. An agent able to file a suppression 
 | `get_quality` | Tests and coverage for the latest canonical build |
 | `get_license_worklist` | Packages whose licence nobody could classify — the evidence-gathering an agent is good at |
 | `get_posture` | Branch protection, required reviews, signed commits, org 2FA |
+| `get_policy` | Gates, thresholds, enforcement — and which layer imposed each value |
+| `create_project` | Create a project in the token's client (Architect-roled tokens; not reversible) |
+| `harden_gate` | Tighten one gate — never loosen. Needs the instance to allow agent policy authoring |
 
 A remediation agent should start at `get_gate`, not at `get_findings`. Severity ranks findings; a gate decides releases, and the worst finding is often not the thing blocking the build.
 

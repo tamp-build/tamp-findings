@@ -378,6 +378,10 @@ public sealed class SystemAdminService
         // this instance without a browser, which is an access decision however
         // it is worded on the screen.
         var mcpChanged = settings.McpEnabled != proposed.McpEnabled;
+        // TFND-252. Letting agents author policy is an access decision too —
+        // it changes who may tighten the release contract, not just who reads
+        // it — so it is audited in the same class as the switch above.
+        var agentPolicyChanged = settings.AgentPolicyAuthoring != proposed.AgentPolicyAuthoring;
         // TFND-157: strict visibility is an access-posture change — it decides
         // who can SEE what across tenants.
         var strictChanged = settings.StrictVisibility != proposed.StrictVisibility;
@@ -408,6 +412,7 @@ public sealed class SystemAdminService
         settings.GitHubCheckName = Blank(proposed.GitHubCheckName) ?? "tamp.findings";
         settings.GitHubChecksEnabled = proposed.GitHubChecksEnabled;
         settings.McpEnabled = proposed.McpEnabled;
+        settings.AgentPolicyAuthoring = proposed.AgentPolicyAuthoring;
         // A blank key means "keep what is stored", the same rule the identity
         // provider registry follows: renaming a check should not require
         // re-pasting a private key the operator may no longer have.
@@ -421,13 +426,13 @@ public sealed class SystemAdminService
         // Enforcement change is a risk-posture decision (it changes whether a
         // build is blocked), so it outranks the access-class sod/mcp changes.
         var cls = enforcementChanged ? AuditClass.Risk
-            : sodChanged || mcpChanged || strictChanged ? AuditClass.Access
+            : sodChanged || mcpChanged || strictChanged || agentPolicyChanged ? AuditClass.Access
             : AuditClass.Other;
         _audit.Record(actor, "instance.settings_changed",
             cls,
             ScopeTarget.Instance,
             subjectKind: nameof(InstanceSettings),
-            detail: Describe(proposed, sodChanged, mcpChanged, enforcementChanged, strictChanged));
+            detail: Describe(proposed, sodChanged, mcpChanged, enforcementChanged, strictChanged, agentPolicyChanged));
 
         await _db.SaveChangesAsync(ct);
         return Result<bool>.Ok(true);
@@ -440,7 +445,7 @@ public sealed class SystemAdminService
     /// a change that opened an agent endpoint is technically true and useless
     /// to the person reading the log after an incident.
     /// </summary>
-    private static string Describe(InstanceSettings proposed, bool sodChanged, bool mcpChanged, bool enforcementChanged, bool strictChanged)
+    private static string Describe(InstanceSettings proposed, bool sodChanged, bool mcpChanged, bool enforcementChanged, bool strictChanged, bool agentPolicyChanged)
     {
         var parts = new List<string>();
 
@@ -449,6 +454,9 @@ public sealed class SystemAdminService
 
         if (mcpChanged)
             parts.Add($"MCP endpoint {(proposed.McpEnabled ? "OPENED" : "CLOSED")}");
+
+        if (agentPolicyChanged)
+            parts.Add($"agent policy authoring {(proposed.AgentPolicyAuthoring ? "ALLOWED" : "closed")}");
 
         if (strictChanged)
             parts.Add($"strict visibility {(proposed.StrictVisibility ? "ON" : "OFF")}");

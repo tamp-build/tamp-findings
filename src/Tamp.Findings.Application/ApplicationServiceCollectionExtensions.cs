@@ -162,6 +162,7 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Mcp.AgentScope>();
         services.AddScoped<Mcp.AgentReadService>();
         services.AddScoped<Mcp.AgentAdminService>();
+        services.AddScoped<Mcp.AgentPolicyService>();
         services.AddScoped<Mcp.AgentContext>();
 
         return services;

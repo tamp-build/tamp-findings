@@ -30,6 +30,7 @@ public static class CapabilityMatrix
             Capability.AuthorSuppression, Capability.AuthorVex, Capability.PublishVex,
             Capability.CreatePoamItem, Capability.CompletePoamItem,
             Capability.EditPolicyWeights, Capability.DuplicatePolicy, Capability.EditGates,
+            Capability.HardenGates,
             Capability.CreateProject,
             Capability.ManageIngestKey, Capability.EditDisclosurePolicy, Capability.AssignRoles,
             // NOT AcceptRisk. An Authorizing Official decision, not a systems
@@ -42,6 +43,7 @@ public static class CapabilityMatrix
             Capability.AuthorSuppression, Capability.AuthorVex, Capability.PublishVex,
             Capability.CreatePoamItem, Capability.CompletePoamItem, Capability.AcceptRisk,
             Capability.EditPolicyWeights, Capability.DuplicatePolicy, Capability.EditGates,
+            Capability.HardenGates,
             Capability.ManageIngestKey, Capability.EditDisclosurePolicy,
             // AssignRoles is conditional — at or below their own scope.
         ],
@@ -62,6 +64,10 @@ public static class CapabilityMatrix
             Capability.CreatePoamItem, Capability.CompletePoamItem,
             Capability.DuplicatePolicy,
             Capability.CreateProject,
+            // HardenGates but NOT EditGates (TFND-252): an Architect may tighten
+            // the release contract, never loosen it. Loosening stays with Admin
+            // and InfoSec, who own the contract itself.
+            Capability.HardenGates,
             // EditPolicyWeights is conditional — may duplicate, not edit in place.
         ],
 

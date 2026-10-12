@@ -232,6 +232,19 @@ public sealed class ProjectSettingsService
             .SingleOrDefaultAsync(ct);
 
     /// <summary>
+    /// May an agent author policy on this instance (TFND-252)?
+    ///
+    /// SingleOrDefaultAsync returns false for a row that does not exist yet,
+    /// which is the right default: an instance that has never been configured
+    /// has not opted in, and a missing settings row must not read as consent.
+    /// </summary>
+    public async Task<bool> AgentPolicyAuthoringAsync(CancellationToken ct = default) =>
+        await _db.InstanceSettings.AsNoTracking()
+            .Where(s => s.Id == InstanceSettings.SingletonId)
+            .Select(s => s.AgentPolicyAuthoring)
+            .SingleOrDefaultAsync(ct);
+
+    /// <summary>
     /// Map this project to a repository, or unmap it.
     ///
     /// Per project rather than derived from the commit, because a commit sha

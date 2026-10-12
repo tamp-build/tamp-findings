@@ -113,7 +113,7 @@ A `cli_*` token authorizes ingest under any project beneath one client; a `prj_*
 
 ## Agent access (MCP)
 
-The instance serves a read-only [MCP](https://modelcontextprotocol.io) endpoint at `/mcp`, so an agent can pull findings and code context while it is fixing something instead of being pasted a screenshot of them.
+The instance serves an [MCP](https://modelcontextprotocol.io) endpoint at `/mcp`, so an agent can pull findings and code context while it is fixing something instead of being pasted a screenshot of them. Fourteen of its seventeen tools are reads; the three that are not cannot touch evidence.
 
 **Off by default.** An administrator turns it on under **System > Instance settings**, and that switch is the kill switch: turning it off closes the door in one action without revoking anything, so tokens survive a pause.
 
@@ -140,10 +140,13 @@ claude mcp add --transport http tamp-findings https://findings.example/mcp \
 | `get_quality` | Tests and coverage for the latest canonical build |
 | `get_license_worklist` | Packages whose licence nobody could classify — the evidence-gathering an agent is good at |
 | `get_posture` | Branch protection, required reviews, signed commits, org 2FA |
+| `get_policy` | Gates, thresholds, enforcement — and which layer imposed each value |
+| `create_project` | Create a project in the token's client (Architect-roled tokens; not reversible) |
+| `harden_gate` | Tighten one gate — never loosen. Needs the instance to allow agent policy authoring |
 
 Three properties worth stating, because they are the design:
 
-- **Read only.** There is no write path. An agent that could file a suppression could retire the finding it was asked to fix.
+- **Cannot touch evidence, and cannot make a build easier to ship.** An agent that could file a suppression could retire the finding it was asked to fix, so it cannot. The two writes it has are narrow: creating a project, and *tightening* a gate — never loosening one, disabling one, or lowering enforcement. Gate hardening is additionally off until an administrator allows it (**System > Instance settings**), and closed outright when the deployment locks enforcement through configuration.
 - **Scoped down, never up.** A project token sees that project and its builds, never a sibling project; a client token sees that client's whole tree. Nothing reaches another client.
 - **Same authorization as a person.** A token carries a `ProjectRole` and every read goes through the same `CapabilityEvaluator` a human's does — the tools do not have their own rules to get wrong. `InfoSecOfficer` cannot be minted, because it carries `AcceptRisk` and an agent must not be a route around an Authorizing Official's signature.
 
