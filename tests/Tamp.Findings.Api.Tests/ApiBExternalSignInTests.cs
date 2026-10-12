@@ -81,12 +81,14 @@ public sealed class ApiBExternalSignInTests : IAsyncLifetime
     private static ExternalSignIn.Profile Oidc(string scheme, string sub, string login, string? email = null, bool mfa = false) =>
         new(scheme, sub, login, login, email, null, null, mfa);
 
-    private async Task<SignInOutcome> ResolveAsync(ExternalSignIn.Profile profile, string? token = null)
+    private async Task<SignInOutcome> ResolveAsync(
+        ExternalSignIn.Profile profile, string? token = null, bool bootstrapAdmin = false)
     {
         using var scope = _factory.Services.CreateScope();
         var http = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
         http.Connection.RemoteIpAddress = IPAddress.Parse("10.1.2.3");
-        return await ExternalSignIn.ResolveAsync(http, profile, token, CancellationToken.None);
+        return await ExternalSignIn.ResolveAsync(
+            http, profile, token, bootstrapAdmin, CancellationToken.None);
     }
 
     private async Task<T> WithDb<T>(Func<FindingsDbContext, Task<T>> f)
@@ -154,6 +156,87 @@ public sealed class ApiBExternalSignInTests : IAsyncLifetime
         Assert.Equal(AuditClass.Access, entry.Class);
         Assert.Contains("claimed the administrator seat", entry.Detail, StringComparison.Ordinal);
         Assert.Contains("10.1.2.3", entry.Detail, StringComparison.Ordinal);
+    }
+
+[SkippableFact]
+    public async Task First_run_with_the_bootstrap_admin_login_claims_the_seat_without_a_setup_token()
+    {
+        Skip.IfNot(_available);
+
+        // TFND-254. This is what GITHUB_BOOTSTRAP_ADMIN_LOGIN promised and did
+        // not do: PromoteBootstrapAsync looked up a User row, found none on a
+        // zero-user instance, and returned — so the variable was a no-op on
+        // exactly the deployment an operator sets it for, and a fresh operator
+        // was left unable to claim their own instance.
+        var outcome = await ResolveAsync(
+            Gh(31, "bootstrapper", "boot@corp.test"), token: null, bootstrapAdmin: true);
+
+        Assert.True(outcome.Ok);
+        var user = await WithDb(db => db.Users.SingleAsync(u => u.GitHubUserId == 31));
+        Assert.True(user.IsAdmin && user.IsApproved);
+
+        // Same once-only seat, so the token is disarmed either way — otherwise
+        // a claim through one credential would leave the other standing.
+        Assert.False(Setup.IsRequired);
+    }
+
+    [SkippableFact]
+    public async Task The_seat_claim_audit_names_which_credential_was_used()
+    {
+        Skip.IfNot(_available);
+
+        // "Who claimed the seat" and "what let them" are different questions,
+        // and an assessor reading the root of the access-control trust chain
+        // asks both.
+        var outcome = await ResolveAsync(
+            Gh(32, "bootstrapper2", "boot2@corp.test"), token: null, bootstrapAdmin: true);
+        Assert.True(outcome.Ok);
+
+        var user = await WithDb(db => db.Users.SingleAsync(u => u.GitHubUserId == 32));
+        var audit = await WithDb(db => db.AuditEntries.Where(a => a.SubjectId == user.Id).ToListAsync());
+        var entry = Assert.Single(audit);
+
+        Assert.Contains("claimed the administrator seat", entry.Detail, StringComparison.Ordinal);
+        Assert.Contains("bootstrap admin login", entry.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("the setup token", entry.Detail, StringComparison.Ordinal);
+    }
+
+    [SkippableFact]
+    public async Task The_bootstrap_login_is_ignored_once_the_instance_has_users()
+    {
+        Skip.IfNot(_available);
+
+        // The bootstrap credential claims an UNCLAIMED seat and nothing else.
+        // If it kept working afterwards it would be a standing grant of admin
+        // to whoever controls one GitHub account, which is a different and much
+        // worse thing than a first-run bootstrap.
+        var first = await ResolveAsync(Gh(33, "founder3", "f3@corp.test"), Setup.ValueForStartupLog);
+        Assert.True(first.Ok);
+
+        var later = await ResolveAsync(
+            Gh(34, "latecomer", "late@corp.test"), token: null, bootstrapAdmin: true);
+
+        // Registers as an ordinary unapproved newcomer — not an admin.
+        Assert.Equal("not_approved", later.Reason);
+        var user = await WithDb(db => db.Users.SingleAsync(u => u.GitHubUserId == 34));
+        Assert.False(user.IsAdmin);
+        Assert.False(user.IsApproved);
+    }
+
+    [SkippableFact]
+    public async Task First_run_without_either_credential_still_creates_nothing()
+    {
+        Skip.IfNot(_available);
+
+        // The load-bearing branch, re-asserted now that it has two ways to pass.
+        // Writing even an unapproved row here would consume the "no users exist"
+        // condition and leave an instance nobody can administer.
+        var refused = await ResolveAsync(
+            Gh(35, "nobody", "nobody@corp.test"), token: null, bootstrapAdmin: false);
+
+        Assert.Equal("setup_token", refused.Reason);
+        Assert.Empty(await WithDb(db => db.Users.ToListAsync()));
+        Assert.True(Setup.IsRequired);
     }
 
     // ---- ongoing registration -----------------------------------------------------

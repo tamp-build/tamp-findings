@@ -45,8 +45,17 @@ internal static class ExternalSignIn
     /// as a message on the sign-in page and the caller has to redirect rather
     /// than 500.
     /// </summary>
+    /// <param name="bootstrapAdminLogin">
+    /// This identity matches the deployment's configured bootstrap admin login
+    /// (TFND-254). An alternative credential for claiming the first seat, and
+    /// nothing else — it is ignored once any user exists.
+    ///
+    /// Required rather than defaulted, because a security-relevant flag that
+    /// defaults to a value is a flag a future caller forgets to think about.
+    /// </param>
     internal static async Task<SignInOutcome> ResolveAsync(
-        HttpContext http, Profile profile, string? presentedSetupToken, CancellationToken ct)
+        HttpContext http, Profile profile, string? presentedSetupToken,
+        bool bootstrapAdminLogin, CancellationToken ct)
     {
         var db = http.RequestServices.GetRequiredService<FindingsDbContext>();
         var setup = http.RequestServices.GetRequiredService<SetupToken>();
@@ -71,7 +80,28 @@ internal static class ExternalSignIn
         // privilege escalation dressed as convenience.
         var isUnclaimed = user is null && !await db.Users.AnyAsync(ct);
 
-        if (isUnclaimed && !setup.Validate(presentedSetupToken))
+        // TWO credentials can claim the seat, and both are the operator's own
+        // deliberate act (TFND-254).
+        //
+        // The setup token is the one-time secret printed at startup. The
+        // bootstrap admin login is standing deployment config that names who
+        // may claim it. Before TFND-254 only the token worked on a zero-user
+        // instance: PromoteBootstrapAsync looked up a User row, found none, and
+        // returned — so GITHUB_BOOTSTRAP_ADMIN_LOGIN did nothing on precisely
+        // the instance an operator sets it for, while its name promised the
+        // opposite.
+        //
+        // This does not widen first-run access, which is worth spelling out
+        // because it looks as though it might. A GitHub login is public, so the
+        // variable is not a secret — but claiming through it still requires
+        // completing OAuth AS THAT ACCOUNT, which means proving control of that
+        // identity. The trust is the setup token's: whoever controls the
+        // deployment configuration decides who claims the seat. The only
+        // difference is that the config says so in advance instead of the
+        // operator pasting a token.
+        var viaSetupToken = setup.Validate(presentedSetupToken);
+
+        if (isUnclaimed && !viaSetupToken && !bootstrapAdminLogin)
         {
             // THE LOAD-BEARING BRANCH. Fail without creating anything.
             //
@@ -83,8 +113,8 @@ internal static class ExternalSignIn
             http.RequestServices.GetRequiredService<ILoggerFactory>()
                 .CreateLogger("Tamp.Findings.Setup")
                 .LogWarning(
-                    "Rejected an admin claim for {Login} via {Scheme}: setup token missing or wrong. "
-                    + "No account created.",
+                    "Rejected an admin claim for {Login} via {Scheme}: no setup token and this "
+                    + "login is not the configured bootstrap admin. No account created.",
                     profile.Login, profile.Scheme);
 
             return SignInOutcome.Refused("setup_token");
@@ -142,8 +172,12 @@ internal static class ExternalSignIn
                 Application.Auditing.AuditActions.AdminSeatClaimed,
                 Domain.Values.AuditClass.Access,
                 subjectId: user.Id, subjectKind: nameof(User),
+                // Names the credential as well as the identity. "Who claimed
+                // the seat" and "what let them" are different questions, and an
+                // assessor reading the root of the trust chain will ask both.
                 detail: $"{profile.Login} ({profile.DisplayName}) claimed the administrator seat "
-                      + $"via {profile.Scheme}"
+                      + $"via {profile.Scheme} using "
+                      + (viaSetupToken ? "the setup token" : "the configured bootstrap admin login")
                       + (remote is { Length: > 0 } ? $" from {remote}" : ""));
         }
 

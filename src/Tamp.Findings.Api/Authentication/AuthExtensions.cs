@@ -18,6 +18,43 @@ public static class AuthExtensions
     public const string CookieScheme = CookieAuthenticationDefaults.AuthenticationScheme;
     public const string GitHubScheme = "GitHub";
 
+    /// <summary>
+    /// GitHub OAuth credentials were supplied but look like an unedited
+    /// template, so the provider was left unregistered (TFND-255).
+    ///
+    /// Read by the startup warning in <c>Program.cs</c>. A static rather than
+    /// an injected option because the decision is made during service
+    /// registration, before there is a logger to tell — the same shape the
+    /// design-access flag uses.
+    /// </summary>
+    public static bool GitHubCredentialsLookTemplated { get; private set; }
+
+    /// <summary>
+    /// Does this value look like something nobody edited?
+    ///
+    /// Deliberately a shape check and not a validity check: a client id can
+    /// only really be validated by GitHub, and pretending otherwise would trade
+    /// one silent failure for another. This catches what ships in example env
+    /// files, which is what the reporting operator actually hit.
+    /// </summary>
+    private static bool LooksLikePlaceholder(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;   // empty is its own case
+
+        // Angle brackets cover <your-client-id> and friends; the words cover
+        // the rest of what templates say.
+        if (value.Contains('<') || value.Contains('>')) return true;
+
+        string[] tells =
+        [
+            "placeholder", "changeme", "change-me", "change_me", "your-", "your_",
+            "yourclientid", "yoursecret", "pending", "todo", "example", "xxxx",
+            "replace-me", "replace_me", "dummy", "notset", "not-set",
+        ];
+
+        return tells.Any(t => value.Contains(t, StringComparison.OrdinalIgnoreCase));
+    }
+
     // Claim names for fields we stash on the principal beyond the standard
     // ClaimTypes set. Used by /auth/me and any future authorization handlers.
     public const string TampUserIdClaim = "urn:tamp.findings:userId";
@@ -68,7 +105,32 @@ public static class AuthExtensions
         // /auth/login/github endpoint will return a clear 500
         // "scheme not registered" if hit, which is the right signal
         // for a misconfigured deployment.
-        var hasGithubOAuth = !string.IsNullOrWhiteSpace(clientId) && !string.IsNullOrWhiteSpace(clientSecret);
+        // A placeholder is not a credential (TFND-255).
+        //
+        // The emptiness check below was the whole guard, and a templated value
+        // slips straight through it: non-empty, so the handler registers, so the
+        // app builds a well-formed authorize URL that GitHub answers with a bare
+        // 404. The operator sees GitHub's 404 page and gets no hint that the
+        // client id is the problem — and templated env files ship with
+        // placeholders, so this is the common misconfiguration rather than an
+        // exotic one.
+        //
+        // Treating a placeholder as "not configured" makes it behave like the
+        // empty case all the way through: the scheme is not registered, so
+        // SignInOptions does not offer a GitHub button, so the dead end never
+        // gets presented. The value cannot be truly validated without
+        // exchanging a code with GitHub, so this catches the common shape and
+        // the log below makes the rest diagnosable.
+        var placeholderId = LooksLikePlaceholder(clientId);
+        var placeholderSecret = LooksLikePlaceholder(clientSecret);
+
+        var hasGithubOAuth = !string.IsNullOrWhiteSpace(clientId) && !string.IsNullOrWhiteSpace(clientSecret)
+            && !placeholderId && !placeholderSecret;
+
+        // Surfaced for the startup warning in Program.cs — "set but unusable"
+        // is a different operator problem from "not set", and only the first one
+        // deserves a shout.
+        GitHubCredentialsLookTemplated = placeholderId || placeholderSecret;
 
         var authBuilder = services
             .AddAuthentication(o =>
@@ -223,9 +285,15 @@ public static class AuthExtensions
         var bootstrapLogin = ctx.HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GitHub:BootstrapAdminLogin"]
             ?? Environment.GetEnvironmentVariable("GITHUB_BOOTSTRAP_ADMIN_LOGIN");
 
-        if (!string.IsNullOrWhiteSpace(bootstrapLogin)
-            && string.Equals(bootstrapLogin, login, StringComparison.OrdinalIgnoreCase))
+        var isBootstrapAdmin = !string.IsNullOrWhiteSpace(bootstrapLogin)
+            && string.Equals(bootstrapLogin, login, StringComparison.OrdinalIgnoreCase);
+
+        if (isBootstrapAdmin)
         {
+            // Recovery path: promotes an EXISTING row, for "the admin signed in
+            // before the variable was set". It is a no-op on a zero-user
+            // instance — which is the whole of TFND-254 — so the flag below is
+            // what makes the variable work on first run.
             await PromoteBootstrapAsync(ctx.HttpContext, githubId, ctx.HttpContext.RequestAborted);
         }
 
@@ -242,6 +310,7 @@ public static class AuthExtensions
                 // be marked as requiring one.
                 MfaAsserted: false),
             presented,
+            bootstrapAdminLogin: isBootstrapAdmin,
             ctx.HttpContext.RequestAborted);
 
         if (!outcome.Ok)
@@ -313,6 +382,10 @@ public static class AuthExtensions
                 GitHubUserId: null,
                 MfaAsserted: mfa),
             presented,
+            // GITHUB_BOOTSTRAP_ADMIN_LOGIN names a GitHub login, so it says
+            // nothing about an OIDC identity. An OIDC first-claim still needs
+            // the setup token.
+            bootstrapAdminLogin: false,
             ctx.HttpContext.RequestAborted);
 
         if (!outcome.Ok)
