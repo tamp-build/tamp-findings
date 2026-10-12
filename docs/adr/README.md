@@ -27,3 +27,4 @@ Numbering starts at 0001 for tamp.findings-local decisions.
 | [0015](0015-project-authored-control-dispositions.md) | Project-authored control dispositions; archetype as the default (amends 0009) | Accepted |
 | [0016](0016-scan-cost-fact-policy-split.md) | Scan cost — the producer sends tokens, findings owns the dated price | Accepted |
 | [0017](0017-license-resolution-global-fact.md) | License resolution — a global fact, kept separate from the project's allow/deny position | Accepted |
+| [0019](0019-agent-proposals-not-decisions.md) | An agent may propose; only a person decides | Accepted |
