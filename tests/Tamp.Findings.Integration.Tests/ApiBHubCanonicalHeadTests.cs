@@ -118,6 +118,28 @@ public class ApiBHubCanonicalHeadTests
     }
 
     [SkippableFact]
+    public async Task The_not_gated_note_names_the_pull_request()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // The sentence a reader sees. Computed on ProjectHubData rather than in
+        // the Razor template, because a judgement about the evidence that lives
+        // in markup is one that goes untested and then wrong.
+        var w = await SeedAsync();
+        using var scope = _fx.Scope();
+        var hub = scope.ServiceProvider.GetRequiredService<ProjectHubQuery>();
+
+        var onPr = await hub.LoadAsync(w.Project, w.PrSha);
+        Assert.Contains("Pull request #42", onPr!.NotGatedNote!, StringComparison.Ordinal);
+        Assert.Contains("gates judge the latest build on main", onPr.NotGatedNote!, StringComparison.Ordinal);
+
+        // And says nothing at all on the gated build — an unconditional banner
+        // would train readers to ignore it.
+        var onMain = await hub.LoadAsync(w.Project, commitSha: null);
+        Assert.Null(onMain!.NotGatedNote);
+    }
+
+    [SkippableFact]
     public async Task The_history_carries_no_pr_builds()
     {
         Skip.IfNot(_fx.Available);

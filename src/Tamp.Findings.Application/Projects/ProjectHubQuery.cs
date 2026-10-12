@@ -330,7 +330,29 @@ public sealed record ProjectHubData(
     /// </summary>
     bool IsCanonicalBuild = true,
     string? BranchName = null,
-    string? PullRequestRef = null);
+    string? PullRequestRef = null)
+{
+    /// <summary>
+    /// What to tell a reader looking at a build the gate does not judge, or null
+    /// when they are on the gated one (TFND-244).
+    ///
+    /// A property rather than markup, so the sentence is testable. The hub
+    /// renders it verbatim: deciding what to say is a judgement about the
+    /// evidence, and putting a judgement in a Razor template is how it ends up
+    /// untested and then wrong.
+    /// </summary>
+    public string? NotGatedNote =>
+        IsCanonicalBuild ? null
+        : PullRequestRef is { Length: > 0 } pr
+            ? $"Pull request #{pr} — gates judge the latest build on main. "
+              + "This page scores the commit you asked for."
+        : BranchName is { Length: > 0 } branch
+            ? $"Branch {branch} — gates judge the latest build on main. "
+              + "This page scores the commit you asked for."
+            // No branch and no PR ref, yet not canonical: nothing identifies
+            // the build beyond its commit, so do not invent a label for it.
+            : "Gates judge the latest build on main. This page scores the commit you asked for.";
+}
 
 /// <summary>
 /// One image a build produced, and the base image behind it (TFND-134).
