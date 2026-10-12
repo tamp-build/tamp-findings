@@ -27,6 +27,12 @@ public class ApiBMcpGateToolsTests
         Guid ClientId, Guid ProjectId, Guid FreshProjectId, Guid ForeignProjectId,
         string PriorSha, string HeadSha, string CarriedHash, string IntroducedHash);
 
+    // What the head build carries, and what the prior build carried. Named
+    // fields rather than inline arrays: the difference between these two IS the
+    // attribution these tests exist to check.
+    private static readonly string[] CarriedAndIntroduced = ["carried", "introduced"];
+    private static readonly string[] CarriedOnly = ["carried"];
+
     /// <summary>
     /// One project with two canonical builds, one never-built project, and one
     /// under a different client.
@@ -102,8 +108,12 @@ public class ApiBMcpGateToolsTests
     private static AgentIdentity Agent(ScopeTarget scope) =>
         new(Guid.NewGuid(), "agent", Principal.For(Guid.Empty, "agent:test", false, []), scope);
 
-    private static JsonElement Json(object o) =>
-        JsonSerializer.SerializeToElement(o, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    // Cached rather than constructed per call: JsonSerializerOptions builds and
+    // caches reflection metadata on first use, so a fresh instance per
+    // serialization throws that away every time.
+    private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
+
+    private static JsonElement Json(object o) => JsonSerializer.SerializeToElement(o, Web);
 
     private static (AgentReadService reads, AgentContext ctx) Services(IServiceScope scope, AgentIdentity identity)
     {
@@ -342,7 +352,7 @@ public class ApiBMcpGateToolsTests
             .ToArray();
 
         Assert.Equal(2, page.GetProperty("total").GetInt32());
-        Assert.Equal(new[] { "carried", "introduced" }, rules.OrderBy(r => r, StringComparer.Ordinal).ToArray());
+        Assert.Equal(CarriedAndIntroduced, rules.OrderBy(r => r, StringComparer.Ordinal).ToArray());
     }
 
     [SkippableFact]
@@ -362,7 +372,82 @@ public class ApiBMcpGateToolsTests
             .Select(f => f.GetProperty("ruleId").GetString() ?? "")
             .ToArray();
 
-        Assert.Equal(new[] { "carried" }, rules);
+        Assert.Equal(CarriedOnly, rules);
+    }
+
+    [SkippableFact]
+    public async Task get_findings_anchors_attribution_on_the_commit_it_was_asked_about()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // The prior build is the project's OLDEST canonical build, so there is
+        // nothing before it to diff against and attribution must be null.
+        //
+        // The bug this guards: anchoring on the head's predecessor regardless of
+        // what was asked. Asked about the prior commit, that compares the build
+        // with itself and reports every finding as not-introduced — false rather
+        // than null, which is a claim instead of an absence of one.
+        var w = await SeedAsync();
+        using var scope = _fx.Scope();
+        var (reads, ctx) = Services(scope, Agent(ScopeTarget.Project(w.ClientId, w.ProjectId)));
+
+        var page = Json(await FindingsTools.GetFindingsAsync(reads, ctx, commitSha: w.PriorSha));
+        var carried = page.GetProperty("findings")[0];
+
+        Assert.Equal(JsonValueKind.Null, carried.GetProperty("introducedInThisBuild").ValueKind);
+    }
+
+    [SkippableFact]
+    public async Task get_findings_refuses_to_attribute_a_pull_request_build()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // A PR build has no "build before it" on main, so attributing it
+        // against main's history would credit the branch with whatever main
+        // happened to fix. Null, not false.
+        var s = ApiBSupport.Suffix();
+        Guid clientId, projectId;
+        string prSha;
+
+        using (var seed = _fx.Scope())
+        {
+            var db = _fx.Db(seed);
+            var client = new Client { Name = $"apib-pr-{s}" };
+            db.Clients.Add(client);
+            var project = new Project { ClientId = client.Id, Name = $"pr-{s}" };
+            db.Projects.Add(project);
+
+            var main = new ComponentVersion
+            {
+                ProjectId = project.Id, VersionString = "1.0.0", CommitSha = $"{s}main",
+                BranchName = "main", CreatedAt = DateTimeOffset.UtcNow.AddDays(-1),
+            };
+            prSha = $"{s}pr";
+            var pr = new ComponentVersion
+            {
+                ProjectId = project.Id, VersionString = "1.1.0", CommitSha = prSha,
+                BranchName = "feature/y", PullRequestRef = "7", CreatedAt = DateTimeOffset.UtcNow,
+            };
+            db.ComponentVersions.AddRange(main, pr);
+            db.Findings.Add(new Finding
+            {
+                ComponentVersionId = pr.Id, Hash = $"onbranch{s}", Scanner = ScannerKind.OpenGrep,
+                RuleId = "onbranch", Severity = Severity.High, Title = "onbranch",
+                FilePath = "b.cs", Line = 1,
+            });
+            await db.SaveChangesAsync();
+            clientId = client.Id;
+            projectId = project.Id;
+        }
+
+        using var scope = _fx.Scope();
+        var (reads, ctx) = Services(scope, Agent(ScopeTarget.Project(clientId, projectId)));
+
+        var page = Json(await FindingsTools.GetFindingsAsync(reads, ctx, commitSha: prSha));
+        var onBranch = page.GetProperty("findings")[0];
+
+        Assert.Equal("onbranch", onBranch.GetProperty("ruleId").GetString());
+        Assert.Equal(JsonValueKind.Null, onBranch.GetProperty("introducedInThisBuild").ValueKind);
     }
 
     [SkippableFact]

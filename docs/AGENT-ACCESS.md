@@ -22,6 +22,12 @@ That is a design decision, not an omission. An agent able to file a suppression 
 | `get_finding` | One finding in full, with surrounding source where the instance holds it |
 | `get_dependencies` | A project's newest SBOM as packages plus flat parent→child edges, advisories attached |
 | `get_suppressions` | What has already been muted and why — suppressions and VEX together |
+| `get_controls` | Which compliance controls the project owns, inherits or has ruled out — and which are still unmapped |
+| `list_poams` | Open POA&M items, their owners and dates — the answer to "why is this still open" |
+| `get_conformance` | ADR-conformance verdicts: claims checked against the project's own decision records |
+| `get_quality` | Tests and coverage for the latest canonical build |
+| `get_license_worklist` | Packages whose licence nobody could classify — the evidence-gathering an agent is good at |
+| `get_posture` | Branch protection, required reviews, signed commits, org 2FA |
 
 A remediation agent should start at `get_gate`, not at `get_findings`. Severity ranks findings; a gate decides releases, and the worst finding is often not the thing blocking the build.
 
@@ -120,6 +126,9 @@ The surface is honest about its own limits, and those limits should match what y
 - **Do not let it call an advisory failure a blocked release.** Under `Advisory` enforcement a failing gate is recorded and ships. `get_gate` reports the mode; an agent that ignores it will escalate something that was not blocking.
 - **Do not let it quote a verdict for code that has changed.** Every verdict names the commit it belongs to. Once the agent has edited the tree, the verdict it holds describes the build *before* its work.
 - **Do not let it read `firstSeen` as a finding's age.** Findings are keyed per build, so a year-old finding gets a fresh `firstSeen` every build it survives. `firstSeenInProject` is the age; `introducedInThisBuild` is what attributes it to the change under review.
+- **Do not let it author a compliance claim.** A control disposition is an authored human position with the project as its authority — the agent can read one and must not propose one, and an `Unmapped` control is an unanswered question rather than a pass or a fail.
+- **Do not let it read an absence as a pass.** No conformance run is not conformance. No test report is not a green build. No posture observation is not a passing check. Each tool says so in its own words; an agent that skips the `note` will get all three wrong in the same direction.
+- **Do not let it re-raise settled work.** A finding on a POA&M has an owner and a date; a dispositioned conformance verdict has a justification. Proposing a fix for either is fine. Presenting either as unaddressed is not.
 - **Do not let it infer code it cannot see.** This instance stores source only for files a coverage report brought in. Everywhere else `context` is null and the agent should read the file from the repository rather than reasoning from the scanner's snippet.
 - **Do not let it re-raise settled work.** `get_suppressions` is the record of what a person already decided. An expired suppression is the one case where re-raising is right, and it is marked.
 - **Do not ask it to attest to anything.** Attestation is a signature. The agent has no write path, holds no `AcceptRisk`, and should not be the author of a compliance claim even in prose.
