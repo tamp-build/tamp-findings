@@ -117,11 +117,40 @@ organisation that does not yet need the strict setting and should not be made to
    asserts nothing the product will act on. It is included because it is most of the value — an
    agent's reasoning on the record, where the next person will find it — at none of the risk.
 
-5. **Nothing an agent writes can move a gate or a score.** Stated as an invariant rather than an
-   outcome, because it is testable and should be tested: a proposal of any kind, in any quantity,
-   must leave `GateDecisionService.ForLatestAsync` and the computed score byte-identical. A
-   proposal that could change a verdict before a person decided it would be a write path wearing a
-   proposal's name.
+5. **Nothing an agent writes can move a gate verdict or a score in the PERMISSIVE direction.**
+   *(Property. Amended 2026-10-12 — see below.)*
+
+   An agent may make a build harder to ship. It may never make one easier. Stated as an invariant
+   rather than an outcome because it is testable and should be tested, in two halves:
+
+   * **Proposals** — a proposal of any kind, in any quantity, must leave
+     `GateDecisionService.ForLatestAsync` and the computed score byte-identical. A proposal that
+     could change a verdict before a person decided it would be a write path wearing a proposal's
+     name.
+   * **Direct writes** — for any non-proposal write an agent is permitted, the resolved verdict set
+     afterwards must be equal or STRICTER, never weaker. No such write exists yet: gate hardening
+     (TFND-252) is blocked because `EditGates` is held only by Admin and InfoSecOfficer, and an
+     agent token can be neither. The invariant is stated ahead of its first use deliberately, so
+     whoever implements that write finds the rule already written down.
+
+   > **Superseded wording.** As originally accepted this read: *"Nothing an agent writes can move a
+   > gate or a score."* Taken literally that forbade a hardening write too — an agent tightening a
+   > threshold moves verdicts by design, in the one direction that cannot hurt. The sentence was
+   > written with evidence proposals in view and over-generalised to every write. The amendment
+   > narrows it to the direction that was always the point; every case the original forbade for a
+   > reason — an agent-filed suppression, a loosened gate, a lowered score — it still forbids.
+
+   The asymmetry is the whole property, so it is worth saying why it is safe in one direction and
+   not the other. A permissive write is unrecoverable in the way that matters: the build ships, and
+   the evidence record says it was allowed to. A restrictive write fails loudly, blocks something,
+   and gets reverted by the person it inconvenienced within the hour. Those are not symmetric risks
+   and the invariant should not pretend they are.
+
+   Where the restriction lives matters too. It belongs to the AGENT SURFACE, not to the policy
+   model: a person loosening a gate their own project owns is a legitimate decision the services
+   must keep allowing (and `PolicyLayerMerge` already stops a project weakening what it inherits —
+   see TFND-247, which was filed on the opposite assumption and corrected). So the hardening check
+   belongs in an agent-facing service, never in `GateService`.
 
 6. **No agent carries `InfoSecOfficer`, and therefore no agent can decide anything that accepts
    risk.** Already enforced at mint (TFND-242), and this ADR is why that enforcement had to stop
@@ -180,8 +209,9 @@ organisation that does not yet need the strict setting and should not be made to
   than the write path it fronts.
 * **The read-only guarantee in the README and in `AgentReadService` becomes conditional and must
   be rewritten honestly.** "There is no write path" would become false. The accurate statement is
-  "an agent cannot change evidence; it can ask a person to" — and the distinction has to survive
-  being summarised by somebody in a hurry, including by an agent describing its own permissions.
+  "an agent cannot change evidence, and cannot make a build easier to ship; it can ask a person to"
+  — and the distinction has to survive being summarised by somebody in a hurry, including by an
+  agent describing its own permissions.
 * **`AgentReadService`'s name stops being true.** The proposal path belongs beside it, not in it:
   the class whose comment is "reads only, and there is deliberately no write path" should keep
   being that class. A sibling `AgentProposalService` with its own scope checks is the shape.
