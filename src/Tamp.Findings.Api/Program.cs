@@ -707,6 +707,22 @@ if (Tamp.Findings.Api.Endpoints.DesignAccessEndpoints.Enabled)
             Environment.GetEnvironmentVariable(Tamp.Findings.Api.Endpoints.DesignAccessEndpoints.LoginVar));
 }
 
+// TFND-255: GitHub OAuth credentials that are set but look like an unedited
+// template. The provider was left unregistered, so there is no "Continue with
+// GitHub" button to lead anyone to GitHub's 404 — but silence here is what made
+// the original report confusing, so say it plainly once at startup.
+if (Tamp.Findings.Api.Authentication.AuthExtensions.GitHubCredentialsLookTemplated)
+{
+    app.Services.GetRequiredService<ILoggerFactory>()
+        .CreateLogger("Tamp.Findings.Auth")
+        .LogWarning(
+            "GitHub OAuth is NOT configured: GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET are set but "
+            + "look like placeholder values from an example env file, so the provider was left "
+            + "unregistered and GitHub sign-in is unavailable. Set real values from your GitHub "
+            + "OAuth App. Note that a container started with 'docker run' bakes its environment "
+            + "in — an env-file edit needs the container recreated, not restarted.");
+}
+
 // Ingest-token CRUD — SPA-facing, behind the cookie-auth fallback.
 app.MapIngestTokens();
 app.MapBadge();   // public anonymous status badge + admin mint/rotate

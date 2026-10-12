@@ -82,9 +82,10 @@ $env:GITHUB_BOOTSTRAP_ADMIN_LOGIN = "<your-github-login>"
 dotnet run --project src/Tamp.Findings.Api/Tamp.Findings.Api.csproj
 ```
 
-Open <http://localhost:5080/>. Sign in via GitHub. The bootstrap admin login auto-promotes itself on
-first sign-in; on a fresh instance with no users at all, the first registration must present the setup
-token printed at container start.
+Open <http://localhost:5080/>. Sign in via GitHub. On a fresh instance the first sign-in claims the
+administrator seat, and either credential does it: signing in as `GITHUB_BOOTSTRAP_ADMIN_LOGIN`, or
+presenting the **setup token** printed at startup while the seat is unclaimed. The claim is
+once-only — afterwards the token is disarmed and later arrivals need an administrator's approval.
 
 There is no separate front-end dev server. The UI is Blazor Server, served by the same host as the API
 — one process, one port. The React SPA that used to run at :5173 was retired by TFND-128; see
