@@ -72,7 +72,8 @@ below:
 | **Policies** | Dials, defaulting to the permissive end. | What a particular organisation wants of its own process |
 
 The properties are §1, §3, §4, §5, §6 and §9. The policies are §2 (which of the kinds an instance
-enables), §7 (staleness), §8 (volume caps) and §10 (separation of duties). This matches how the
+enables), §7 (staleness), §8 (volume caps), §10 (separation of duties) and §11 (whether agents may
+author policy at all). This matches how the
 rest of the product already behaves — gates ship advisory and are tightened deliberately
 (ADR 0004), the MCP endpoint is off until an administrator opens it, posture gates default off —
 and it is the same reasoning: the product states what is true, and the operator decides what to
@@ -128,10 +129,10 @@ organisation that does not yet need the strict setting and should not be made to
      could change a verdict before a person decided it would be a write path wearing a proposal's
      name.
    * **Direct writes** — for any non-proposal write an agent is permitted, the resolved verdict set
-     afterwards must be equal or STRICTER, never weaker. No such write exists yet: gate hardening
-     (TFND-252) is blocked because `EditGates` is held only by Admin and InfoSecOfficer, and an
-     agent token can be neither. The invariant is stated ahead of its first use deliberately, so
-     whoever implements that write finds the rule already written down.
+     afterwards must be equal or STRICTER, never weaker. The first such write is gate hardening
+     (TFND-252, §11), and it is verified in `GateService.HardenAsync` against the *resolved* policy
+     rather than against the project's own row, because a write stricter than the project's setting
+     but looser than what it inherits changes nothing and must not be reported as a tightening.
 
    > **Superseded wording.** As originally accepted this read: *"Nothing an agent writes can move a
    > gate or a score."* Taken literally that forbade a hardening write too — an agent tightening a
@@ -146,11 +147,15 @@ organisation that does not yet need the strict setting and should not be made to
    and gets reverted by the person it inconvenienced within the hour. Those are not symmetric risks
    and the invariant should not pretend they are.
 
-   Where the restriction lives matters too. It belongs to the AGENT SURFACE, not to the policy
-   model: a person loosening a gate their own project owns is a legitimate decision the services
-   must keep allowing (and `PolicyLayerMerge` already stops a project weakening what it inherits —
-   see TFND-247, which was filed on the opposite assumption and corrected). So the hardening check
-   belongs in an agent-facing service, never in `GateService`.
+   Where the restriction lives took a wrong turn to settle. A person loosening a gate their own
+   project owns is a legitimate decision the services must keep allowing — and `PolicyLayerMerge`
+   already stops a project weakening what it *inherits* (see TFND-247, filed on the opposite
+   assumption and corrected). So harden-only must not be imposed on `GateService.SaveAsync`, which
+   is the general edit.
+
+   It belongs instead to a *narrower operation*: `HardenAsync` takes one gate, tightens it, and
+   checks the direction itself. That is what lets it accept a wider capability safely — the method
+   is named for what it does and enforces what it is named for.
 
 6. **No agent carries `InfoSecOfficer`, and therefore no agent can decide anything that accepts
    risk.** Already enforced at mint (TFND-242), and this ADR is why that enforcement had to stop
@@ -185,6 +190,28 @@ organisation that does not yet need the strict setting and should not be made to
     `McpToken.CreatedByUserId` is already stored, so turning it on costs a comparison. The reason
     to specify it now and not later is that an organisation discovering it needs separation of
     duties — because an audit asked — should find a setting rather than a design gap.
+
+11. **Whether agents may author policy at all is a per-instance dial, off by default.**
+    *(Policy.)* `AgentPolicyAuthoring` under System → Instance settings (TFND-252).
+
+    The reason it is a dial rather than a decision this ADR makes: the deployments differ in kind.
+    A small team with one developer, finding its way toward a posture, may want an agent that helps
+    configure the gates — the second pair of hands is help and the blast radius is their own
+    project. Somewhere with real exposure will want policy to be a human act, full stop. Neither is
+    wrong, and a product that picks for them is picking wrong half the time.
+
+    What the dial does **not** do is widen what an agent may change. Even on, hardening-only (§5)
+    still holds, because that is a property and no setting reaches it. Three other things close
+    authoring independently: the instance MCP switch shuts the whole surface; a configuration-level
+    enforcement lock shuts policy editing regardless, since a platform team's posture is not
+    locally negotiable; and the token's role must carry `HardenGates`, which is Admin, InfoSec and
+    Architect — so an Auditor token is refused on an instance that allows authoring.
+
+    `HardenGates` is itself new (TFND-252) and is the capability split the direction asymmetry
+    earns: `EditGates` means "edit freely, including loosen" and stays Admin/InfoSec, while
+    hardening can be granted more widely because a tightening fails loudly and gets reverted while
+    a loosening ships a build. A human Architect gains it too, which is a real improvement to the
+    model rather than a side effect.
 
 ## Consequences
 

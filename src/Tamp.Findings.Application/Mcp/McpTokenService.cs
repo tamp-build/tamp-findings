@@ -11,7 +11,12 @@ using Tamp.Findings.Domain.Values;
 namespace Tamp.Findings.Application.Mcp;
 
 /// <summary>
-/// Tokens that let an agent read this instance (TFND-12 / F11.2, F11.4).
+/// Tokens that let an agent reach this instance (TFND-12 / F11.2, F11.4).
+///
+/// Mostly reads. A token's role also decides whether it may create a project or
+/// tighten a gate (TFND-250 / TFND-252), so the role on a token is not merely a
+/// read filter any more — which is the reason the InfoSecOfficer refusal below
+/// stopped being theoretical.
 ///
 /// The scoping rule from the epic, and it is the whole design: tokens are
 /// scoped DOWN, never up. A project-level token sees that project and its
@@ -107,14 +112,17 @@ public sealed class McpTokenService
         //
         // Refused here and not only in the settings page's dropdown, because
         // "the UI does not offer it" is a different guarantee from "it cannot
-        // be minted" — and it is the second one the README promises. Harmless
-        // while this surface is read-only; load-bearing the moment a
-        // propose/decide path exists (TFND-240).
+        // be minted" — and it is the second one the README promises. This was
+        // merely prudent while the surface was read-only; it is load-bearing now
+        // that a token's role decides whether it may author policy at all
+        // (TFND-252), and it is a property of ADR 0019 (§6).
         if (role == ProjectRole.InfoSecOfficer)
             return Result<MintedMcpToken>.Invalid(
                 "An agent token cannot carry InfoSecOfficer. That role accepts risk on an "
                 + "Authorizing Official's behalf, and that signature has to be a person's. Mint "
-                + "the token as Auditor to read everything without being able to decide anything.");
+                + "the token as Auditor to read everything without being able to change anything, "
+                + "or as Architect if the agent should also be able to create a project or tighten "
+                + "a gate.");
 
         // An agent cannot be granted more than the person minting it holds.
         // Otherwise "give the bot Admin" becomes the way anyone escalates.

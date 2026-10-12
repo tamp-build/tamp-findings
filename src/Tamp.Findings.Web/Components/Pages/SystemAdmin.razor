@@ -678,11 +678,31 @@ else
                                 Disabled="@(!_canAdminister.Allowed)" />
                     <p class="field__help">
                         Off by default. On, agents holding a token can READ findings in their scope
-                        at <code class="mono">/mcp</code> — they can never write. This is the kill
-                        switch: turning it off closes the door in one action without revoking
-                        anything, so the instance comes back the way it was rather than forcing a
-                        re-issue to every agent. Tokens are minted per project under
-                        <strong>Agent access</strong> on that project's settings.
+                        at <code class="mono">/mcp</code>, and cannot touch evidence — no agent can
+                        file a suppression or retire a finding. This is the kill switch: turning it
+                        off closes the door in one action without revoking anything, so the instance
+                        comes back the way it was rather than forcing a re-issue to every agent.
+                        Tokens are minted per project under <strong>Agent access</strong> on that
+                        project's settings.
+                    </p>
+
+                    <CheckField Label="Let agents help configure policy"
+                                @bind-Checked="_agentPolicyAuthoring"
+                                Disabled="@(!_canAdminister.Allowed || !_mcpEnabled)" />
+                    <p class="field__help">
+                        Off by default, and the default is a choice rather than a precaution. A small
+                        team finding its way toward a posture may want an agent that helps configure
+                        the gates; somewhere with real exposure will want policy to be a human act.
+                        Neither is wrong and the product does not decide it.
+                        <br /><br />
+                        On, an agent token minted as <strong>Architect</strong> can
+                        <em>tighten</em> a gate — enable one, or lower a threshold. It can never
+                        loosen one, disable one, or lower enforcement: those make a build easier to
+                        ship, and no setting here grants them. Policy stays readable by agents
+                        either way.
+                        <br /><br />
+                        Also closed, regardless of this, when the deployment locks enforcement
+                        through configuration — a platform team's posture is not locally negotiable.
                     </p>
 
                     <CheckField Label="Enforce separation of duties"
@@ -1043,6 +1063,7 @@ else
     private bool _githubEnabled;
     private bool _unsegmented;
     private bool _mcpEnabled;
+    private bool _agentPolicyAuthoring;
     private bool _enforceSod, _strictVisibility, _settingsSaved;
     private bool _enforcementEnforcing, _enforcementLocked;
 
@@ -1119,6 +1140,7 @@ else
                     _githubCheckName = _settings.GitHubCheckName;
                     _githubEnabled = _settings.GitHubChecksEnabled;
                     _mcpEnabled = _settings.McpEnabled;
+                    _agentPolicyAuthoring = _settings.AgentPolicyAuthoring;
                     // When the deployment config locks enforcement, show the
                     // config-mandated values (read-only in the form) rather than
                     // the stored ones the config overrides.
@@ -1330,6 +1352,9 @@ else
                 : _githubCheckName.Trim(),
             GitHubChecksEnabled = _githubEnabled,
             McpEnabled = _mcpEnabled,
+            // Closing the surface closes authoring with it: an operator reaching
+            // for the kill switch does not want writes surviving it.
+            AgentPolicyAuthoring = _mcpEnabled && _agentPolicyAuthoring,
             EnforcementMode = _enforcementEnforcing ? EnforcementMode.Enforcing : EnforcementMode.Advisory,
             EnforcementLocked = _enforcementLocked,
             // Protected here rather than in the service, so the plaintext never

@@ -123,6 +123,28 @@ public sealed class InstanceSettings
     // every agent as the price of a five-minute pause.
     public bool McpEnabled { get; set; }
 
+    // May an agent AUTHOR policy, not merely read it (TFND-252)?
+    //
+    // Off by default, and the default is the point rather than a concession.
+    // Some deployments want an agent that helps configure the thing — a small
+    // team with one developer, finding its way toward a posture, where a second
+    // pair of hands on the gate configuration is help and the blast radius is
+    // their own project. Others have real skin in the game and want policy to
+    // be a human act, full stop. Neither is wrong, and the product should not
+    // decide for them.
+    //
+    // What this does NOT do is widen what an agent may change. Even on, an
+    // agent may only HARDEN (ADR 0019 §5): tighten a threshold, enable a gate.
+    // Loosening, disabling and lowering enforcement stay closed to it whatever
+    // this is set to, because those are the moves that make a build easier to
+    // ship and no setting should be able to hand them to a credential.
+    //
+    // Three other things close this independently: the MCP switch above shuts
+    // the whole surface, a config-level enforcement lock shuts policy editing
+    // (the platform team's posture is not locally negotiable), and the token's
+    // own role still has to carry HardenGates.
+    public bool AgentPolicyAuthoring { get; set; }
+
     // ---- Gate enforcement (TFND-147 / ADR 0004) ---------------------------
 
     // How gate verdicts are enforced instance-wide. Advisory (the default, and

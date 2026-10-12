@@ -15,22 +15,33 @@ namespace Tamp.Findings.Application.Policy;
 /// same definition of "bad" can back very different shipping rules: a pilot and
 /// a production service score identically and ship on different terms.
 ///
-/// Editing gates changes the release contract. It needs
+/// Editing gates changes the release contract. <see cref="SaveAsync"/> needs
 /// <see cref="Capability.EditGates"/> — Admin and InfoSec only — and it is
 /// audited as a risk decision, because loosening a gate is indistinguishable in
 /// its effect from fixing the thing the gate was catching.
+///
+/// <see cref="HardenAsync"/> is the narrower operation (TFND-252): one gate,
+/// tightened, and it verifies the direction itself rather than trusting the
+/// caller. It needs only <see cref="Capability.HardenGates"/>, which Architect
+/// also holds and an agent token can carry, because a tightening cannot loosen
+/// the release contract — it fails loudly, blocks something, and gets reverted
+/// by whoever it inconvenienced. That asymmetry is why the two operations have
+/// different capabilities instead of one with a flag.
 /// </summary>
 public sealed class GateService
 {
     private readonly FindingsDbContext _db;
     private readonly CapabilityEvaluator _capabilities;
     private readonly AuditLog _audit;
+    private readonly PolicyResolver _resolver;
 
-    public GateService(FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit)
+    public GateService(
+        FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit, PolicyResolver resolver)
     {
         _db = db;
         _capabilities = capabilities;
         _audit = audit;
+        _resolver = resolver;
     }
 
     /// <summary>
@@ -123,6 +134,96 @@ public sealed class GateService
 
         await _db.SaveChangesAsync(ct);
         return Result<int>.Ok(changes.Count);
+    }
+
+/// <summary>
+    /// Tighten one gate: enable it, or lower its threshold (TFND-252).
+    ///
+    /// Verifies the direction HERE rather than trusting the caller, because the
+    /// capability it accepts is deliberately wider than
+    /// <see cref="Capability.EditGates"/> and the thing keeping that safe is
+    /// this check. A caller holding HardenGates and nothing else must not be
+    /// able to reach a loosening write through a method named for hardening.
+    ///
+    /// Compared against the RESOLVED value — what the template, client and
+    /// archetype already impose — not against the project's own stored row. A
+    /// write that is stricter than the project's own setting but looser than
+    /// what it inherits would change nothing, and reporting it as a tightening
+    /// would be a false statement about the release contract.
+    ///
+    /// Note what this does NOT touch: enforcement mode. Raising it is a posture
+    /// decision with a blast radius past one gate, and lowering it is the
+    /// weakening this method exists to refuse.
+    /// </summary>
+    public async Task<Result<bool>> HardenAsync(
+        Principal actor, ScopeTarget scope, Guid projectId, string gateKey, double? threshold,
+        CancellationToken ct = default)
+    {
+        var decision = _capabilities.Evaluate(actor, Capability.HardenGates);
+        if (!decision.Allowed) return Result<bool>.Denied(decision.Reason!);
+
+        if (!GateEvaluator.WellKnownGateKeys.Contains(gateKey))
+            return Result<bool>.Invalid($"'{gateKey}' is not a gate this instance knows.");
+
+        var takesThreshold = TakesThreshold(gateKey);
+        if (!takesThreshold && threshold is not null)
+            return Result<bool>.Invalid($"{GateEvaluator.Label(gateKey)} has no threshold.");
+
+        if (threshold is < 0)
+            return Result<bool>.Invalid("A threshold cannot be negative.");
+
+        var project = await _db.Projects.SingleOrDefaultAsync(p => p.Id == projectId, ct);
+        if (project is null) return Result<bool>.Invalid("That project no longer exists.");
+
+        var resolved = await _resolver.ForProjectAsync(projectId, ct);
+        resolved.Gates.TryGetValue(gateKey, out var inForce);
+
+        // Already strictly covered: enabling adds nothing, and a threshold that
+        // is not lower adds nothing either.
+        if (inForce is { Enabled: true })
+        {
+            if (!takesThreshold)
+                return Result<bool>.Ok(false);
+
+            if (threshold is null)
+                return Result<bool>.Ok(false);
+
+            if (inForce.Threshold is { } current && threshold >= current)
+            {
+                return Result<bool>.Invalid(
+                    $"{inForce.Source} already imposes {current} on {GateEvaluator.Label(gateKey)}; "
+                    + $"{threshold} is not stricter and would have no effect.");
+            }
+        }
+
+        var before = project.GatesConfig ?? ProjectGatesDefaults.Empty();
+        var after = new ProjectGatesConfig
+        {
+            SchemaVersion = before.SchemaVersion,
+            EnforcementMode = before.EnforcementMode,
+        };
+        foreach (var (key, cfg) in before.Gates)
+            after.Gates[key] = new GateConfig { Enabled = cfg.Enabled, Threshold = cfg.Threshold };
+
+        after.Gates[gateKey] = new GateConfig
+        {
+            Enabled = true,
+            Threshold = takesThreshold ? threshold : null,
+        };
+
+        var changes = Describe(before, after);
+        if (changes.Count == 0) return Result<bool>.Ok(false);
+
+        project.GatesConfig = after;
+
+        _audit.Record(actor, AuditActions.GateChanged, AuditClass.Risk, scope,
+            subjectId: project.Id, subjectKind: "ProjectGates",
+            // Says it was a hardening, so a reader can tell this entry from an
+            // ordinary gate edit without diffing two configs.
+            detail: "hardened: " + string.Join("; ", changes));
+
+        await _db.SaveChangesAsync(ct);
+        return Result<bool>.Ok(true);
     }
 
     private static List<string> Describe(ProjectGatesConfig before, ProjectGatesConfig after)

@@ -8,9 +8,16 @@ Written for the case this was first needed for: a tenant whose remediation is do
 
 ## What the agent gets
 
-A read-only [MCP](https://modelcontextprotocol.io) endpoint at `/mcp`, and five tools on it. No write path: an agent can read every piece of evidence its token reaches and change none of it.
+An [MCP](https://modelcontextprotocol.io) endpoint at `/mcp` with seventeen tools on it. Fourteen are reads: an agent can see every piece of evidence its token reaches and change none of it.
 
-That is a design decision, not an omission. An agent able to file a suppression is an agent able to retire the finding it was asked to fix, and the only reason this product is worth running is that the evidence is not negotiable. Whether agents get a *propose-only* path — ask for a suppression, and a human decides — is an open question tracked as TFND-240.
+That is a design decision, not an omission. An agent able to file a suppression is an agent able to retire the finding it was asked to fix, and the only reason this product is worth running is that the evidence is not negotiable. ADR 0019 settles the shape for anything beyond reading: an agent may propose, and only a person decides.
+
+Two narrow writes exist on top of that, and neither touches evidence:
+
+- **`create_project`** — in the token's own client, for an Architect-roled token. Not reversible.
+- **`harden_gate`** — *tighten* one gate. Never loosen, never disable, never lower enforcement. Off until an administrator enables **Let agents help configure policy** under System → Instance settings, and closed outright when the deployment locks enforcement through configuration.
+
+The default is closed on both counts, and the choice is yours to make: a small team may want an agent that helps configure the gates, while somewhere with real exposure will want policy to be a human act. The product does not decide that.
 
 | Tool | Answers |
 |---|---|
@@ -28,6 +35,9 @@ That is a design decision, not an omission. An agent able to file a suppression 
 | `get_quality` | Tests and coverage for the latest canonical build |
 | `get_license_worklist` | Packages whose licence nobody could classify — the evidence-gathering an agent is good at |
 | `get_posture` | Branch protection, required reviews, signed commits, org 2FA |
+| `get_policy` | Gates, thresholds, enforcement — and which layer imposed each value |
+| `create_project` | Create a project in the token's client (Architect-roled tokens; not reversible) |
+| `harden_gate` | Tighten one gate — never loosen. Needs the instance to allow agent policy authoring |
 
 A remediation agent should start at `get_gate`, not at `get_findings`. Severity ranks findings; a gate decides releases, and the worst finding is often not the thing blocking the build.
 
@@ -66,20 +76,47 @@ Default to **project scope**. Client scope is right when one agent genuinely wor
 
 ### 4. Pick the role deliberately
 
-A token carries a `ProjectRole`, and every read it makes goes through the same `CapabilityEvaluator` a person's does. There is no separate agent authorization path, because a second path is a second place to get it wrong and the one nobody watches.
+A token carries a `ProjectRole`, and everything it does goes through the same `CapabilityEvaluator` a person's does. There is no separate agent authorization path, because a second path is a second place to get it wrong and the one nobody watches.
 
-| Role | Give it when |
-|---|---|
-| `Auditor` | The agent should read everything, including exports. The usual answer |
-| `LeadDev` / `Architect` | The agent's reads should match a particular human seat's |
-| *(none — Viewer)* | Reads evidence, cannot export |
+**The role now decides more than what the agent can read.** It is what separates an agent that observes from one that can create a project or tighten a gate, so this is a choice worth a moment rather than a default.
+
+| Role | Can read | Can export | Can create a project | Can tighten a gate |
+|---|---|---|---|---|
+| *(none — Viewer)* | yes | no | no | no |
+| `Auditor` | yes | yes | no | no |
+| `LeadDev` | yes | yes | no | no |
+| `Architect` | yes | yes | **yes** | **yes**¹ |
+
+¹ And only when the instance allows agent policy authoring, and the deployment has not locked enforcement. See [§4a](#4a-decide-whether-agents-may-help-configure-policy).
+
+**`Auditor` is still the right default.** Give an agent `Architect` when you actually want it changing the shape of the project — and remember that a project it creates cannot be deleted.
 
 Two rules constrain what you can mint:
 
 - **You cannot mint more than you hold.** An agent is not a way to grant yourself access.
-- **No agent carries `InfoSecOfficer`** — not even one minted by an InfoSecOfficer. That role holds `AcceptRisk`, accepting risk is an Authorizing Official's signature, and a credential that produces it on their behalf is a way around the signature rather than an exercise of it. Refused at mint, and absent from the dropdown.
+- **No agent carries `InfoSecOfficer`** — not even one minted by an InfoSecOfficer. That role holds `AcceptRisk`, accepting risk is an Authorizing Official's signature, and a credential that produces it on their behalf is a way around the signature rather than an exercise of it. Refused at mint, absent from the dropdown, and a property of ADR 0019 rather than a setting.
 
-Since the surface is read-only, role mostly decides whether the agent can export. It will decide much more if TFND-240 lands, so mint as though it already matters.
+### 4a. Decide whether agents may help configure policy
+
+**System → Instance settings → "Let agents help configure policy".** Off by default, and the default is a choice rather than a precaution.
+
+A small team finding its way toward a posture may want an agent that helps configure the gates — the second pair of hands is help, and the blast radius is their own project. Somewhere with real exposure will want policy to be a human act. Neither is wrong, and the product does not decide it for you.
+
+With it on, an `Architect` token can **tighten** a gate: enable one, or lower a threshold. What no setting grants, ever:
+
+- loosening a threshold,
+- disabling a gate,
+- lowering enforcement,
+- anything at all to the risk-scoring weights.
+
+That asymmetry is the whole guarantee, and the reasoning is in [ADR 0019 §5](adr/0019-agent-proposals-not-decisions.md): **an agent may make a build harder to ship, never easier.** A tightening fails loudly, blocks something, and gets reverted by whoever it inconvenienced within the hour. A loosening ships a build and the record says it was allowed to.
+
+Two other things close policy authoring regardless of this switch:
+
+- **The MCP kill switch.** Closing the surface closes authoring with it — an operator reaching for that switch does not want writes surviving it.
+- **A deployment enforcement lock.** If `Enforcement:Locked` is set in configuration, policy editing through this surface is refused with a permission error, because a platform team's posture is not locally negotiable. Policy *reads* keep working.
+
+Policy reads are unconditional in every configuration. An agent that cannot read the policy cannot explain a verdict it is already allowed to see.
 
 ### 5. Connect the agent
 
@@ -128,10 +165,14 @@ The surface is honest about its own limits, and those limits should match what y
 - **Do not let it read `firstSeen` as a finding's age.** Findings are keyed per build, so a year-old finding gets a fresh `firstSeen` every build it survives. `firstSeenInProject` is the age; `introducedInThisBuild` is what attributes it to the change under review.
 - **Do not let it author a compliance claim.** A control disposition is an authored human position with the project as its authority — the agent can read one and must not propose one, and an `Unmapped` control is an unanswered question rather than a pass or a fail.
 - **Do not let it read an absence as a pass.** No conformance run is not conformance. No test report is not a green build. No posture observation is not a passing check. Each tool says so in its own words; an agent that skips the `note` will get all three wrong in the same direction.
-- **Do not let it re-raise settled work.** A finding on a POA&M has an owner and a date; a dispositioned conformance verdict has a justification. Proposing a fix for either is fine. Presenting either as unaddressed is not.
-- **Do not let it infer code it cannot see.** This instance stores source only for files a coverage report brought in. Everywhere else `context` is null and the agent should read the file from the repository rather than reasoning from the scanner's snippet.
-- **Do not let it re-raise settled work.** `get_suppressions` is the record of what a person already decided. An expired suppression is the one case where re-raising is right, and it is marked.
-- **Do not ask it to attest to anything.** Attestation is a signature. The agent has no write path, holds no `AcceptRisk`, and should not be the author of a compliance claim even in prose.
+- **Do not let it re-raise settled work.** A finding on a POA&M has an owner and a date; a dispositioned conformance verdict has a justification; a suppression is a decision somebody already made. Proposing a fix for any of them is fine. Presenting them as unaddressed is not. An *expired* suppression is the one case where re-raising is right, and it is marked.
+- **Do not let it infer code it cannot see.** This instance stores source only for files a coverage report brought in. Everywhere else `context` is null, and the agent should read the file from the repository rather than reasoning from the scanner's snippet.
+- **Do not ask it to attest to anything.** Attestation is a signature. An agent holds no `AcceptRisk`, cannot touch evidence, and should not be the author of a compliance claim even in prose.
+
+And two about the writes, which are newer and less obvious:
+
+- **Do not expect it to undo a project.** `create_project` is irreversible — there is no delete or rename anywhere in the application. An agent that offers to clean up after itself is wrong about what it can do.
+- **Do not let it report a gate change it did not make.** Policy layers merge to the strictest value, so a tightening that is looser than what a template or client already imposes changes nothing. `harden_gate` refuses those and names the layer, but an agent that paraphrases the refusal as success has told you the release contract moved when it did not. Ask it which layer is in force; `get_policy` says.
 
 ---
 

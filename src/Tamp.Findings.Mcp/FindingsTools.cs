@@ -19,10 +19,11 @@ namespace Tamp.Findings.Mcp;
 /// answers AND what it does not, which is how an agent avoids reporting a
 /// truncated list as a complete one.
 ///
-/// Mostly reads. The one exception is create_project (TFND-250), which goes to
-/// its own service rather than to AgentReadService — that class reads, and a
-/// write path inside it would make its own comment false. It cannot touch
-/// evidence and cannot move a verdict.
+/// Mostly reads. The two exceptions are create_project and harden_gate
+/// (TFND-250 / TFND-252), which go to their own services rather than to
+/// AgentReadService — that class reads, and a write path inside it would make
+/// its own comment false. Neither can touch evidence, and harden_gate can only
+/// move a verdict in the stricter direction (ADR 0019 §5).
 /// </summary>
 [McpServerToolType]
 public sealed class FindingsTools
@@ -30,8 +31,8 @@ public sealed class FindingsTools
     // Not a static class, only because WithTools<T> cannot take one as a type
     // argument. Explicit registration is worth that: assembly scanning would
     // expose any tool type added later without anyone deciding to, and on a
-    // read surface over other people's findings that decision should be typed
-    // out.
+    // surface over other people's evidence — one that can now also create a
+    // project and tighten a gate — that decision should be typed out.
     private FindingsTools() { }
 
     [McpServerTool(Name = "list_scope")]
@@ -746,6 +747,60 @@ public sealed class FindingsTools
             client = result.Client,
             note = "Created. There is no way to delete or rename it through any surface, so do not "
                  + "offer to undo this.",
+        };
+    }
+
+    [McpServerTool(Name = "harden_gate")]
+    [Description("""
+        Tighten one gate on a project: turn it on, or lower its threshold.
+
+        HARDENING ONLY. This surface can make a build harder to ship and never
+        easier. Disabling a gate, raising a threshold, or lowering enforcement
+        are all refused — those are decisions for a person, and asking for one is
+        not something this tool can do for you.
+
+        Refused when the deployment pins enforcement by configuration. Check
+        'enforcement.locked' from get_policy first; the refusal is a permission
+        error and not something to retry.
+
+        Also refused when the change would do NOTHING because a template, the
+        client or the archetype already imposes something stricter — policy
+        layers merge to the strictest value, so a looser write into the project's
+        layer is discarded. The refusal names the layer. This matters because the
+        alternative is you reporting "I tightened the gate" about a record that
+        did not change.
+
+        Read get_policy before calling this. It gives the gate keys, what is in
+        force, and which layer imposed it — everything needed to know whether a
+        call here will do anything at all.
+        """)]
+    public static async Task<object> HardenGateAsync(
+        AgentPolicyService policy,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        [Description("The gate key, as returned by get_policy.")] string gateKey,
+        [Description("The new threshold, lower than what is in force. Omit for a boolean gate.")]
+        double? threshold = null,
+        CancellationToken ct = default)
+    {
+        var result = await policy.HardenGateAsync(
+            context.Require(), projectId, gateKey ?? "", enabled: true, threshold, ct);
+
+        if (result.Refusal is { } refusal) return Invalid(refusal);
+
+        if (result.NoChangeReason is { } unchanged)
+            return new { changed = false, note = unchanged };
+
+        return new
+        {
+            changed = true,
+            gateKey = result.GateKey,
+            label = result.Label,
+            enabled = result.Enabled,
+            threshold = result.Threshold,
+            inForceFrom = result.Source,
+            note = "Hardened. The verdict for the latest build does not change until the gate is "
+                 + "evaluated again — call get_gate to see the effect rather than assuming it.",
         };
     }
 
