@@ -118,6 +118,27 @@ Two other things close policy authoring regardless of this switch:
 
 Policy reads are unconditional in every configuration. An agent that cannot read the policy cannot explain a verdict it is already allowed to see.
 
+### 4b. Or do the whole thing without a browser
+
+Minting used to be UI-only, which meant the agent surface depended on a client page existing — and on a fresh instance it did not, so an operator could not obtain any agent token at all (TFND-259). Every step now has a route:
+
+```bash
+# 1. the client (administrator)
+curl -sS -X POST https://findings.example/clients   -H 'Content-Type: application/json' -b cookies.txt   -d '{"name":"Indelible"}'
+
+# 2. the project
+curl -sS -X POST https://findings.example/projects   -H 'Content-Type: application/json' -b cookies.txt   -d '{"name":"inform","clientId":"<client-id>"}'
+
+# 3. the agent token — PROJECT scope, which is the one to reach for
+curl -sS -X POST https://findings.example/projects/<project-id>/agent-tokens   -H 'Content-Type: application/json' -b cookies.txt   -d '{"name":"claude · remediation","role":"Auditor","expiresInDays":90}'
+```
+
+The plaintext comes back **once**, in the `token` field. `GET` the same path for metadata on existing tokens, and `DELETE /agent-tokens/{id}` to revoke.
+
+These are cookie-authed like the rest of the management API, and they go through exactly the same rules as the UI: `AssignRoles` to mint, the client-scope requirement, and the refusal to mint `InfoSecOfficer`. A client-scoped variant exists at `POST /clients/{id}/agent-tokens` for an agent that genuinely spans a tenant's portfolio.
+
+Why a project scope needs nothing extra: a project implies its client, so the token carries both. "Mint at the client level" was never the requirement — the requirement is that a token names a client, and a project does.
+
 ### 5. Connect the agent
 
 The plaintext is shown **once** and is never recoverable. Put it where that agent reads its secrets from before you navigate away.

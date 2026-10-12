@@ -795,6 +795,9 @@ queries.MapOscal();
 queries.MapProjectVdp();
 queries.MapSbomProvenance();
 queries.MapHierarchyCreate();
+// TFND-259: agent (mcp_) tokens over HTTP, so the MCP surface does not depend on
+// a UI existing for an operator to get a token.
+queries.MapAgentTokens();
 
 // SPA fallback — any URL the API doesn't match (i.e. client-side
 // routes like /projects/<id>/attestation) serves index.html so the
