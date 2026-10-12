@@ -6,6 +6,11 @@ namespace Tamp.Findings.Domain.Tests;
 /// <summary>
 /// Probe for TFND-247: is a loosening project write actually reachable?
 ///
+/// Kept after the fix. The gate half established that PolicyLayerMerge already
+/// prevents a project weakening what it inherits — which is why no validation
+/// was added to GateService — and the mode half now records that enforcement
+/// resolution agrees with the merge instead of contradicting it.
+///
 /// ADR 0007 claims the write side enforces harden-only and GateService does not
 /// validate it, which looked like a hole. Before adding a validation, these
 /// check whether the merge already makes a loosening write ineffective — a
@@ -73,33 +78,40 @@ public class HardenOnlyProbeTests
     }
 
     [Fact]
-    public void But_enforcement_resolution_lets_a_project_weaken_its_clients_mode()
+    public void And_enforcement_resolution_now_honours_it_too()
     {
-        // The path actually used for a verdict. EnforcementResolver does NOT read
-        // the merged layer's strictest-wins Mode — it resolves
-        // project ?? client ?? instance, most-specific-wins, and only applies a
-        // floor when the INSTANCE is locked.
+        // FIXED by TFND-247, and this test is the record of the fix.
         //
-        // So with an unlocked instance, a project override of Advisory beats a
-        // client's Enforcing: the opposite of what the merge above computes and
-        // of what ADR 0007's table states.
+        // It previously asserted the defect: EnforcementResolver ignored the
+        // merged strictest-wins Mode and resolved
+        // project ?? client ?? instance, so on an unlocked instance a project
+        // override of Advisory beat a client's Enforcing — the opposite of the
+        // merge above and of ADR 0007's table.
+        //
+        // The merged Mode is now the input to resolution, so the two agree.
+        var merged = PolicyLayerMerge.Resolve(
+        [
+            Layer("client", l => l.Mode = EnforcementMode.Enforcing),
+            Layer("this project", l => l.Mode = EnforcementMode.Advisory),
+        ]);
+
         var effective = EnforcementResolution.Resolve(
             instanceMode: EnforcementMode.Advisory,
             instanceLocked: false,
-            clientMode: EnforcementMode.Enforcing,
-            projectMode: EnforcementMode.Advisory);
+            authoredMode: merged.Mode!.Value);
 
-        Assert.Equal(EnforcementMode.Advisory, effective);
+        Assert.Equal(EnforcementMode.Enforcing, effective);
     }
 
     [Fact]
-    public void A_locked_instance_floor_does_stop_the_weakening()
+    public void A_locked_instance_floor_still_outranks_everything()
     {
+        // The lock is config-sourced and belongs to the platform team, so it
+        // sits above the layer stack rather than inside it.
         var effective = EnforcementResolution.Resolve(
             instanceMode: EnforcementMode.Enforcing,
             instanceLocked: true,
-            clientMode: EnforcementMode.Enforcing,
-            projectMode: EnforcementMode.Advisory);
+            authoredMode: EnforcementMode.Advisory);
 
         Assert.Equal(EnforcementMode.Enforcing, effective);
     }

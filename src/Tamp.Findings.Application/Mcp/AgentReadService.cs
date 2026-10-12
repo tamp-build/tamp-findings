@@ -615,23 +615,11 @@ public sealed class AgentReadService
                 + "registered but never scanned is this state, and it is not a healthy one.");
         }
 
-        // Canonical commits only (TFND-244). The hub does not filter PR builds
-        // out of its history — on a project with an open pull request its head
-        // IS the PR build — while the gate judges main. Filtering here rather
-        // than changing the hub keeps the dashboard's behaviour untouched
-        // pending that ticket's decision, and still gives the agent a history
-        // that matches the verdict it will be shown.
-        var canonical = await _db.ComponentVersions.AsNoTracking()
-            .Where(v => v.ProjectId == projectId
-                     && v.PullRequestRef == null
-                     && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))
-            .Select(v => v.CommitSha ?? v.VersionString)
-            .Distinct()
-            .ToArrayAsync(ct);
-        var canonicalShas = canonical.ToHashSet(StringComparer.Ordinal);
-
+        // No canonical filter here any more: TFND-244 moved it into the hub, so
+        // hub.History is canonical by construction and matches the gate. A
+        // second filter would be a second definition of "the build", which is
+        // the defect that ticket was.
         var builds = hub.History
-            .Where(b => canonicalShas.Contains(b.CommitSha))
             .Select(b => new AgentBuild(
                 b.CommitSha, b.Branch, b.VersionString, b.IngestedAt,
                 Math.Round(b.Score, 1),

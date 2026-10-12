@@ -84,6 +84,15 @@ else
                     <p class="muted"><a href="@Routes.ProjectHub(_data.Project.ClientName, _data.Project.ProjectName)">A newer build (<span class="mono">@(_newerSha.Length > 7 ? _newerSha[..7] : _newerSha)</span>) has landed — view latest</a></p>
                 }
                 <p class="muted hubhead__build">@(IsLatest ? "Latest build" : "Build"): <span class="mono">@ShortSha</span> · @_data.BuiltAt.ToString("yyyy-MM-dd HH:mm")</p>
+                @* TFND-244: say so when the build on screen is NOT the one the gate judges.
+                   The sentence is computed on ProjectHubData so it can be tested; this
+                   only renders it. *@
+                @if (_data.NotGatedNote is { } notGated)
+                {
+                    <p class="muted hubhead__build">
+                        <Chip Label="Not the gated build" Tone="var(--color-warning)" /> @notGated
+                    </p>
+                }
             </div>
             <div class="hubhead__stats">
                 <div class="statcard" style="--band: @BandColour">

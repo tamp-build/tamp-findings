@@ -12,8 +12,16 @@ public sealed class Client
     // every project under this client unless the project overrides.
     public Guid? RiskPolicyId { get; set; }
 
-    // Null → inherit the instance enforcement mode. Set → applies to every
-    // project under this client unless the project overrides (TFND-148).
+    // LEGACY, and never read since TFND-247. Superseded by PolicyLayer.Mode
+    // below, which is what the client policy screen writes and what the merge
+    // resolves strictest-wins.
+    //
+    // Kept as a column rather than dropped: it is null on every row in every
+    // instance we can see (nothing has written it since the layers landed), so
+    // a migration would be churn for no behaviour — but removing the property
+    // would be a schema change in a release whose point is that enforcement
+    // resolution stopped being ambiguous. Drop it in a cleanup of its own.
+    [Obsolete("Set PolicyLayer.Mode instead; nothing reads this (TFND-247).")]
     public EnforcementMode? EnforcementMode { get; set; }
 
     // The three-layer policy (ADR 0007 / TFND-179). The template this client
