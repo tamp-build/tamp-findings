@@ -15,10 +15,15 @@ That is a design decision, not an omission. An agent able to file a suppression 
 | Tool | Answers |
 |---|---|
 | `list_scope` | Which clients and projects this token reaches. Start here; every other tool takes a project id from it |
-| `get_findings` | Open findings, worst first, filterable by severity / scanner / commit / path |
+| `get_gate` | Whether the latest build is clear to ship, and which gates block it — with the evaluator's own reasons |
+| `get_score` | The risk score, its band, and which categories are costing it |
+| `list_builds` | Recent canonical builds, each scored and gated |
+| `get_findings` | Open findings on the latest canonical build, worst first, filterable by severity / scanner / commit / path |
 | `get_finding` | One finding in full, with surrounding source where the instance holds it |
 | `get_dependencies` | A project's newest SBOM as packages plus flat parent→child edges, advisories attached |
 | `get_suppressions` | What has already been muted and why — suppressions and VEX together |
+
+A remediation agent should start at `get_gate`, not at `get_findings`. Severity ranks findings; a gate decides releases, and the worst finding is often not the thing blocking the build.
 
 ---
 
@@ -111,7 +116,10 @@ Nothing warns you before one lapses. Plan the rotation when you mint, because th
 The surface is honest about its own limits, and those limits should match what you expect of the agent reading through it.
 
 - **Do not treat a count as complete.** `get_findings` is capped and reports the true total. When `truncated` is true the agent has a filtered view, and "there are 200 findings" is a wrong number carrying this product's name.
-- **Do not treat a finding list as a release decision.** The gate verdict is not on this surface yet (TFND-236). An agent can tell you what is wrong; it cannot currently tell you whether the build ships.
+- **Do not let it confuse a gate with a severity.** `get_gate` is the release decision; `get_findings` is the work. A critical finding that no gate covers does not block a build, and an `Unknown` verdict blocks one with no finding behind it at all — the remedy there is the pipeline, not the code.
+- **Do not let it call an advisory failure a blocked release.** Under `Advisory` enforcement a failing gate is recorded and ships. `get_gate` reports the mode; an agent that ignores it will escalate something that was not blocking.
+- **Do not let it quote a verdict for code that has changed.** Every verdict names the commit it belongs to. Once the agent has edited the tree, the verdict it holds describes the build *before* its work.
+- **Do not let it read `firstSeen` as a finding's age.** Findings are keyed per build, so a year-old finding gets a fresh `firstSeen` every build it survives. `firstSeenInProject` is the age; `introducedInThisBuild` is what attributes it to the change under review.
 - **Do not let it infer code it cannot see.** This instance stores source only for files a coverage report brought in. Everywhere else `context` is null and the agent should read the file from the repository rather than reasoning from the scanner's snippet.
 - **Do not let it re-raise settled work.** `get_suppressions` is the record of what a person already decided. An expired suppression is the one case where re-raising is right, and it is marked.
 - **Do not ask it to attest to anything.** Attestation is a signature. The agent has no write path, holds no `AcceptRisk`, and should not be the author of a compliance claim even in prose.

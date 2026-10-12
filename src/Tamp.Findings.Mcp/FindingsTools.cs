@@ -61,11 +61,30 @@ public sealed class FindingsTools
 
     [McpServerTool(Name = "get_findings")]
     [Description("""
-        Open findings across everything this token can see, worst severity first.
-        Filter by minimum severity, scanner, commit sha, or a path fragment.
-        Returns at most 500 (100 by default) and reports the true total: when
-        'truncated' is true, do NOT state the returned count as the number of
-        problems — narrow the filter instead.
+        Open findings on the latest build of everything this token can see,
+        worst severity first. Filter by minimum severity, scanner, commit sha, or
+        a path fragment. Returns at most 500 (100 by default) and reports the
+        true total: when 'truncated' is true, do NOT state the returned count as
+        the number of problems — narrow the filter instead.
+
+        One build per project: the newest canonical one, which is main or master
+        with no pull-request ref — the same build the gate judges. Pass a
+        commitSha to ask about a different build instead. A project whose only
+        builds are from pull-request branches contributes nothing here, because
+        "open on main" is the question this answers.
+
+        Three fields carry time, and they are not interchangeable:
+        - 'firstSeenInProject' is the finding's real age.
+        - 'introducedInThisBuild' is true when the previous canonical build did
+          not have it, so the change under review caused it. Null means there is
+          no previous build to compare against — not false.
+        - 'firstSeen' is only when THIS BUILD saw it, because findings are keyed
+          per build. A year-old finding gets a fresh 'firstSeen' on every build
+          it survives, so quoting it as "open since" makes old problems look new.
+
+        Severity ranks these; time makes them actionable. A critical that has
+        been open for a year is somebody's accepted risk, and a medium this
+        commit introduced is this commit's job.
         """)]
     public static async Task<object> GetFindingsAsync(
         AgentReadService reads,
@@ -139,6 +158,155 @@ public sealed class FindingsTools
                 ? "No stored source for this file, so there is no code context. This instance only "
                   + "holds source for files a coverage report included — read the file from the "
                   + "repository instead of inferring it from the snippet."
+                : null,
+        };
+    }
+
+    [McpServerTool(Name = "get_gate")]
+    [Description("""
+        Whether a project's latest build is clear to ship, and what is stopping
+        it. Ask this FIRST when you have been sent to fix something: severity is
+        not the same thing as a gate, so the worst finding and the thing blocking
+        the release are often not the same work.
+
+        Each row is one gate with the evaluator's own 'observed' and 'reason'
+        text — the same strings the CLI gate prints, so your account of a failure
+        matches the pipeline's. Blocking rows come first.
+
+        Five verdicts, and the difference between them is what to DO:
+        - Pass — within threshold.
+        - Fail — exceeded. Go fix the finding.
+        - Unknown — could not be evaluated, usually because the scanner never
+          ran. Blocks, but the remedy is the pipeline, not the code.
+        - Error — evaluation itself broke. Blocks; tell an operator.
+        - NotApplicable — the gate does not apply to this project's archetype (a
+          library cannot run DAST). Ships, and is not a pass.
+
+        'enforcementMode' says whether a blocking gate actually stops a release:
+        under Advisory it is recorded and does not block. Do not describe an
+        advisory failure as a blocked release.
+
+        The verdict belongs to the commit named in the result. If you have
+        changed code since, it is the verdict for the build BEFORE your change —
+        say so rather than implying your work has been judged.
+        """)]
+    public static async Task<object> GetGateAsync(
+        AgentReadService reads,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        CancellationToken ct = default)
+    {
+        var decision = await reads.GateAsync(context.Require(), projectId, ct);
+
+        if (decision is null)
+            return Invalid("That project is outside this token's scope.");
+
+        if (decision.Unavailable is { } why) return new { decision.ProjectId, note = why };
+
+        return new
+        {
+            decision.ProjectId,
+            decision.CommitSha,
+            decision.VersionString,
+            decision.BuiltAt,
+            decision.EnforcementMode,
+            decision.ClearToShip,
+            decision.Blocking,
+            decision.Score,
+            decision.Band,
+            gates = decision.Gates,
+            note = decision.Blocking == 0
+                ? "Nothing is blocking. Under Advisory mode that is also true of a build with "
+                  + "failing gates, so check enforcementMode before calling a release clear."
+                : null,
+        };
+    }
+
+    [McpServerTool(Name = "get_score")]
+    [Description("""
+        The project's risk score for its latest build, and which categories are
+        costing it. Scores run 0-100 where HIGHER IS WORSE, and the band
+        (green/yellow/orange/red) is this instance's own policy, named in the
+        result — it is not a universal scale and should not be quoted as one.
+
+        Read the categories, not just the number. 'contribution' is the points a
+        category is actually costing, which is the only thing that says where the
+        work is. A category marked 'saturated' is at its ceiling: fixing one more
+        finding in it moves the score by nothing until the count drops below the
+        clamp, so it is usually the wrong place to start.
+
+        A category with enabled=false is NOT scored by this policy — that is
+        different from scoring zero, and the advice for each is opposite.
+
+        'unavailable' means the project has never had a canonical build. Unscored
+        is not a score of zero and not a clean bill of health.
+        """)]
+    public static async Task<object> GetScoreAsync(
+        AgentReadService reads,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        CancellationToken ct = default)
+    {
+        var score = await reads.ScoreAsync(context.Require(), projectId, ct);
+
+        if (score is null)
+            return Invalid("That project is outside this token's scope.");
+
+        if (score.Unavailable is { } why) return new { score.ProjectId, note = why };
+
+        return new
+        {
+            score.ProjectId,
+            score.CommitSha,
+            score.VersionString,
+            score.Score,
+            score.Band,
+            score.PriorScore,
+            score.DeltaPoints,
+            score.PolicyName,
+            categories = score.Categories,
+            note = score.DeltaPoints is > 0
+                ? $"The score moved {score.DeltaPoints} points the wrong way against the previous "
+                  + "canonical build. Higher is worse."
+                : null,
+        };
+    }
+
+    [McpServerTool(Name = "list_builds")]
+    [Description("""
+        The project's recent canonical builds, newest first, each with its score,
+        the points it moved, and its gate tally. Use it to tell a regression from
+        a long-standing problem — a score that has been red for six builds is a
+        different conversation from one that went red on the last commit.
+
+        Canonical means main or master, with no pull-request ref: the same builds
+        the gate judges. A build from a PR branch is not here.
+
+        Capped at six builds, and the cap is not raisable through this tool —
+        every row is a full re-score, so this is the most expensive read on this
+        surface. Six is what the dashboard shows.
+        """)]
+    public static async Task<object> ListBuildsAsync(
+        AgentReadService reads,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        CancellationToken ct = default)
+    {
+        var history = await reads.BuildsAsync(context.Require(), projectId, ct);
+
+        if (history is null)
+            return Invalid("That project is outside this token's scope.");
+
+        if (history.Unavailable is { } why) return new { history.ProjectId, note = why };
+
+        return new
+        {
+            history.ProjectId,
+            builds = history.Builds,
+            returned = history.Builds.Count,
+            note = history.Builds.Count == 1
+                ? "Only one canonical build exists, so no build-over-build movement can be read "
+                  + "from this and nothing here attributes a finding to a change."
                 : null,
         };
     }
