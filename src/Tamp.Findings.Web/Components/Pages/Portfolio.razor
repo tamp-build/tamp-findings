@@ -8,6 +8,7 @@
 @inject PortfolioQuery Query
 @inject NavigationManager Nav
 @inject HierarchyService Hierarchy
+@using Tamp.Findings.Web.Services
 @inject CurrentUser Me
 
 <PageTitle>Portfolio — tamp.findings</PageTitle>
@@ -19,8 +20,20 @@
             <p class="muted">Which project is worst right now.</p>
         </div>
         <div class="row">
-            @* v3: no "New client" button — clients are managed under Manage.
-               Only "New project" lives here. *@
+            @* TFND-257: "New client" is back. The v3 design dropped it on the
+               grounds that clients are managed under Manage — but no Manage
+               screen ever grew the affordance, so a fresh instance had NO path
+               to its first client: the New-project dialog said "create a client
+               first" and offered no way to do it, and an operator was left
+               POSTing /clients from a devtools console.
+
+               Admin-only, because HierarchyService.CreateClientAsync requires
+               Actor.Admin: a client sits above every project and nothing
+               narrower can grant the right to make one. *@
+            @if (_isAdmin)
+            {
+                <Button OnClick="OpenNewClient">New client</Button>
+            }
             <Button Variant="Button.ButtonVariant.Primary"
                     Disabled="@(!_canCreateProject.Allowed)" DisabledReason="@_canCreateProject.Reason"
                     OnClick="OpenNewProject">New project</Button>
@@ -187,6 +200,24 @@
         @if (_clients.Count == 0)
         {
             <p>There are no clients yet. A project has to sit beneath one.</p>
+            @if (_isAdmin)
+            {
+                @* The fix for TFND-257 at the exact point the wall was hit: name
+                   the prerequisite AND offer the route to it, rather than naming
+                   it and disabling the only button. *@
+                <TextField Label="Client name" @bind-Value="_clientName"
+                           Help="A customer or a tenant. Projects sit beneath it." />
+                <Button Variant="Button.ButtonVariant.Primary" OnClick="CreateClientInline">
+                    Create client
+                </Button>
+            }
+            else
+            {
+                <p class="muted">
+                    Creating a client needs an administrator. Ask one to add it, then this
+                    dialog will let you create the project.
+                </p>
+            }
         }
         else
         {
@@ -216,6 +247,21 @@
     </Footer>
 </Dialog>
 
+<Dialog Open="_newClient" OpenChanged="v => _newClient = v" Title="New client" Width="480">
+    <ChildContent>
+        <TextField Label="Name" @bind-Value="_clientName"
+                   Help="A customer or a tenant. Unique across the instance; projects sit beneath it." />
+        @if (_clientError is not null)
+        {
+            <p style="color: var(--color-critical)">@_clientError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="CreateClient">Create client</Button>
+        <Button OnClick="() => _newClient = false">Cancel</Button>
+    </Footer>
+</Dialog>
+
 @code {
     private enum SortCol { Project, Client, Score, Band, Ship, LastBuild }
 
@@ -225,6 +271,13 @@
     private AuthorizationDecision _canCreateProject = AuthorizationDecision.Deny("Checking…");
     private bool _newProject;
     private string? _projectName, _projectDescription, _formError;
+    private string? _clientName, _clientError;
+    private bool _newClient;
+
+    // Creating a client is an Actor.Admin check in HierarchyService rather than
+    // a capability, so it is asked as one — CanAsync would be answering a
+    // different question.
+    private bool _isAdmin;
     private Guid _selectedClientId;
     private bool _loading = true;
     private string? _error;
@@ -349,7 +402,42 @@
         // Instance scope: a client sits above every project, so nothing
         // narrower can grant the right to create one.
         _canCreateProject = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Instance);
+        _isAdmin = ClientCreation.MayCreate(await Me.AtAsync(ScopeTarget.Instance));
         _loading = false;
+    }
+
+    private void OpenNewClient()
+    {
+        (_clientError, _clientName, _newClient) = (null, null, true);
+    }
+
+    // Both entry points run the same orchestration (ClientCreation), then do
+    // the one thing that differs: the dialog closes and reloads, the inline one
+    // stays put and selects what was just made.
+    private async Task<Guid?> CreateClientCoreAsync()
+    {
+        var (id, error) = await ClientCreation.CreateAsync(
+            await Me.AtAsync(ScopeTarget.Instance), Hierarchy, _clientName);
+
+        _clientError = error;
+        if (id is null) return null;
+
+        _clients = await Hierarchy.ClientsAsync();
+        _clientName = null;
+        return id;
+    }
+
+    private async Task CreateClient()
+    {
+        if (await CreateClientCoreAsync() is null) return;
+        _newClient = false;
+        await Reload();
+    }
+
+    private async Task CreateClientInline()
+    {
+        if (await CreateClientCoreAsync() is not { } id) { _formError = _clientError; return; }
+        (_selectedClientId, _formError) = (id, null);
     }
 
     private async Task OpenNewProject()
