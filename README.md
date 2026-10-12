@@ -134,6 +134,12 @@ claude mcp add --transport http tamp-findings https://findings.example/mcp \
 | `get_finding` | One finding in full, with surrounding source where the instance holds it |
 | `get_dependencies` | A project's newest SBOM as packages plus flat parent→child edges, advisories attached |
 | `get_suppressions` | What has already been muted and why — suppressions and VEX together |
+| `get_controls` | Which compliance controls the project owns, inherits or has ruled out — and which are still unmapped |
+| `list_poams` | Open POA&M items, their owners and dates — the answer to "why is this still open" |
+| `get_conformance` | ADR-conformance verdicts: claims checked against the project's own decision records |
+| `get_quality` | Tests and coverage for the latest canonical build |
+| `get_license_worklist` | Packages whose licence nobody could classify — the evidence-gathering an agent is good at |
+| `get_posture` | Branch protection, required reviews, signed commits, org 2FA |
 
 Three properties worth stating, because they are the design:
 

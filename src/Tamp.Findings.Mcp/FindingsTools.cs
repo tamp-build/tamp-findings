@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
 using Tamp.Findings.Application.Mcp;
+using Tamp.Findings.Domain.Compliance;
 using Tamp.Findings.Domain.Values;
 
 namespace Tamp.Findings.Mcp;
@@ -363,6 +364,284 @@ public sealed class FindingsTools
             note = state.Suppressions.Count == 0 && state.Vex.Count == 0
                 ? "Nothing is suppressed on this project. Every open finding is genuinely open."
                 : null,
+        };
+    }
+
+    [McpServerTool(Name = "get_controls")]
+    [Description("""
+        Which compliance controls this project owns, inherits, or has ruled out,
+        and which are still unmapped. Read this before saying anything about
+        compliance: a disposition is an AUTHORED HUMAN POSITION, not a fact you
+        can derive from the findings, and the project — not the template — is the
+        authority for it.
+
+        Four dispositions:
+        - Gated — we own it, and automated gates prove it. 'detail' names them.
+        - Inherited — a layer below provides it (a hosting provider, an
+          authorizing boundary). 'detail' carries the justification, which by
+          convention points at the code that backs the call.
+        - NotApplicable — asserted N/A, or every gate it needs evidence this
+          project cannot produce.
+        - Unmapped — nothing asserts it. This is the gap, and it is what the
+          no-unmapped meta-gate blocks on.
+
+        Unmapped controls sort first and are never the rows the cap cuts. Filter
+        with 'disposition' to see one kind. 'matching' is how many met the
+        filter, which can exceed what was returned.
+
+        Do not propose a disposition and do not describe an Unmapped control as
+        compliant or as non-compliant — unmapped means nobody has said yet.
+        """)]
+    public static async Task<object> GetControlsAsync(
+        AgentReadService reads,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        [Description("Only this disposition: Gated, Inherited, NotApplicable or Unmapped. Omit for all.")]
+        string? disposition = null,
+        [Description("How many controls to return, 1-500. Defaults to 100.")]
+        int? limit = null,
+        CancellationToken ct = default)
+    {
+        if (!TryParse<ControlDisposition>(disposition, out var only))
+            return Invalid($"'{disposition}' is not a disposition. Use {Names<ControlDisposition>()}.");
+
+        var coverage = await reads.ControlsAsync(context.Require(), projectId, only, limit, ct);
+
+        if (coverage is null)
+            return Invalid("That project is outside this token's scope.");
+
+        if (coverage.Unavailable is { } why) return new { coverage.ProjectId, note = why };
+
+        return new
+        {
+            coverage.ProjectId,
+            coverage.InScope,
+            coverage.Gated,
+            coverage.Inherited,
+            coverage.NotApplicable,
+            coverage.Unmapped,
+            coverage.Complete,
+            controls = coverage.Controls,
+            returned = coverage.Controls.Count,
+            matching = coverage.Matching,
+            note = coverage.Unmapped > 0
+                ? $"{coverage.Unmapped} of {coverage.InScope} in-scope controls are Unmapped. That "
+                  + "is an unanswered question, not a failure — and not something to answer here."
+                : null,
+        };
+    }
+
+    [McpServerTool(Name = "list_poams")]
+    [Description("""
+        Plans of action and milestones for this project — the formal record of
+        weaknesses somebody has accepted, scheduled and taken ownership of.
+
+        This is the answer to "why is this still open". A finding covered by a
+        POA&M item has an owner, a date and a plan; proposing a fix for it is
+        fine, but presenting it as unaddressed is wrong, and escalating it is
+        wrong twice.
+
+        'pastDue' marks an item whose scheduled date has passed — a different
+        state from in-progress, and one whose remedy is somebody's attention
+        rather than code. 'unscheduled' counts items with no date at all.
+        """)]
+    public static async Task<object> ListPoamsAsync(
+        AgentReadService reads,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        CancellationToken ct = default)
+    {
+        var board = await reads.PoamsAsync(
+            context.Require(), projectId, DateTimeOffset.UtcNow, ct);
+
+        if (board is null)
+            return Invalid("That project is outside this token's scope.");
+
+        return new
+        {
+            board.ProjectId,
+            items = board.Items,
+            board.Open,
+            board.InProgress,
+            board.Completed,
+            board.RiskAccepted,
+            board.PastDue,
+            board.Unscheduled,
+            note = board.Items.Count == 0
+                ? "This project has no POA&M items. Every open finding is open on its own account."
+                : board.PastDue > 0
+                    ? $"{board.PastDue} item(s) are past their scheduled date."
+                    : null,
+        };
+    }
+
+    [McpServerTool(Name = "get_conformance")]
+    [Description("""
+        ADR-conformance verdicts: claims checked against this project's OWN
+        architecture decision records, rather than rules a scanner shipped.
+
+        Read this before changing structural code. The thing you are about to do
+        may be the thing an ADR forbids, and this is the only place that says so.
+        'claim' is what was checked, 'codeEvidence' and 'location' are what it was
+        checked against, and 'adrRef' names the decision.
+
+        Two methods, and the difference matters when you weigh a verdict:
+        Deterministic (a rule evaluated the code) and Semantic (a model read the
+        ADR and judged). 'controlRefs' links a verdict to the compliance controls
+        it supplies evidence for.
+
+        'dispositioned' means somebody has already accepted this verdict with a
+        justification. It is settled. Re-raising it is the same mistake as
+        re-raising a suppressed finding.
+
+        An empty result means nothing has been checked — which is not the same as
+        conforming.
+        """)]
+    public static async Task<object> GetConformanceAsync(
+        AgentReadService reads,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        CancellationToken ct = default)
+    {
+        var report = await reads.ConformanceAsync(context.Require(), projectId, ct);
+
+        if (report is null)
+            return Invalid("That project is outside this token's scope.");
+
+        if (report.Unavailable is { } why) return new { report.ProjectId, note = why };
+
+        return new
+        {
+            report.ProjectId,
+            report.CommitSha,
+            report.EvaluatedAt,
+            report.Pass,
+            report.Fail,
+            report.Unknown,
+            report.Error,
+            report.Dispositioned,
+            findings = report.Findings,
+            note = report.Unknown + report.Error > 0
+                ? "Some claims could not be evaluated. An unevaluated claim is not a conforming "
+                  + "one — the remedy is usually the conformance run, not the code."
+                : null,
+        };
+    }
+
+    [McpServerTool(Name = "get_quality")]
+    [Description("""
+        Tests and coverage for the project's latest canonical build. Read it
+        before you change code: whether the area you are about to touch is tested
+        at all, and whether the build you are working from was already red.
+
+        A fix shipped into a red build is indistinguishable, in the next report,
+        from whatever was broken before you arrived.
+
+        Coverage is the build-level roll-up. Per-file coverage is deliberately not
+        offered — this instance only holds it for files a coverage report happened
+        to include, and a partial map presented as a map is worse than none.
+
+        Both reports absent means the build was not measured. That is not a
+        passing build.
+        """)]
+    public static async Task<object> GetQualityAsync(
+        AgentReadService reads,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        CancellationToken ct = default)
+    {
+        var quality = await reads.QualityAsync(context.Require(), projectId, ct);
+
+        if (quality is null)
+            return Invalid("That project is outside this token's scope.");
+
+        return new
+        {
+            quality.ProjectId,
+            quality.CommitSha,
+            tests = quality.Tests,
+            coverage = quality.Coverage,
+            note = quality.Unavailable
+                ?? (quality.Tests is { Failed: > 0 }
+                    ? $"{quality.Tests.Failed} test(s) failed on this build. Anything you change "
+                      + "lands on top of that."
+                    : null),
+        };
+    }
+
+    [McpServerTool(Name = "get_license_worklist")]
+    [Description("""
+        Packages in this project's SBOM whose license nobody could classify.
+
+        A license is a global FACT about a package, not this project's opinion of
+        it, and attesting to one is a human act. But establishing what the license
+        actually is — reading the repository, the package metadata, the LICENSE
+        file — is exactly the legwork worth doing, and this is the list of it.
+
+        Report what you find as evidence for a human to attest. Do not state a
+        license as resolved; you cannot resolve one through this surface.
+
+        'declaredLicense' is what the SBOM said when it said something
+        unparseable rather than nothing at all — often the most useful clue.
+        'deniedCount' is separate and already decided: packages this project's
+        policy rejects outright.
+        """)]
+    public static async Task<object> GetLicenseWorklistAsync(
+        AgentReadService reads,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        CancellationToken ct = default)
+    {
+        var worklist = await reads.LicenseWorklistAsync(context.Require(), projectId, ct);
+
+        if (worklist is null)
+            return Invalid("That project is outside this token's scope.");
+
+        if (worklist.Unavailable is { } why) return new { worklist.ProjectId, note = why };
+
+        return new
+        {
+            worklist.ProjectId,
+            unresolved = worklist.Unresolved,
+            count = worklist.Unresolved.Count,
+            worklist.TotalComponents,
+            worklist.DeniedCount,
+            worklist.ResolvedApplied,
+            note = worklist.Unresolved.Count == 0
+                ? "Every package in this build's SBOM has a classifiable license."
+                : null,
+        };
+    }
+
+    [McpServerTool(Name = "get_posture")]
+    [Description("""
+        Repository and organisation posture: branch protection, whether reviews
+        are required, signed commits, organisation 2FA. Control evidence that is
+        a setting rather than a scanner result.
+
+        You cannot remediate most of this — these are checkboxes a person owns.
+        The value in reading it is not proposing code for a control that is
+        failing because of a repository setting.
+
+        An empty result means nothing has been observed, not that everything
+        passes. An unobserved check is not a passing check.
+        """)]
+    public static async Task<object> GetPostureAsync(
+        AgentReadService reads,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        CancellationToken ct = default)
+    {
+        var posture = await reads.PostureAsync(context.Require(), projectId, ct);
+
+        if (posture is null)
+            return Invalid("That project is outside this token's scope.");
+
+        return new
+        {
+            posture.ProjectId,
+            checks = posture.Checks,
+            note = posture.Unavailable,
         };
     }
 

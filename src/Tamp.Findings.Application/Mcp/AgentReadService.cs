@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Application.Authorization;
 using Tamp.Findings.Application.Risk;
 using Tamp.Findings.Domain.Risk;
+using Tamp.Findings.Domain.Compliance;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Values;
@@ -28,17 +29,34 @@ public sealed class AgentReadService
     private readonly CapabilityEvaluator _capabilities;
     private readonly GateDecisionService _gates;
     private readonly Projects.ProjectHubQuery _hub;
+    private readonly Compliance.ControlDispositionQuery _dispositions;
+    private readonly Compliance.ConformanceQuery _conformance;
+    private readonly Poam.PoamQuery _poams;
+    private readonly CategoryFindingsQuery _categories;
 
+    // Eight dependencies, and they stay here rather than moving to a second
+    // class, because this class is the one place a token's scope is applied. A
+    // sibling service reading the same data would need its own scope check,
+    // and the whole reason this type exists is that such a check holds only as
+    // long as every future author remembers it.
     public AgentReadService(
         FindingsDbContext db,
         CapabilityEvaluator capabilities,
         GateDecisionService gates,
-        Projects.ProjectHubQuery hub)
+        Projects.ProjectHubQuery hub,
+        Compliance.ControlDispositionQuery dispositions,
+        Compliance.ConformanceQuery conformance,
+        Poam.PoamQuery poams,
+        CategoryFindingsQuery categories)
     {
         _db = db;
         _capabilities = capabilities;
         _gates = gates;
         _hub = hub;
+        _dispositions = dispositions;
+        _conformance = conformance;
+        _poams = poams;
+        _categories = categories;
     }
 
     /// <summary>
@@ -138,6 +156,7 @@ public sealed class AgentReadService
                 r.f.Id, r.f.Scanner, r.f.RuleId, r.f.Severity, r.f.Title,
                 r.f.FilePath, r.f.Line, r.f.Purl, r.f.FirstSeen, r.f.Hash,
                 r.cv.ProjectId,
+                Commit = r.cv.CommitSha ?? r.cv.VersionString,
             })
             .ToArrayAsync(ct);
 
@@ -169,7 +188,16 @@ public sealed class AgentReadService
         var introduced = new Dictionary<Guid, HashSet<string>?>();
         foreach (var projectId in projectIds)
         {
-            introduced[projectId] = await PriorBuildHashesAsync(projectId, ct);
+            // Anchored on the commit actually being examined. Asking about a
+            // historical commit and attributing against the HEAD's predecessor
+            // would compare a build with itself and answer false for every row
+            // — a meaningless answer that reads like a real one.
+            var examined = picked
+                .Where(r => r.ProjectId == projectId)
+                .Select(r => r.Commit)
+                .FirstOrDefault();
+
+            introduced[projectId] = await PriorBuildHashesAsync(projectId, examined, ct);
         }
 
         var rows = picked
@@ -600,21 +628,28 @@ public sealed class AgentReadService
     }
 
     /// <summary>
-    /// The finding identities the project's PREVIOUS canonical build carried,
-    /// or null when there is no previous one (TFND-237).
+    /// The finding identities carried by the canonical build immediately BEFORE
+    /// the one being examined, or null when there is no such build (TFND-237).
+    ///
+    /// Anchored on the examined commit rather than always on the head's
+    /// predecessor. Asking about a historical commit and diffing it against the
+    /// head's predecessor would, for that commit, compare a build with itself
+    /// and report every finding as not-introduced — a meaningless answer in the
+    /// shape of a real one.
     ///
     /// "Canonical" is defined the same way the gate defines it — main or master,
     /// no pull-request ref — because an agent comparing against a different set
     /// of builds than the gate judges would attribute findings to the wrong
-    /// change. One definition, and this is not where a second one gets written:
-    /// if that definition moves, both move together or the drift is a bug.
+    /// change. If that definition moves, both move together or the drift is a
+    /// bug.
     ///
-    /// Null rather than an empty set when there is no prior build. Empty would
+    /// Null rather than an empty set when there is no earlier build. Empty would
     /// say "the previous build had no findings", which reads as every finding
     /// being newly introduced — the wrong answer, asserted confidently, on
     /// exactly the project where nobody has history to check it against.
     /// </summary>
-    private async Task<HashSet<string>?> PriorBuildHashesAsync(Guid projectId, CancellationToken ct)
+    private async Task<HashSet<string>?> PriorBuildHashesAsync(
+        Guid projectId, string? examinedCommit, CancellationToken ct)
     {
         var commits = await _db.ComponentVersions.AsNoTracking()
             .Where(v => v.ProjectId == projectId
@@ -623,12 +658,19 @@ public sealed class AgentReadService
             .GroupBy(v => v.CommitSha ?? v.VersionString)
             .Select(g => new { Commit = g.Key, Latest = g.Max(v => v.CreatedAt) })
             .OrderByDescending(g => g.Latest)
-            .Take(2)
             .ToArrayAsync(ct);
 
-        if (commits.Length < 2) return null;
+        // The examined commit may not be canonical at all — a caller can name a
+        // pull-request build. There is no "the build before" a branch build, so
+        // attribution is refused rather than answered against main's history.
+        var at = examinedCommit is null
+            ? 0
+            : Array.FindIndex(commits, c => c.Commit == examinedCommit);
+        if (at < 0) return null;
 
-        var prior = commits[1].Commit;
+        if (at + 1 >= commits.Length) return null;
+
+        var prior = commits[at + 1].Commit;
 
         var hashes = await (
             from f in _db.Findings.AsNoTracking()
@@ -686,6 +728,290 @@ public sealed class AgentReadService
         }
 
         return heads;
+    }
+
+    /// <summary>
+    /// Which controls this project owns, inherits, or has ruled out, and which
+    /// are still unmapped (TFND-238).
+    ///
+    /// The surface where an agent is most likely to assert something false if
+    /// it cannot read the real answer. A disposition is an AUTHORED human
+    /// position — the project is the authority (ADR 0015) and the justification
+    /// points at code — not a fact derived from the findings, and an agent that
+    /// inferred one from the evidence it can see would be inventing a
+    /// compliance claim.
+    ///
+    /// Capped, and the unmapped controls are never the ones cut. A baseline runs
+    /// to several hundred controls; the ones with no assertion are the gap the
+    /// no-unmapped meta-gate blocks on, so they are the rows worth a reader's
+    /// attention and they sort first.
+    /// </summary>
+    public async Task<AgentControlCoverage?> ControlsAsync(
+        AgentIdentity agent, Guid projectId, ControlDisposition? only, int? limit,
+        CancellationToken ct = default)
+    {
+        if (Denied(agent) is not null) return null;
+
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
+
+        // Build-independent (capability: null), because an agent asking what a
+        // project owns is asking about the project, not about whether the last
+        // build happened to be able to produce the evidence. Passing a build's
+        // capability here would turn a Gated control into N/A on the strength of
+        // one build's shape, which is a different question than the one asked.
+        var coverage = await _dispositions.ForProjectAsync(projectId, capability: null, ct);
+
+        if (coverage is null)
+        {
+            return new AgentControlCoverage(
+                projectId, 0, 0, 0, 0, 0, false, [], 0,
+                Unavailable:
+                "This project has no compliance framework assigned, or the instance has no current "
+                + "control catalog, so there are no controls to disposition. That is a setup state, "
+                + "not a finding — and it is not the same as having nothing to prove.");
+        }
+
+        var rows = coverage.Controls.AsEnumerable();
+        if (only is { } wanted) rows = rows.Where(c => c.Disposition == wanted);
+
+        var matching = rows
+            // Unmapped first: it is the gap, and a cap that cut it would hide
+            // exactly what the reader needs.
+            .OrderByDescending(c => c.Disposition == ControlDisposition.Unmapped)
+            .ThenBy(c => c.Family, StringComparer.Ordinal)
+            .ThenBy(c => c.ControlId, StringComparer.Ordinal)
+            .ToArray();
+
+        var take = Math.Clamp(limit ?? 100, 1, 500);
+
+        var controls = matching
+            .Take(take)
+            .Select(c => new AgentControl(
+                c.ControlId, c.Title, c.Family, c.Disposition.ToString(), c.Detail, c.Source))
+            .ToArray();
+
+        return new AgentControlCoverage(
+            projectId, coverage.InScope, coverage.Gated, coverage.Inherited,
+            coverage.NotApplicable, coverage.Unmapped, coverage.Complete,
+            controls, matching.Length, Unavailable: null);
+    }
+
+    /// <summary>
+    /// Open POA&amp;M items, and the findings they cover (TFND-238).
+    ///
+    /// The answer to "why is this still open". A finding on a POA&amp;M has an
+    /// owner, a scheduled date and somebody's plan attached; proposing a fix for
+    /// it is not wrong, but presenting it as unaddressed is. Past-due items are
+    /// marked, because a plan whose date has passed is a different state from a
+    /// plan in progress and the remedy is somebody's attention rather than code.
+    /// </summary>
+    public async Task<AgentPoamBoard?> PoamsAsync(
+        AgentIdentity agent, Guid projectId, DateTimeOffset asOf, CancellationToken ct = default)
+    {
+        if (Denied(agent) is not null) return null;
+
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
+
+        var board = await _poams.BoardAsync(projectId, asOf, ct);
+
+        var items = board.Items
+            .Select(i => new AgentPoamItem(
+                i.Id, i.Title, i.WeaknessDescription, i.Severity, i.Status.ToString(),
+                i.Owner, i.ScheduledCompletionDate, i.CreatedAt, i.ClosedAt, i.PastDue,
+                i.LinkCount))
+            .ToArray();
+
+        return new AgentPoamBoard(
+            projectId, items,
+            board.Stats.Open, board.Stats.InProgress, board.Stats.Completed,
+            board.Stats.RiskAccepted, board.Stats.PastDue, board.Stats.Unscheduled);
+    }
+
+    /// <summary>
+    /// ADR-conformance verdicts for the latest build (TFND-238).
+    ///
+    /// A second finding pipeline — claims checked against the project's own
+    /// architecture decisions (ADR 0012) rather than rules a scanner shipped —
+    /// and the one an agent most needs to read before changing structural code,
+    /// because the thing it is about to do may be the thing an ADR forbids.
+    ///
+    /// Dispositioned verdicts are included and marked. A Fail somebody has
+    /// already accepted with a justification is settled, and re-raising it is
+    /// the same mistake as re-raising a suppressed finding.
+    /// </summary>
+    public async Task<AgentConformance?> ConformanceAsync(
+        AgentIdentity agent, Guid projectId, CancellationToken ct = default)
+    {
+        if (Denied(agent) is not null) return null;
+
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
+
+        var report = await _conformance.ForProjectAsync(projectId, commitSha: null, ct);
+
+        if (report is null)
+        {
+            return new AgentConformance(
+                projectId, null, null, 0, 0, 0, 0, 0, [],
+                Unavailable:
+                "No ADR-conformance run has been ingested for this project. Absence of verdicts is "
+                + "not conformance — nothing has been checked.");
+        }
+
+        var findings = report.Findings
+            .Select(f => new AgentConformanceFinding(
+                f.AdrRef, f.RuleId, f.Claim, f.Verdict.ToString(), f.Method.ToString(),
+                f.CodeEvidence, f.Location, f.ControlRefs, f.Blocks,
+                f.Dispositioned, f.DispositionJustification))
+            // Blocking first, then undispositioned: the work, then the record.
+            .OrderByDescending(f => f.Blocks)
+            .ThenBy(f => f.Dispositioned)
+            .ThenBy(f => f.AdrRef, StringComparer.Ordinal)
+            .ToArray();
+
+        return new AgentConformance(
+            projectId, report.CommitSha, report.EvaluatedAt,
+            report.Pass, report.Fail, report.Unknown, report.Error, report.Dispositioned,
+            findings, Unavailable: null);
+    }
+
+    /// <summary>
+    /// Tests and coverage for the latest canonical build (TFND-239).
+    ///
+    /// What an agent should read before it changes code: whether the area it is
+    /// about to touch is tested at all, and whether the build it is working from
+    /// was green. A fix shipped into a red build is indistinguishable, in the
+    /// next report, from the thing that was already broken.
+    ///
+    /// Coverage here is the build-level roll-up. Per-file coverage is not
+    /// surfaced: it exists only for files a coverage report happened to include,
+    /// and a partial map presented as a map is worse than none.
+    /// </summary>
+    public async Task<AgentQuality?> QualityAsync(
+        AgentIdentity agent, Guid projectId, CancellationToken ct = default)
+    {
+        if (Denied(agent) is not null) return null;
+
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
+
+        var heads = await CanonicalHeadsAsync([projectId], ct);
+        if (heads.Count == 0)
+        {
+            return new AgentQuality(projectId, null, null, null,
+                Unavailable: "This project has no canonical build, so there is nothing to report.");
+        }
+
+        var commit = await _db.ComponentVersions.AsNoTracking()
+            .Where(v => heads.Contains(v.Id))
+            .Select(v => v.CommitSha)
+            .FirstOrDefaultAsync(ct);
+
+        var tests = await _db.TestRunReports.AsNoTracking()
+            .Where(t => heads.Contains(t.ComponentVersionId))
+            .OrderByDescending(t => t.IngestedAt)
+            .Select(t => new AgentTestRun(
+                t.ToolName, t.TotalCount, t.PassedCount, t.FailedCount, t.SkippedCount,
+                t.InconclusiveCount, t.CompletedAt))
+            .FirstOrDefaultAsync(ct);
+
+        var coverage = await _db.CoverageReports.AsNoTracking()
+            .Where(c => heads.Contains(c.ComponentVersionId))
+            .OrderByDescending(c => c.IngestedAt)
+            .Select(c => new AgentCoverage(
+                c.ToolName, c.SequenceCoverage, c.BranchCoverage,
+                c.CoveredSequences, c.TotalSequences, c.IngestedAt))
+            .FirstOrDefaultAsync(ct);
+
+        return new AgentQuality(projectId, commit, tests, coverage,
+            // Said rather than left as two nulls. "No tests ran" and "tests ran
+            // and passed" are opposite facts, and an absent report is the first.
+            Unavailable: tests is null && coverage is null
+                ? "Neither a test report nor a coverage report was ingested for this build. That is "
+                  + "not a passing build — it is an unmeasured one."
+                : null);
+    }
+
+    /// <summary>
+    /// Packages whose license nobody could classify (TFND-239).
+    ///
+    /// Instance-wide work, surfaced per project because the project is what the
+    /// agent has a scope for. A license is a global FACT about a package
+    /// (ADR 0017) — attesting to one is a human act, but gathering the evidence
+    /// for it is exactly the legwork an agent is good at, and the unresolved
+    /// list is where that legwork starts.
+    ///
+    /// Deliberately only the unknowns. The resolved map is this instance's
+    /// position on hundreds of packages and an agent does not need to read it to
+    /// do the one thing it can usefully do here.
+    /// </summary>
+    public async Task<AgentLicenseWorklist?> LicenseWorklistAsync(
+        AgentIdentity agent, Guid projectId, CancellationToken ct = default)
+    {
+        if (Denied(agent) is not null) return null;
+
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
+
+        var overview = await _categories.LicenseOverviewAsync(projectId, commitSha: null, ct);
+
+        if (overview is null)
+        {
+            return new AgentLicenseWorklist(projectId, [], 0, 0, 0,
+                Unavailable: "This project has no SBOM, so there are no package licenses to classify.");
+        }
+
+        var unknowns = overview.Unknowns
+            .Select(u => new AgentUnresolvedLicense(u.Purl, u.Name, u.Version, u.DeclaredLicense))
+            .OrderBy(u => u.Purl, StringComparer.Ordinal)
+            .ToArray();
+
+        return new AgentLicenseWorklist(
+            projectId, unknowns, overview.TotalComponents, overview.DeniedCount,
+            overview.ResolvedApplied, Unavailable: null);
+    }
+
+    /// <summary>
+    /// Repository and organisation posture observations (TFND-239 / TFND-212).
+    ///
+    /// Control evidence that is not a scanner result: branch protection, whether
+    /// reviews are required, signed commits, org 2FA. An agent cannot remediate
+    /// most of it — these are settings a person changes — so the value is in not
+    /// proposing code for a control that is failing because of a checkbox.
+    ///
+    /// Reports its own absence clearly, because the producer is upstream work
+    /// (TAM-290) and "nothing observed" will be the normal answer until it ships.
+    /// An unobserved check is not a passing check.
+    /// </summary>
+    public async Task<AgentPosture?> PostureAsync(
+        AgentIdentity agent, Guid projectId, CancellationToken ct = default)
+    {
+        if (Denied(agent) is not null) return null;
+
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
+
+        // One row per check, enforced by a unique index on (ProjectId, CheckId):
+        // an observation is upserted, so this table holds current state and not
+        // a history. Worth stating, because the obvious defensive thing here —
+        // group by check and take the latest — would be dead code implying a
+        // history that does not exist.
+        var latest = await _db.PostureObservations.AsNoTracking()
+            .Where(o => o.ProjectId == projectId)
+            .OrderBy(o => o.CheckId)
+            .Select(o => new AgentPostureCheck(
+                o.CheckId, o.Status.ToString(), o.Detail, o.Source, o.ObservedAt))
+            .ToArrayAsync(ct);
+
+        return new AgentPosture(projectId, latest,
+            Unavailable: latest.Length == 0
+                ? "No posture observation has been reported for this project. The producer that "
+                  + "reports branch protection, review requirements and org 2FA is upstream work, "
+                  + "so this is the expected answer for now — and an unobserved check is not a "
+                  + "passing one."
+                : null);
     }
 
     // ---- Scope --------------------------------------------------------------
@@ -928,6 +1254,172 @@ public sealed record AgentPackage(
     string? LatestVersion, IReadOnlyList<string> Advisories);
 
 public sealed record AgentDependencyEdge(string ParentPurl, string ChildPurl);
+
+// ---- Compliance (TFND-238) --------------------------------------------------
+
+/// <summary>
+/// A project's control dispositions and the roll-up over them (TFND-238).
+/// </summary>
+public sealed record AgentControlCoverage(
+    Guid ProjectId,
+    int InScope,
+    int Gated,
+    int Inherited,
+    int NotApplicable,
+    /// <summary>Controls with no assertion at all — the gap the no-unmapped meta-gate blocks on.</summary>
+    int Unmapped,
+    /// <summary>Every in-scope control has a disposition.</summary>
+    bool Complete,
+    IReadOnlyList<AgentControl> Controls,
+    /// <summary>How many matched the filter, which may exceed what was returned.</summary>
+    int Matching,
+    string? Unavailable);
+
+/// <summary>
+/// One control's disposition.
+///
+/// <see cref="Detail"/> is the gate labels for a Gated control, or the
+/// inheritance/N-A justification otherwise — which is where the code reference
+/// backing the claim lives (ADR 0015). <see cref="Source"/> names the policy
+/// layer that supplied the winning assertion.
+/// </summary>
+public sealed record AgentControl(
+    string ControlId,
+    string Title,
+    string Family,
+    /// <summary>Gated, Inherited, NotApplicable or Unmapped.</summary>
+    string Disposition,
+    string? Detail,
+    string? Source);
+
+/// <summary>
+/// Open plans of action and milestones, with the roll-up (TFND-238).
+/// </summary>
+public sealed record AgentPoamBoard(
+    Guid ProjectId,
+    IReadOnlyList<AgentPoamItem> Items,
+    int Open,
+    int InProgress,
+    int Completed,
+    int RiskAccepted,
+    int PastDue,
+    /// <summary>Items with no scheduled completion date — a plan without a date.</summary>
+    int Unscheduled);
+
+public sealed record AgentPoamItem(
+    Guid Id,
+    string Title,
+    string WeaknessDescription,
+    Severity Severity,
+    string Status,
+    /// <summary>
+    /// The display name of the person who FILED the item, which is what the
+    /// board calls the owner. There is no separate assignee field, so this is
+    /// who to ask about it rather than necessarily who is doing it.
+    /// </summary>
+    string Owner,
+    DateTimeOffset? ScheduledCompletionDate,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? ClosedAt,
+    bool PastDue,
+    /// <summary>How many findings this item covers.</summary>
+    int LinkedFindings);
+
+/// <summary>
+/// ADR-conformance verdicts for a build (TFND-238 / ADR 0012).
+/// </summary>
+public sealed record AgentConformance(
+    Guid ProjectId,
+    string? CommitSha,
+    DateTimeOffset? EvaluatedAt,
+    int Pass,
+    int Fail,
+    int Unknown,
+    int Error,
+    /// <summary>Verdicts somebody has accepted with a justification — settled, not open.</summary>
+    int Dispositioned,
+    IReadOnlyList<AgentConformanceFinding> Findings,
+    string? Unavailable);
+
+public sealed record AgentConformanceFinding(
+    string AdrRef,
+    string RuleId,
+    string Claim,
+    /// <summary>Pass, Fail, Unknown or Error.</summary>
+    string Verdict,
+    /// <summary>Deterministic (a rule) or Semantic (a model read the ADR).</summary>
+    string Method,
+    string? CodeEvidence,
+    string? Location,
+    IReadOnlyList<string> ControlRefs,
+    bool Blocks,
+    bool Dispositioned,
+    string? DispositionJustification);
+
+// ---- Quality and supply chain (TFND-239) ------------------------------------
+
+/// <summary>
+/// Tests and coverage for a build (TFND-239).
+/// </summary>
+public sealed record AgentQuality(
+    Guid ProjectId,
+    string? CommitSha,
+    AgentTestRun? Tests,
+    AgentCoverage? Coverage,
+    string? Unavailable);
+
+public sealed record AgentTestRun(
+    string Tool,
+    int Total,
+    int Passed,
+    int Failed,
+    int Skipped,
+    int Inconclusive,
+    DateTimeOffset CompletedAt);
+
+public sealed record AgentCoverage(
+    string Tool,
+    double SequencePercent,
+    double BranchPercent,
+    int CoveredSequences,
+    int TotalSequences,
+    DateTimeOffset IngestedAt);
+
+/// <summary>
+/// Packages whose license nobody could classify (TFND-239 / ADR 0017).
+/// </summary>
+public sealed record AgentLicenseWorklist(
+    Guid ProjectId,
+    IReadOnlyList<AgentUnresolvedLicense> Unresolved,
+    int TotalComponents,
+    /// <summary>Packages whose license this project's policy denies outright.</summary>
+    int DeniedCount,
+    /// <summary>How many packages the knowledge base already resolved for this build.</summary>
+    int ResolvedApplied,
+    string? Unavailable);
+
+public sealed record AgentUnresolvedLicense(
+    string Purl,
+    string Name,
+    string Version,
+    /// <summary>What the SBOM declared, when it declared something unparseable rather than nothing.</summary>
+    string? DeclaredLicense);
+
+/// <summary>
+/// Repository and organisation posture (TFND-239 / TFND-212).
+/// </summary>
+public sealed record AgentPosture(
+    Guid ProjectId,
+    IReadOnlyList<AgentPostureCheck> Checks,
+    string? Unavailable);
+
+public sealed record AgentPostureCheck(
+    string CheckId,
+    string Status,
+    string? Detail,
+    /// <summary>What reported it, so a reader can tell an observation from an assumption.</summary>
+    string? Source,
+    DateTimeOffset ObservedAt);
 
 public sealed record AgentSuppressionState(
     Guid ProjectId,
