@@ -27,6 +27,11 @@ public class ApiBMcpComplianceToolsTests
     private sealed record World(
         Guid ClientId, Guid ProjectId, Guid ForeignProjectId, Guid PoamId, string CommitSha);
 
+    // The one package the fixture leaves unclassifiable. A field rather than an
+    // inline array so the expectation is allocated once and named where it is
+    // seeded.
+    private static readonly string[] ExpectedUnresolvedPurls = ["pkg:nuget/Mystery@2"];
+
     private async Task<World> SeedAsync()
     {
         var s = ApiBSupport.Suffix();
@@ -126,8 +131,12 @@ public class ApiBMcpComplianceToolsTests
     private static AgentIdentity Agent(ScopeTarget scope) =>
         new(Guid.NewGuid(), "agent", Principal.For(Guid.Empty, "agent:test", false, []), scope);
 
-    private static JsonElement Json(object o) =>
-        JsonSerializer.SerializeToElement(o, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    // Cached rather than constructed per call: JsonSerializerOptions builds and
+    // caches reflection metadata on first use, so a fresh instance per
+    // serialization throws that away every time.
+    private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
+
+    private static JsonElement Json(object o) => JsonSerializer.SerializeToElement(o, Web);
 
     private static (AgentReadService reads, AgentContext ctx) Services(IServiceScope scope, AgentIdentity identity)
     {
@@ -304,7 +313,7 @@ public class ApiBMcpComplianceToolsTests
             .Select(u => u.GetProperty("purl").GetString() ?? "")
             .ToArray();
 
-        Assert.Equal(new[] { "pkg:nuget/Mystery@2" }, purls);
+        Assert.Equal(ExpectedUnresolvedPurls, purls);
         Assert.Equal(2, worklist.GetProperty("totalComponents").GetInt32());
     }
 

@@ -27,6 +27,12 @@ public class ApiBMcpGateToolsTests
         Guid ClientId, Guid ProjectId, Guid FreshProjectId, Guid ForeignProjectId,
         string PriorSha, string HeadSha, string CarriedHash, string IntroducedHash);
 
+    // What the head build carries, and what the prior build carried. Named
+    // fields rather than inline arrays: the difference between these two IS the
+    // attribution these tests exist to check.
+    private static readonly string[] CarriedAndIntroduced = ["carried", "introduced"];
+    private static readonly string[] CarriedOnly = ["carried"];
+
     /// <summary>
     /// One project with two canonical builds, one never-built project, and one
     /// under a different client.
@@ -102,8 +108,12 @@ public class ApiBMcpGateToolsTests
     private static AgentIdentity Agent(ScopeTarget scope) =>
         new(Guid.NewGuid(), "agent", Principal.For(Guid.Empty, "agent:test", false, []), scope);
 
-    private static JsonElement Json(object o) =>
-        JsonSerializer.SerializeToElement(o, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    // Cached rather than constructed per call: JsonSerializerOptions builds and
+    // caches reflection metadata on first use, so a fresh instance per
+    // serialization throws that away every time.
+    private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
+
+    private static JsonElement Json(object o) => JsonSerializer.SerializeToElement(o, Web);
 
     private static (AgentReadService reads, AgentContext ctx) Services(IServiceScope scope, AgentIdentity identity)
     {
@@ -342,7 +352,7 @@ public class ApiBMcpGateToolsTests
             .ToArray();
 
         Assert.Equal(2, page.GetProperty("total").GetInt32());
-        Assert.Equal(new[] { "carried", "introduced" }, rules.OrderBy(r => r, StringComparer.Ordinal).ToArray());
+        Assert.Equal(CarriedAndIntroduced, rules.OrderBy(r => r, StringComparer.Ordinal).ToArray());
     }
 
     [SkippableFact]
@@ -362,7 +372,7 @@ public class ApiBMcpGateToolsTests
             .Select(f => f.GetProperty("ruleId").GetString() ?? "")
             .ToArray();
 
-        Assert.Equal(new[] { "carried" }, rules);
+        Assert.Equal(CarriedOnly, rules);
     }
 
     [SkippableFact]
