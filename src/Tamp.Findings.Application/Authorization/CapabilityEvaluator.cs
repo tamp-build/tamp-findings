@@ -15,7 +15,7 @@ public sealed class CapabilityEvaluator
 {
     /// <summary>
     /// Evaluate against a resolved principal. Scope resolution — walking the
-    /// Client > Project > Component tree and applying narrowest-grant-wins —
+    /// Client > Project tree and applying narrowest-grant-wins —
     /// is TFND-70, and produces the <see cref="Principal"/> handed in here.
     /// </summary>
     public AuthorizationDecision Evaluate(Principal principal, Capability capability)

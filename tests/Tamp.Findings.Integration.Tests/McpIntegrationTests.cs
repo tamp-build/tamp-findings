@@ -144,6 +144,48 @@ public class McpIntegrationTests
         Assert.Contains("InfoSecOfficer", result.Error!, StringComparison.Ordinal);
     }
 
+    [SkippableFact]
+    public async Task Not_even_an_InfoSecOfficer_can_mint_an_agent_that_holds_InfoSecOfficer()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // TFND-242. The rule is not "you cannot grant what you do not hold" —
+        // under that rule an InfoSecOfficer could mint one, because they do hold
+        // it. The rule is that NO agent carries AcceptRisk, because accepting
+        // risk is an Authorizing Official's signature and a credential that
+        // produces it on their behalf is a way around the signature.
+        //
+        // Guarded here rather than only in the settings page's dropdown: "the
+        // UI does not offer it" is a weaker promise than the one the README
+        // makes, and the dropdown is not what a future write path will consult.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var tokens = scope.ServiceProvider.GetRequiredService<McpTokenService>();
+
+        var result = await tokens.MintAsync(
+            world.InfoSecOfficer, world.ProjectScope, "claude", ProjectRole.InfoSecOfficer, 30);
+
+        Assert.False(result.Success);
+        Assert.Contains("InfoSecOfficer", result.Error!, StringComparison.Ordinal);
+    }
+
+    [SkippableFact]
+    public async Task An_InfoSecOfficer_can_still_mint_an_ordinary_agent()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // The TFND-242 refusal is about one role, not about who is asking. An
+        // InfoSecOfficer is usually the person who should be minting these.
+        var world = await SeedAsync();
+        using var scope = _fx.Scope();
+        var tokens = scope.ServiceProvider.GetRequiredService<McpTokenService>();
+
+        var result = await tokens.MintAsync(
+            world.InfoSecOfficer, world.ProjectScope, "claude", ProjectRole.Auditor, 30);
+
+        Assert.True(result.Success);
+    }
+
     // ---- Resolving ----------------------------------------------------------
 
     [SkippableFact]
@@ -515,7 +557,7 @@ public class McpIntegrationTests
         Guid AlphaFindingId, Guid BetaFindingId, Guid OtherProjectFindingId,
         Guid LapsedSuppressionId, Guid AnchoredSuppressionId,
         ScopeTarget ClientScope, ScopeTarget ProjectScope,
-        Principal Admin, Principal LeadDev);
+        Principal Admin, Principal LeadDev, Principal InfoSecOfficer);
 
     /// <summary>
     /// Two clients, two projects under the first — two findings on the first
@@ -638,6 +680,8 @@ public class McpIntegrationTests
             ScopeTarget.Client(client.Id),
             ScopeTarget.Project(client.Id, project.Id),
             Admin: Principal.For(user.Id, user.Login, isAdmin: true, []),
-            LeadDev: Principal.For(user.Id, user.Login, isAdmin: false, [ProjectRole.LeadDev]));
+            LeadDev: Principal.For(user.Id, user.Login, isAdmin: false, [ProjectRole.LeadDev]),
+            InfoSecOfficer: Principal.For(
+                user.Id, user.Login, isAdmin: false, [ProjectRole.InfoSecOfficer]));
     }
 }
