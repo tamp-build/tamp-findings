@@ -87,6 +87,13 @@ public sealed class HierarchyService
         if (await _db.Projects.AnyAsync(p => p.ClientId == clientId && p.Name.ToLower() == name.ToLower(), ct))
             return Result<Guid>.Invalid($"This client already has a project called \"{name}\".");
 
+        // Trim and blank-normalise, the same treatment Name gets two lines up.
+        // The HTTP endpoint used to do this itself; when it was folded into this
+        // service (TFND-258) that normalisation would have been lost, so it
+        // lives here now and both callers get it. A description of "   " is an
+        // absent description, not a description made of spaces.
+        description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+
         var project = new Project { ClientId = clientId, Name = name, Description = description };
         _db.Projects.Add(project);
 

@@ -67,9 +67,17 @@ public static class HierarchyCreateEndpoints
         CreateProjectRequest req, HttpContext ctx, FindingsDbContext db,
         PrincipalResolver principals, HierarchyService hierarchy, CancellationToken ct)
     {
+        // An unknown clientId is a 400, because it arrived in the BODY: it is a
+        // bad field in a submitted request, not a missing resource at the URL.
+        // Checked here rather than letting ForScopeAsync answer, because that
+        // helper is built for path-addressed resources and 404s — and changing
+        // a documented status code as a side effect of an internal refactor
+        // would break a caller for no reason anybody chose.
+        if (!await db.Clients.AsNoTracking().AnyAsync(c => c.Id == req.ClientId, ct))
+            return Results.BadRequest("clientId not found");
+
         // Scoped to the client the project will sit under, so the capability is
-        // evaluated where it actually applies. ForScopeAsync 404s an unknown
-        // client, which is also the right answer for a bad clientId.
+        // evaluated where it actually applies.
         var (actor, _, deny) = await EndpointActor.ForScopeAsync(
             ctx, db, principals, clientId: req.ClientId, projectId: null, ct);
         if (deny is not null) return deny;
