@@ -19,9 +19,16 @@ namespace Tamp.Findings.Application.Mcp;
 /// projectId the agent supplied, and the scoping rule would hold only as long
 /// as every future tool remembered to check — which is to say, not for long.
 ///
-/// Reads only. There is deliberately no write path: an agent that can file a
-/// suppression can retire a finding it was asked to fix, and the whole value of
-/// this product is that the evidence is not negotiable.
+/// Reads only, and still reads only. The agent surface has grown two narrow
+/// writes since — creating a project (TFND-250) and tightening a gate
+/// (TFND-252) — and they live in their own services precisely so this sentence
+/// stays true of this class. A write path added here would make the comment
+/// above it false, and the comment is the thing keeping the scoping argument
+/// honest.
+///
+/// Neither of those writes touches evidence, which is the line that matters: an
+/// agent that can file a suppression can retire a finding it was asked to fix,
+/// and the whole value of this product is that the evidence is not negotiable.
 /// </summary>
 public sealed class AgentReadService
 {

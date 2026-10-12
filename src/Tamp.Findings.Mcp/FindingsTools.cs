@@ -31,8 +31,8 @@ public sealed class FindingsTools
     // Not a static class, only because WithTools<T> cannot take one as a type
     // argument. Explicit registration is worth that: assembly scanning would
     // expose any tool type added later without anyone deciding to, and on a
-    // read surface over other people's findings that decision should be typed
-    // out.
+    // surface over other people's evidence — one that can now also create a
+    // project and tighten a gate — that decision should be typed out.
     private FindingsTools() { }
 
     [McpServerTool(Name = "list_scope")]

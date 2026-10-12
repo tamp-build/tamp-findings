@@ -291,9 +291,16 @@ else
                     <div>
                         <h2>Agent access</h2>
                         <p class="field__help">
-                            Tokens that let an MCP client — Claude Code, an agent in CI — READ this
-                            project's findings. They cannot write: an agent that could file a
+                            Tokens that let an MCP client — Claude Code, an agent in CI — read this
+                            project's findings, its gates and its compliance posture.
+                            <strong>They cannot touch evidence</strong>: an agent that could file a
                             suppression could retire the finding it was asked to fix.
+                            <br /><br />
+                            A token minted as <strong>Architect</strong> can also create a project
+                            and <em>tighten</em> a gate — never loosen one, disable one, or lower
+                            enforcement. Gate tightening is off until an administrator allows it
+                            under <strong>System → Instance settings</strong>. Mint as
+                            <strong>Auditor</strong> for an agent that only reads.
                         </p>
                     </div>
                     <Button Variant="Button.ButtonVariant.Primary"
