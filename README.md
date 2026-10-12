@@ -126,19 +126,21 @@ claude mcp add --transport http tamp-findings https://findings.example/mcp \
 
 | Tool | Answers |
 |---|---|
-| `list_scope` | Which clients, projects and components this token reaches |
+| `list_scope` | Which clients and projects this token reaches |
 | `get_findings` | Open findings, worst first, filterable by severity / scanner / commit / path |
 | `get_finding` | One finding in full, with surrounding source where the instance holds it |
-| `get_dependencies` | A component's SBOM as packages plus flat parent→child edges, advisories attached |
+| `get_dependencies` | A project's newest SBOM as packages plus flat parent→child edges, advisories attached |
 | `get_suppressions` | What has already been muted and why — suppressions and VEX together |
 
 Three properties worth stating, because they are the design:
 
 - **Read only.** There is no write path. An agent that could file a suppression could retire the finding it was asked to fix.
-- **Scoped down, never up.** A component token cannot see its siblings; a project token sees all its components; a client token sees that client's whole tree. Nothing reaches another client.
+- **Scoped down, never up.** A project token sees that project and its builds, never a sibling project; a client token sees that client's whole tree. Nothing reaches another client.
 - **Same authorization as a person.** A token carries a `ProjectRole` and every read goes through the same `CapabilityEvaluator` a human's does — the tools do not have their own rules to get wrong. `InfoSecOfficer` cannot be minted, because it carries `AcceptRisk` and an agent must not be a route around an Authorizing Official's signature.
 
 Tokens expire (90 days by default), the plaintext is shown once, and minting and revoking are both recorded as access-class audit entries.
+
+**Putting agents on an instance for the first time?** [`docs/AGENT-ACCESS.md`](docs/AGENT-ACCESS.md) is the runbook — one token per agent, picking the scope and role, verifying the blast radius before you hand it over, and what not to ask an agent to do with it.
 
 ## Base-image age
 

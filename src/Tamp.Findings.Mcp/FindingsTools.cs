@@ -30,10 +30,14 @@ public sealed class FindingsTools
 
     [McpServerTool(Name = "list_scope")]
     [Description("""
-        List the clients, projects and components this token can see. Start here:
-        the other tools take ids from this tree, and a token is scoped down, never
-        up — a component-scoped token cannot see its siblings, and asking for one
-        returns nothing rather than an error.
+        List the clients and projects this token can see. Start here: the other
+        tools take project ids from this tree, and a token is scoped down, never
+        up — a project-scoped token cannot see its sibling projects, and asking
+        for one returns nothing rather than an error.
+
+        The hierarchy is client → project → build. A build is a commit of a
+        project; there is no tier between a project and its builds, so a project
+        id is the id every other tool wants.
         """)]
     public static async Task<object> ListScopeAsync(
         AgentReadService reads,
@@ -49,8 +53,8 @@ public sealed class FindingsTools
             // sees nothing should know the difference between "this instance is
             // empty" and "your token does not reach anything".
             note = scope.Count == 0
-                ? "This token's scope contains no components. It may be scoped to a project that "
-                  + "has none yet, or the role it carries cannot view evidence."
+                ? "This token's scope contains no projects. It may be scoped to a client that has "
+                  + "none yet, or the role it carries cannot view evidence."
                 : null,
         };
     }
@@ -141,22 +145,26 @@ public sealed class FindingsTools
 
     [McpServerTool(Name = "get_dependencies")]
     [Description("""
-        The dependency graph from a component's most recent SBOM: every package,
+        The dependency graph from a project's most recent SBOM: every package,
         the edges between them, and the advisories attached to each. Use it to
         answer "what pulls this in" — the edges are flat (parent purl, child
-        purl), so a transitive path is a walk over them. Returns not-found when
-        the component has no SBOM or is outside this token's scope.
+        purl), so a transitive path is a walk over them.
+
+        Only the newest build's SBOM, and the build it came from is named in the
+        result: do not treat it as the graph of code you have since changed.
+        Returns not-found when the project has no SBOM or is outside this token's
+        scope.
         """)]
     public static async Task<object> GetDependenciesAsync(
         AgentReadService reads,
         AgentContext context,
-        [Description("The component id, as returned by list_scope.")] Guid componentId,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
         CancellationToken ct = default)
     {
-        var graph = await reads.DependenciesAsync(context.Require(), componentId, ct);
+        var graph = await reads.DependenciesAsync(context.Require(), projectId, ct);
 
         return graph is null
-            ? Invalid("No SBOM is available for that component, or it is outside this token's scope.")
+            ? Invalid("No SBOM is available for that project, or it is outside this token's scope.")
             : new { graph, packages = graph.Packages.Count, edges = graph.Edges.Count };
     }
 

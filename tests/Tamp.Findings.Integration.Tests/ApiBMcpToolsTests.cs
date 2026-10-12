@@ -122,7 +122,7 @@ public class ApiBMcpToolsTests
         var (reads2, ctx2) = Services(scope, Agent(ScopeTarget.Instance));
         var none = Json(await FindingsTools.ListScopeAsync(reads2, ctx2));
         Assert.Equal(0, none.GetProperty("projects").GetArrayLength());
-        Assert.Contains("contains no components", none.GetProperty("note").GetString(), StringComparison.Ordinal);
+        Assert.Contains("contains no projects", none.GetProperty("note").GetString(), StringComparison.Ordinal);
     }
 
     [SkippableFact]

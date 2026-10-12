@@ -14,9 +14,9 @@ namespace Tamp.Findings.Application.Mcp;
 /// Tokens that let an agent read this instance (TFND-12 / F11.2, F11.4).
 ///
 /// The scoping rule from the epic, and it is the whole design: tokens are
-/// scoped DOWN, never up. A component-level token cannot see its siblings; a
-/// project-level token sees all its components; a client-level token sees the
-/// whole tree under that client.
+/// scoped DOWN, never up. A project-level token sees that project and its
+/// builds, never a sibling project; a client-level token sees the whole tree
+/// under that client. Nothing reaches another client.
 ///
 /// That is enforced by resolving the token to a <see cref="Principal"/> at its
 /// own <see cref="ScopeTarget"/> and letting the ordinary capability evaluator
@@ -47,10 +47,9 @@ public sealed class McpTokenService
     public async Task<IReadOnlyList<McpTokenRow>> ListAsync(
         ScopeTarget scope, DateTimeOffset asOf, CancellationToken ct = default)
     {
-        // Tokens AT this scope or NARROWER. A project's settings screen should
-        // show the component-scoped tokens under it — they read its data — and
-        // must not show the client-scoped one, which is somebody else's to
-        // manage.
+        // Tokens AT this scope or NARROWER. A project's settings screen shows
+        // the tokens scoped to that project — they read its data — and must not
+        // show the client-scoped one, which is somebody else's to manage.
         var tokens = await _db.McpTokens.AsNoTracking()
             .Where(t => t.ClientId == scope.ClientId
                      && (scope.ProjectId == null || t.ProjectId == scope.ProjectId))
@@ -99,6 +98,23 @@ public sealed class McpTokenService
             return Result<MintedMcpToken>.Invalid(
                 "An agent token has to be scoped to at least a client. An instance-wide read token "
                 + "would be a standing grant over every tenant.");
+
+        // No agent carries InfoSecOfficer — not even one minted BY an
+        // InfoSecOfficer (TFND-242). That role holds AcceptRisk, and accepting
+        // risk is an Authorizing Official's signature; a credential that can
+        // produce it on their behalf is a way around the signature rather than
+        // an exercise of it.
+        //
+        // Refused here and not only in the settings page's dropdown, because
+        // "the UI does not offer it" is a different guarantee from "it cannot
+        // be minted" — and it is the second one the README promises. Harmless
+        // while this surface is read-only; load-bearing the moment a
+        // propose/decide path exists (TFND-240).
+        if (role == ProjectRole.InfoSecOfficer)
+            return Result<MintedMcpToken>.Invalid(
+                "An agent token cannot carry InfoSecOfficer. That role accepts risk on an "
+                + "Authorizing Official's behalf, and that signature has to be a person's. Mint "
+                + "the token as Auditor to read everything without being able to decide anything.");
 
         // An agent cannot be granted more than the person minting it holds.
         // Otherwise "give the bot Admin" becomes the way anyone escalates.
