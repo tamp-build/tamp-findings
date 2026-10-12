@@ -20,7 +20,16 @@ public sealed record GateDecisionResult(
     Guid PolicyId,
     string PolicyName,
     GateEvaluation Evaluation,
-    EnforcementMode Mode);
+    EnforcementMode Mode,
+    // The scorer's full result for the current build, breakdown included
+    // (TFND-236). CurrentScore and CurrentBand above are this result's rounded
+    // score and its band, kept because every existing caller reads them.
+    //
+    // Carried rather than recomputed by whoever wants the breakdown: this
+    // service has already built the RiskInputs and run the scorer, and a second
+    // caller doing it again would be a second derivation of one number — the
+    // "9 gates enabled" bug class, which this service exists to prevent.
+    RiskResult CurrentRisk);
 
 // Evaluates the latest canonical build of a project against its effective risk
 // policy + gates, WITH the prior canonical build for the delta-aware gates, and
@@ -136,7 +145,8 @@ public sealed class GateDecisionService
             PolicyId: policy.Id ?? Guid.Empty,
             PolicyName: policy.Name,
             Evaluation: evaluation,
-            Mode: mode));
+            Mode: mode,
+            CurrentRisk: currentResult));
     }
 
 }

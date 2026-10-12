@@ -127,7 +127,10 @@ claude mcp add --transport http tamp-findings https://findings.example/mcp \
 | Tool | Answers |
 |---|---|
 | `list_scope` | Which clients and projects this token reaches |
-| `get_findings` | Open findings, worst first, filterable by severity / scanner / commit / path |
+| `get_gate` | Whether the latest build is clear to ship, and which gates block it — with the evaluator's own reasons |
+| `get_score` | The risk score, its band, and which categories are costing it |
+| `list_builds` | Recent canonical builds, each scored and gated, so a regression reads differently from a standing problem |
+| `get_findings` | Open findings on the latest canonical build, worst first, filterable by severity / scanner / commit / path |
 | `get_finding` | One finding in full, with surrounding source where the instance holds it |
 | `get_dependencies` | A project's newest SBOM as packages plus flat parent→child edges, advisories attached |
 | `get_suppressions` | What has already been muted and why — suppressions and VEX together |

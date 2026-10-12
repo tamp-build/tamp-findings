@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Application.Authorization;
+using Tamp.Findings.Application.Risk;
+using Tamp.Findings.Domain.Risk;
 using Tamp.Findings.Data;
 using Tamp.Findings.Domain.Entities;
 using Tamp.Findings.Domain.Values;
@@ -24,11 +26,19 @@ public sealed class AgentReadService
 {
     private readonly FindingsDbContext _db;
     private readonly CapabilityEvaluator _capabilities;
+    private readonly GateDecisionService _gates;
+    private readonly Projects.ProjectHubQuery _hub;
 
-    public AgentReadService(FindingsDbContext db, CapabilityEvaluator capabilities)
+    public AgentReadService(
+        FindingsDbContext db,
+        CapabilityEvaluator capabilities,
+        GateDecisionService gates,
+        Projects.ProjectHubQuery hub)
     {
         _db = db;
         _capabilities = capabilities;
+        _gates = gates;
+        _hub = hub;
     }
 
     /// <summary>
@@ -77,6 +87,29 @@ public sealed class AgentReadService
             where projects.Contains(cv.ProjectId) && f.Status == FindingStatus.Open
             select new { f, cv };
 
+        // One build per project, unless the caller named a commit (TFND-243).
+        //
+        // Findings are per-build rows and the auto-close sweep only touches the
+        // build being ingested, so a finding that survives leaves an Open row
+        // behind on every build it ever appeared on. Unscoped, this query
+        // returned all of them: a project with six builds and ten persistent
+        // findings answered "sixty open findings", repeated the same problem
+        // under six different ids, and reported a total the tool description
+        // tells the agent to trust.
+        //
+        // The latest CANONICAL build is the default because it is the build the
+        // gate judges — an agent whose finding list and whose verdict described
+        // different commits would be reconciling them by hand, wrongly.
+        if (filter.CommitSha is not { Length: > 0 })
+        {
+            var heads = await CanonicalHeadsAsync(projects, ct);
+
+            // A project with no canonical build contributes nothing rather than
+            // falling back to a PR build. "Nothing is open on main" is true;
+            // "here are findings from an unmerged branch" is a different claim.
+            query = query.Where(r => heads.Contains(r.cv.Id));
+        }
+
         if (filter.Severity is { } minimum)
             query = query.Where(r => r.f.Severity >= minimum);
 
@@ -95,15 +128,59 @@ public sealed class AgentReadService
 
         var take = Math.Clamp(filter.Limit ?? 100, 1, 500);
 
-        var rows = await query
+        var picked = await query
             .OrderByDescending(r => r.f.Severity)
             .ThenBy(r => r.f.FilePath)
             .ThenBy(r => r.f.Line)
             .Take(take)
-            .Select(r => new AgentFinding(
+            .Select(r => new
+            {
                 r.f.Id, r.f.Scanner, r.f.RuleId, r.f.Severity, r.f.Title,
-                r.f.FilePath, r.f.Line, r.f.Purl, r.f.FirstSeen))
+                r.f.FilePath, r.f.Line, r.f.Purl, r.f.FirstSeen, r.f.Hash,
+                r.cv.ProjectId,
+            })
             .ToArrayAsync(ct);
+
+        // The temporal signals (TFND-237), for the page actually returned
+        // rather than for the whole project — two bounded queries keyed on the
+        // hashes in hand, not a per-row lookup.
+        var hashes = picked.Select(r => r.Hash).Distinct().ToArray();
+        var projectIds = picked.Select(r => r.ProjectId).Distinct().ToArray();
+
+        // Real age: the earliest any build of the project saw this identity.
+        // FirstSeen on the row is only when THIS build saw it, because ingest
+        // keys findings per (build, scanner) — so a year-old finding looks
+        // newly born on every build it survives.
+        var ages = hashes.Length == 0
+            ? []
+            : await (
+                from f in _db.Findings.AsNoTracking()
+                join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
+                where projectIds.Contains(cv.ProjectId) && hashes.Contains(f.Hash)
+                group f by new { cv.ProjectId, f.Hash } into g
+                select new { g.Key.ProjectId, g.Key.Hash, Earliest = g.Min(f => f.FirstSeen) })
+                .ToArrayAsync(ct);
+
+        var earliest = ages.ToDictionary(a => (a.ProjectId, a.Hash), a => a.Earliest);
+
+        // Attribution: which hashes the PREVIOUS canonical build of each project
+        // carried. Present now and absent there means the change under review
+        // introduced it.
+        var introduced = new Dictionary<Guid, HashSet<string>?>();
+        foreach (var projectId in projectIds)
+        {
+            introduced[projectId] = await PriorBuildHashesAsync(projectId, ct);
+        }
+
+        var rows = picked
+            .Select(r => new AgentFinding(
+                r.Id, r.Scanner, r.RuleId, r.Severity, r.Title,
+                r.FilePath, r.Line, r.Purl, r.FirstSeen,
+                earliest.TryGetValue((r.ProjectId, r.Hash), out var age) ? age : r.FirstSeen,
+                introduced.TryGetValue(r.ProjectId, out var priorHashes) && priorHashes is not null
+                    ? !priorHashes.Contains(r.Hash)
+                    : null))
+            .ToArray();
 
         return new AgentFindingsPage(rows, total, total > rows.Length, null);
     }
@@ -323,6 +400,294 @@ public sealed class AgentReadService
             vex.OrderBy(v => v.AdvisoryId, StringComparer.Ordinal).ToArray());
     }
 
+    /// <summary>
+    /// The release decision for a project's latest canonical build (TFND-236).
+    ///
+    /// The question an agent sent to remediate something actually has. "What
+    /// findings exist" is the question it can already ask, and answering only
+    /// that leaves it guessing at which of them stand between this build and a
+    /// release — a guess it will make confidently and wrongly, because severity
+    /// is not the same thing as a gate.
+    ///
+    /// Delegates to <see cref="GateDecisionService"/>, the same evaluation the
+    /// dashboard and the CLI gate read. Not a second implementation: a gate
+    /// verdict that disagreed with the CLI's would be worse than no verdict at
+    /// all, because an agent would report it to someone who then ran the CLI.
+    /// </summary>
+    public async Task<AgentGateDecision?> GateAsync(
+        AgentIdentity agent, Guid projectId, CancellationToken ct = default)
+    {
+        if (Denied(agent) is not null) return null;
+
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
+
+        var (status, result) = await _gates.ForLatestAsync(projectId, ct);
+
+        // The non-Ok statuses are reported rather than collapsed into a null.
+        // "This project has never been built" and "this project is not yours"
+        // are different answers, and only one of them means the agent should
+        // stop asking.
+        if (status != GateDecisionStatus.Ok || result is null)
+        {
+            return new AgentGateDecision(
+                projectId, null, null, null, null,
+                Unavailable: status switch
+                {
+                    GateDecisionStatus.NoBuilds =>
+                        "This project has no canonical build yet, so there is nothing to gate. A "
+                        + "build on a pull-request branch does not count — gates judge main.",
+                    GateDecisionStatus.NoPolicy =>
+                        "This instance has no default risk policy seeded, so no verdict can be "
+                        + "computed. That is an operator problem, not a remediation one.",
+                    GateDecisionStatus.ProjectNotFound =>
+                        "That project no longer exists.",
+                    _ => "No verdict is available for this project.",
+                },
+                [], null, null, null, null);
+        }
+
+        var gates = result.Evaluation.Results
+            .Where(g => g.Enabled)
+            .Select(g => new AgentGateRow(
+                g.Key, g.Verdict.ToString(), g.Blocks, g.Observed, g.Threshold, g.Reason))
+            // Blocking first: the agent is here to clear a gate, and the rows
+            // that block are the work. Within that, by verdict then key, so the
+            // order is stable across calls rather than whatever the evaluator
+            // happened to emit.
+            .OrderByDescending(g => g.Blocks)
+            .ThenBy(g => g.Verdict, StringComparer.Ordinal)
+            .ThenBy(g => g.Key, StringComparer.Ordinal)
+            .ToArray();
+
+        return new AgentGateDecision(
+            projectId,
+            result.Current.CommitSha,
+            result.Current.VersionString,
+            result.Current.LatestCreatedAt,
+            result.Mode.ToString(),
+            Unavailable: null,
+            gates,
+            result.Evaluation.ClearToShip,
+            result.Evaluation.Blocking,
+            result.CurrentScore,
+            result.CurrentBand);
+    }
+
+    /// <summary>
+    /// The score for the latest canonical build, and where it came from
+    /// (TFND-236).
+    ///
+    /// The breakdown is the point. A bare number invites an agent to invent a
+    /// weighting of its own — "criticals are probably most of it" — and then to
+    /// prioritise against a model this instance does not use. The per-category
+    /// contribution says which work moves the number, which is the only thing
+    /// the number is good for.
+    ///
+    /// Saturated categories are flagged, because they invert the usual advice:
+    /// a category at its ceiling cannot get worse, so fixing one more finding
+    /// in it moves nothing until the count drops below the clamp.
+    /// </summary>
+    public async Task<AgentScore?> ScoreAsync(
+        AgentIdentity agent, Guid projectId, CancellationToken ct = default)
+    {
+        if (Denied(agent) is not null) return null;
+
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
+
+        var (status, result) = await _gates.ForLatestAsync(projectId, ct);
+        if (status != GateDecisionStatus.Ok || result is null)
+        {
+            return new AgentScore(
+                projectId, null, null, null, null, null, null, null, [],
+                Unavailable: status == GateDecisionStatus.NoBuilds
+                    ? "This project has no canonical build yet, so it is unscored. Unscored is not "
+                      + "a score of zero and not a clean bill of health."
+                    : "No score is available for this project.");
+        }
+
+        var risk = result.CurrentRisk;
+
+        // Every category, including the disabled ones, each saying which it is.
+        // An agent told only about the enabled ones cannot tell "this project
+        // does not score DAST" from "this project scores DAST at zero", and
+        // those lead to opposite advice.
+        var categories = risk.Breakdown
+            .Select(c => new AgentScoreCategory(
+                c.Key, c.Enabled, Math.Round(c.EffectiveMax, 1), Math.Round(c.SubScore, 3),
+                Math.Round(c.Contribution, 1), c.Saturated))
+            .OrderByDescending(c => c.Contribution)
+            .ThenBy(c => c.Key, StringComparer.Ordinal)
+            .ToArray();
+
+        return new AgentScore(
+            projectId,
+            result.Current.CommitSha,
+            result.Current.VersionString,
+            result.CurrentScore,
+            result.CurrentBand,
+            result.PriorScore,
+            result.PriorScore is { } prior ? Math.Round(result.CurrentScore - prior, 1) : null,
+            result.PolicyName,
+            categories,
+            Unavailable: null);
+    }
+
+    /// <summary>
+    /// The last few canonical builds, scored and gated (TFND-237).
+    ///
+    /// Priority on this surface is mostly temporal, and a flat list of open
+    /// findings carries no time at all. A finding introduced by the commit
+    /// under review is a different task from one that has been open for six
+    /// months and is already somebody's POA&amp;M item, and an agent cannot tell
+    /// them apart from severity.
+    ///
+    /// Reuses the hub's history rather than scoring builds again here. It is
+    /// the expensive read on this surface — six builds means six RiskInputs
+    /// builds and six scorer passes — which is why the hub caps it at six and
+    /// why this does not offer a way to ask for more.
+    /// </summary>
+    public async Task<AgentBuildHistory?> BuildsAsync(
+        AgentIdentity agent, Guid projectId, CancellationToken ct = default)
+    {
+        if (Denied(agent) is not null) return null;
+
+        var projects = await VisibleIdsAsync(agent, ct);
+        if (!projects.Contains(projectId)) return null;
+
+        var project = await _db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => new Projects.ProjectRef(
+                p.ClientId, p.Client!.Name, p.Id, p.Name, p.RiskPolicyId, p.GatesConfig))
+            .SingleOrDefaultAsync(ct);
+        if (project is null) return null;
+
+        var hub = await _hub.LoadAsync(project, commitSha: null, ct);
+        if (hub is null)
+        {
+            return new AgentBuildHistory(projectId, [], Unavailable:
+                "This project has no canonical build yet, so there is no history. A project "
+                + "registered but never scanned is this state, and it is not a healthy one.");
+        }
+
+        // Canonical commits only (TFND-244). The hub does not filter PR builds
+        // out of its history — on a project with an open pull request its head
+        // IS the PR build — while the gate judges main. Filtering here rather
+        // than changing the hub keeps the dashboard's behaviour untouched
+        // pending that ticket's decision, and still gives the agent a history
+        // that matches the verdict it will be shown.
+        var canonical = await _db.ComponentVersions.AsNoTracking()
+            .Where(v => v.ProjectId == projectId
+                     && v.PullRequestRef == null
+                     && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))
+            .Select(v => v.CommitSha ?? v.VersionString)
+            .Distinct()
+            .ToArrayAsync(ct);
+        var canonicalShas = canonical.ToHashSet(StringComparer.Ordinal);
+
+        var builds = hub.History
+            .Where(b => canonicalShas.Contains(b.CommitSha))
+            .Select(b => new AgentBuild(
+                b.CommitSha, b.Branch, b.VersionString, b.IngestedAt,
+                Math.Round(b.Score, 1),
+                b.Delta is { } d ? Math.Round(d, 1) : null,
+                b.CoveragePercent is { } cov ? Math.Round(cov, 1) : null,
+                b.Gates.ClearToShip, b.Gates.Blocking, b.Gates.Enabled))
+            .ToArray();
+
+        return new AgentBuildHistory(projectId, builds, Unavailable: null);
+    }
+
+    /// <summary>
+    /// The finding identities the project's PREVIOUS canonical build carried,
+    /// or null when there is no previous one (TFND-237).
+    ///
+    /// "Canonical" is defined the same way the gate defines it — main or master,
+    /// no pull-request ref — because an agent comparing against a different set
+    /// of builds than the gate judges would attribute findings to the wrong
+    /// change. One definition, and this is not where a second one gets written:
+    /// if that definition moves, both move together or the drift is a bug.
+    ///
+    /// Null rather than an empty set when there is no prior build. Empty would
+    /// say "the previous build had no findings", which reads as every finding
+    /// being newly introduced — the wrong answer, asserted confidently, on
+    /// exactly the project where nobody has history to check it against.
+    /// </summary>
+    private async Task<HashSet<string>?> PriorBuildHashesAsync(Guid projectId, CancellationToken ct)
+    {
+        var commits = await _db.ComponentVersions.AsNoTracking()
+            .Where(v => v.ProjectId == projectId
+                     && v.PullRequestRef == null
+                     && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))
+            .GroupBy(v => v.CommitSha ?? v.VersionString)
+            .Select(g => new { Commit = g.Key, Latest = g.Max(v => v.CreatedAt) })
+            .OrderByDescending(g => g.Latest)
+            .Take(2)
+            .ToArrayAsync(ct);
+
+        if (commits.Length < 2) return null;
+
+        var prior = commits[1].Commit;
+
+        var hashes = await (
+            from f in _db.Findings.AsNoTracking()
+            join cv in _db.ComponentVersions.AsNoTracking() on f.ComponentVersionId equals cv.Id
+            where cv.ProjectId == projectId && (cv.CommitSha ?? cv.VersionString) == prior
+            select f.Hash).Distinct().ToArrayAsync(ct);
+
+        return hashes.ToHashSet(StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// The build ids making up each project's latest canonical commit
+    /// (TFND-243).
+    ///
+    /// A commit can produce several builds — one per flavor (net10, web,
+    /// deployed) — and they are one build of one commit as far as any reader is
+    /// concerned, so all of a commit's ids come back together. Scoring and
+    /// gating treat a commit as the unit for the same reason.
+    ///
+    /// "Canonical" is main or master with no pull-request ref, matching
+    /// <see cref="GateDecisionService"/>. Projects with no canonical build at
+    /// all contribute no ids, which reads downstream as "nothing open on main"
+    /// rather than as findings from an unmerged branch.
+    /// </summary>
+    private async Task<HashSet<Guid>> CanonicalHeadsAsync(
+        IReadOnlyCollection<Guid> projectIds, CancellationToken ct)
+    {
+        var rows = await _db.ComponentVersions.AsNoTracking()
+            .Where(v => projectIds.Contains(v.ProjectId)
+                     && v.PullRequestRef == null
+                     && (v.BranchName == null || v.BranchName == "main" || v.BranchName == "master"))
+            .Select(v => new
+            {
+                v.Id,
+                v.ProjectId,
+                Commit = v.CommitSha ?? v.VersionString,
+                v.CreatedAt,
+            })
+            .ToArrayAsync(ct);
+
+        var heads = new HashSet<Guid>();
+
+        foreach (var perProject in rows.GroupBy(r => r.ProjectId))
+        {
+            var head = perProject
+                .GroupBy(r => r.Commit)
+                .Select(g => new { Commit = g.Key, Latest = g.Max(r => r.CreatedAt) })
+                .OrderByDescending(g => g.Latest)
+                .FirstOrDefault();
+
+            if (head is null) continue;
+
+            foreach (var row in perProject.Where(r => r.Commit == head.Commit))
+                heads.Add(row.Id);
+        }
+
+        return heads;
+    }
+
     // ---- Scope --------------------------------------------------------------
 
     /// <summary>
@@ -410,7 +775,34 @@ public sealed record AgentFindingsFilter(
 
 public sealed record AgentFinding(
     Guid Id, ScannerKind Scanner, string RuleId, Severity Severity, string Title,
-    string? FilePath, int? Line, string? Purl, DateTimeOffset FirstSeen);
+    string? FilePath, int? Line, string? Purl,
+    /// <summary>
+    /// When THIS BUILD first saw it, which is not the finding's age (TFND-237).
+    ///
+    /// Ingest keys findings per (build, scanner), so a finding that has been
+    /// present for a year gets a fresh row — and a fresh FirstSeen — on every
+    /// build it survives. Reporting this as "open since" is wrong, and wrong in
+    /// the direction that makes old problems look new.
+    ///
+    /// Use <see cref="FirstSeenInProject"/> for age, and
+    /// <see cref="IntroducedInThisBuild"/> for "did this change cause it".
+    /// </summary>
+    DateTimeOffset FirstSeen,
+    /// <summary>
+    /// The earliest this finding's identity was seen anywhere in the project —
+    /// its real age. Computed across builds by hash (TFND-237).
+    /// </summary>
+    DateTimeOffset FirstSeenInProject,
+    /// <summary>
+    /// Absent from the previous canonical build, present in this one: the
+    /// change under review introduced it (TFND-237).
+    ///
+    /// Null, not false, when there is no previous canonical build to compare
+    /// against. On a project's first build everything is new in one sense and
+    /// nothing is attributable in the sense that matters, and false would be a
+    /// claim this surface cannot support.
+    /// </summary>
+    bool? IntroducedInThisBuild);
 
 /// <summary>
 /// Findings plus what was NOT returned. <see cref="Truncated"/> exists so an
@@ -431,6 +823,101 @@ public sealed record AgentFindingDetail(
     DateTimeOffset FirstSeen, DateTimeOffset LastSeen, AgentCodeContext? Context);
 
 public sealed record AgentCodeContext(int FirstLine, string Text);
+
+/// <summary>
+/// The release decision for a build (TFND-236).
+///
+/// Carries the verdict AND the build it belongs to. A verdict without the
+/// commit that produced it is the one shape an agent can most easily misreport:
+/// it will have changed the code since, and "the gate passes" said about a
+/// build that no longer reflects the tree is a false statement with this
+/// product's name on it.
+/// </summary>
+public sealed record AgentGateDecision(
+    Guid ProjectId,
+    string? CommitSha,
+    string? VersionString,
+    DateTimeOffset? BuiltAt,
+    /// <summary>"Advisory" or "Enforcing" — whether a blocking gate actually stops a release.</summary>
+    string? EnforcementMode,
+    /// <summary>Why there is no verdict, when there is none. Null when the rest is populated.</summary>
+    string? Unavailable,
+    IReadOnlyList<AgentGateRow> Gates,
+    bool? ClearToShip,
+    int? Blocking,
+    double? Score,
+    string? Band);
+
+/// <summary>
+/// One gate's verdict. <see cref="Observed"/> and <see cref="Reason"/> are the
+/// evaluator's own strings, passed through verbatim — the same text the CLI
+/// gate prints, so an agent and the pipeline cannot describe one failure two
+/// ways.
+/// </summary>
+public sealed record AgentGateRow(
+    string Key,
+    /// <summary>Pass, Fail, Unknown, Error or NotApplicable (ADR 0001's four-valued verdict, plus N/A).</summary>
+    string Verdict,
+    bool Blocks,
+    string Observed,
+    double? Threshold,
+    string? Reason);
+
+/// <summary>
+/// The score, and what produced it (TFND-236).
+/// </summary>
+public sealed record AgentScore(
+    Guid ProjectId,
+    string? CommitSha,
+    string? VersionString,
+    double? Score,
+    string? Band,
+    double? PriorScore,
+    /// <summary>Points moved since the previous canonical build. Positive is worse.</summary>
+    double? DeltaPoints,
+    /// <summary>The scoring policy this came from, so an agent names it rather than implying a universal scale.</summary>
+    string? PolicyName,
+    IReadOnlyList<AgentScoreCategory> Categories,
+    string? Unavailable);
+
+/// <summary>
+/// One category's share of the score.
+/// </summary>
+public sealed record AgentScoreCategory(
+    string Key,
+    bool Enabled,
+    /// <summary>Points this category can cost at full saturation under this policy.</summary>
+    double EffectiveMax,
+    /// <summary>0..1 — how far toward its ceiling this category is.</summary>
+    double SubScore,
+    /// <summary>Points it is actually costing. This is the number that says where the work is.</summary>
+    double Contribution,
+    /// <summary>
+    /// At its ceiling: more findings of this class cannot raise the score, and
+    /// fixing one cannot lower it until the count drops below the clamp.
+    /// </summary>
+    bool Saturated);
+
+/// <summary>
+/// Recent canonical builds, newest first (TFND-237).
+/// </summary>
+public sealed record AgentBuildHistory(
+    Guid ProjectId,
+    IReadOnlyList<AgentBuild> Builds,
+    string? Unavailable);
+
+public sealed record AgentBuild(
+    string CommitSha,
+    string? Branch,
+    string VersionString,
+    DateTimeOffset IngestedAt,
+    double Score,
+    /// <summary>Points moved against the build before it. Null on the oldest row shown.</summary>
+    double? DeltaPoints,
+    double? CoveragePercent,
+    bool ClearToShip,
+    int Blocking,
+    int GatesEnabled);
 
 public sealed record AgentDependencyGraph(
     Guid ProjectId, string? CommitSha, string? Tool, DateTimeOffset CapturedAt,
