@@ -26,37 +26,46 @@ namespace Tamp.Findings.Application.Mcp;
 public sealed class AgentReadService
 {
     private readonly FindingsDbContext _db;
-    private readonly CapabilityEvaluator _capabilities;
+    private readonly AgentScope _scope;
     private readonly GateDecisionService _gates;
     private readonly Projects.ProjectHubQuery _hub;
     private readonly Compliance.ControlDispositionQuery _dispositions;
     private readonly Compliance.ConformanceQuery _conformance;
     private readonly Poam.PoamQuery _poams;
     private readonly CategoryFindingsQuery _categories;
+    private readonly Policy.PolicyResolver _policy;
+    private readonly EnforcementResolver _enforcement;
+    private readonly InstanceEnforcementPolicy _lock;
 
-    // Eight dependencies, and they stay here rather than moving to a second
-    // class, because this class is the one place a token's scope is applied. A
-    // sibling service reading the same data would need its own scope check,
-    // and the whole reason this type exists is that such a check holds only as
-    // long as every future author remembers it.
+    // Many dependencies, because "everything an agent can read" is genuinely
+    // broad. What used to be the argument for keeping them here — that this is
+    // the one place a token's scope is applied — now lives in AgentScope, which
+    // the write services share. That is the structure the argument asked for;
+    // a private method on one of three services was not.
     public AgentReadService(
         FindingsDbContext db,
-        CapabilityEvaluator capabilities,
+        AgentScope scope,
         GateDecisionService gates,
         Projects.ProjectHubQuery hub,
         Compliance.ControlDispositionQuery dispositions,
         Compliance.ConformanceQuery conformance,
         Poam.PoamQuery poams,
-        CategoryFindingsQuery categories)
+        CategoryFindingsQuery categories,
+        Policy.PolicyResolver policy,
+        EnforcementResolver enforcement,
+        InstanceEnforcementPolicy enforcementLock)
     {
         _db = db;
-        _capabilities = capabilities;
+        _scope = scope;
         _gates = gates;
         _hub = hub;
         _dispositions = dispositions;
         _conformance = conformance;
         _poams = poams;
         _categories = categories;
+        _policy = policy;
+        _enforcement = enforcement;
+        _lock = enforcementLock;
     }
 
     /// <summary>
@@ -1017,42 +1026,91 @@ public sealed class AgentReadService
     // ---- Scope --------------------------------------------------------------
 
     /// <summary>
-    /// Why this agent can read nothing, or null if it can.
+    /// The policy in force for a project, and which layer imposed each part of
+    /// it (TFND-251).
     ///
-    /// The ordinary capability evaluator, at the token's own scope. An agent
-    /// holding a role that cannot see evidence is refused here for the same
-    /// reason a person holding it would be.
+    /// Unconditional: reading a policy reveals no evidence and changes nothing,
+    /// and an agent that cannot read the policy cannot explain a verdict it is
+    /// already allowed to see.
+    ///
+    /// Provenance is the point. ADR 0007 carries the imposing layer through the
+    /// merge, and "this threshold is the template's, you cannot loosen it here"
+    /// is the sentence that stops an agent proposing an impossible edit — or
+    /// reporting a successful one after a write the merge discarded.
+    ///
+    /// Reports the enforcement lock too, because that decides whether the edit
+    /// tools work at all. An agent that can read the lock does not have to
+    /// discover it by failing.
     /// </summary>
-    private string? Denied(AgentIdentity agent)
+    public async Task<AgentPolicy?> PolicyAsync(
+        AgentIdentity agent, Guid projectId, CancellationToken ct = default)
     {
-        var decision = _capabilities.Evaluate(agent.Principal, Capability.ViewEvidence);
-        return decision.Allowed ? null : decision.Reason;
+        if (Denied(agent) is not null) return null;
+        if (!await _scope.ReachesAsync(agent, projectId, ct)) return null;
+
+        var own = await _db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => p.GatesConfig)
+            .SingleOrDefaultAsync(ct);
+
+        var merged = await _policy.ForProjectAsync(projectId, ct);
+        var effectiveMode = await _enforcement.ForProjectAsync(projectId, ct);
+
+        // Every well-known gate, including the ones nothing turns on. An agent
+        // told only about the enabled gates cannot tell "this instance does not
+        // gate on DAST" from "DAST passes", and those lead to opposite advice.
+        var gates = GateEvaluator.WellKnownGateKeys
+            .Select(key =>
+            {
+                merged.Gates.TryGetValue(key, out var winner);
+
+                // Declared with an initializer because the null-conditional
+                // below may not run, and an out parameter on a call that never
+                // happens is not assigned.
+                GateConfig? projectValue = null;
+                own?.Gates.TryGetValue(key, out projectValue);
+
+                return new AgentPolicyGate(
+                    key,
+                    GateEvaluator.Label(key),
+                    GateEvaluator.Describe(key),
+                    winner?.Enabled ?? false,
+                    winner?.Threshold,
+                    Policy.GateService.TakesThreshold(key),
+                    // Null when no layer sets it at all — nothing imposed it, so
+                    // naming a source would invent one.
+                    winner is null ? null : winner.Source,
+                    projectValue?.Enabled,
+                    projectValue?.Threshold);
+            })
+            .OrderByDescending(g => g.Enabled)
+            .ThenBy(g => g.Key, StringComparer.Ordinal)
+            .ToArray();
+
+        return new AgentPolicy(
+            projectId,
+            gates,
+            effectiveMode.ToString(),
+            own?.EnforcementMode?.ToString(),
+            merged.Mode is { } m ? m.Source : null,
+            _lock.ConfigLocked,
+            merged.RequiredScanners.Select(s => new AgentSourcedValue(s.Value, s.Source)).ToArray(),
+            merged.DeniedLicenses.Select(d => new AgentSourcedValue(d.Value, d.Source)).ToArray(),
+            merged.PoamDeadlineDays
+                .Select(kv => new AgentPoamDeadline(kv.Key, kv.Value.Value, kv.Value.Source))
+                .OrderBy(d => d.Severity, StringComparer.Ordinal)
+                .ToArray());
     }
 
-    /// <summary>
-    /// Projects under the token's scope. THE scoping rule, in one place.
-    ///
-    /// Project-scoped: that project alone, never its siblings.
-    /// Client-scoped: every project under that client.
-    /// </summary>
-    private IQueryable<Project> Visible(AgentIdentity agent)
-    {
-        var scope = agent.Scope;
-        var query = _db.Projects.AsNoTracking();
+    // The scoping rule moved to AgentScope at TFND-251, when reads stopped being
+    // the only thing an agent can do. These two stay as delegations so the
+    // call sites below are unchanged — the rule is shared, not copied.
+    private string? Denied(AgentIdentity agent) => _scope.DeniedRead(agent);
 
-        if (scope.ProjectId is { } projectId)
-            return query.Where(p => p.Id == projectId);
+    private IQueryable<Project> Visible(AgentIdentity agent) => _scope.Visible(agent);
 
-        if (scope.ClientId is { } clientId)
-            return query.Where(p => p.ClientId == clientId);
-
-        // No scope is no access, not all access. A token that somehow reached
-        // here unscoped reads nothing rather than everything.
-        return query.Where(_ => false);
-    }
-
-    private async Task<HashSet<Guid>> VisibleIdsAsync(AgentIdentity agent, CancellationToken ct) =>
-        (await Visible(agent).Select(p => p.Id).ToArrayAsync(ct)).ToHashSet();
+    private Task<HashSet<Guid>> VisibleIdsAsync(AgentIdentity agent, CancellationToken ct) =>
+        _scope.VisibleIdsAsync(agent, ct);
 
     /// <summary>
     /// Lines around the flagged one, when coverage happened to capture the file.
@@ -1420,6 +1478,58 @@ public sealed record AgentPostureCheck(
     /// <summary>What reported it, so a reader can tell an observation from an assumption.</summary>
     string? Source,
     DateTimeOffset ObservedAt);
+
+// ---- Policy (TFND-251) ------------------------------------------------------
+
+/// <summary>
+/// The policy in force for a project, with per-value provenance (TFND-251).
+/// </summary>
+public sealed record AgentPolicy(
+    Guid ProjectId,
+    IReadOnlyList<AgentPolicyGate> Gates,
+    /// <summary>The mode a verdict is actually judged under, after the whole chain resolves.</summary>
+    string EffectiveEnforcementMode,
+    /// <summary>This project's own override, or null when it inherits.</summary>
+    string? ProjectEnforcementOverride,
+    /// <summary>Which layer supplied the strictest mode across the merge.</summary>
+    string? EnforcementSource,
+    /// <summary>
+    /// The deployment pins enforcement by configuration. While true, policy
+    /// EDIT tooling is closed — reads are not.
+    /// </summary>
+    bool EnforcementLocked,
+    IReadOnlyList<AgentSourcedValue> RequiredScanners,
+    IReadOnlyList<AgentSourcedValue> DeniedLicenses,
+    IReadOnlyList<AgentPoamDeadline> PoamDeadlines);
+
+/// <summary>
+/// One gate's effective configuration, and what this project itself asked for.
+///
+/// The two are reported separately on purpose. Where an upper layer is stricter,
+/// the merge discards the project's value — so an agent comparing
+/// <see cref="ProjectEnabled"/> against <see cref="Enabled"/> can see that its
+/// own layer is not what is in force, instead of assuming a write took effect.
+/// </summary>
+public sealed record AgentPolicyGate(
+    string Key,
+    string Label,
+    string Description,
+    bool Enabled,
+    double? Threshold,
+    /// <summary>False for a boolean gate, where a threshold is meaningless.</summary>
+    bool HasThreshold,
+    /// <summary>
+    /// The layer that imposed the winning value — a template, a client, the
+    /// archetype, or this project. Null when no layer sets this gate at all.
+    /// </summary>
+    string? Source,
+    /// <summary>What this project's own layer says, or null when it says nothing.</summary>
+    bool? ProjectEnabled,
+    double? ProjectThreshold);
+
+public sealed record AgentSourcedValue(string Value, string Source);
+
+public sealed record AgentPoamDeadline(string Severity, int Days, string Source);
 
 public sealed record AgentSuppressionState(
     Guid ProjectId,

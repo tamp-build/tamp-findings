@@ -18,6 +18,11 @@ namespace Tamp.Findings.Mcp;
 /// the model on the other end will ever read, so each one says what the tool
 /// answers AND what it does not, which is how an agent avoids reporting a
 /// truncated list as a complete one.
+///
+/// Mostly reads. The one exception is create_project (TFND-250), which goes to
+/// its own service rather than to AgentReadService — that class reads, and a
+/// write path inside it would make its own comment false. It cannot touch
+/// evidence and cannot move a verdict.
 /// </summary>
 [McpServerToolType]
 public sealed class FindingsTools
@@ -367,6 +372,65 @@ public sealed class FindingsTools
         };
     }
 
+    [McpServerTool(Name = "get_policy")]
+    [Description("""
+        The policy in force for a project: every gate, its threshold, and WHICH
+        LAYER imposed it. Read this before proposing any policy change, and
+        before explaining why a gate behaves the way it does.
+
+        Policy is layered — a compliance template, then the client, then the
+        project's archetype, then the project itself — and the merge takes the
+        strictest value at every field. So 'source' is the layer whose value won,
+        and it is the difference between a change you can make and one you
+        cannot: a threshold imposed by a template is not yours to loosen, and
+        writing a looser one into the project layer changes nothing because the
+        merge discards it.
+
+        Each gate reports both the effective value and this project's own
+        ('projectEnabled', 'projectThreshold'). When they differ, the project's
+        layer is not what is in force. Treat the effective value as the truth.
+
+        'enforcementLocked' says the deployment pins enforcement by
+        configuration. While it is true, policy EDIT tooling is closed and will
+        refuse with a permission error — this read still works. Check it before
+        attempting an edit rather than discovering it by failing.
+
+        A gate with enabled=false is not gated here at all, which is different
+        from a gate that passes. Do not report an ungated risk as a passing one.
+        """)]
+    public static async Task<object> GetPolicyAsync(
+        AgentReadService reads,
+        AgentContext context,
+        [Description("The project id, as returned by list_scope.")] Guid projectId,
+        CancellationToken ct = default)
+    {
+        var policy = await reads.PolicyAsync(context.Require(), projectId, ct);
+
+        if (policy is null)
+            return Invalid("That project is outside this token's scope.");
+
+        return new
+        {
+            policy.ProjectId,
+            gates = policy.Gates,
+            enforcement = new
+            {
+                effective = policy.EffectiveEnforcementMode,
+                projectOverride = policy.ProjectEnforcementOverride,
+                source = policy.EnforcementSource,
+                locked = policy.EnforcementLocked,
+            },
+            requiredScanners = policy.RequiredScanners,
+            deniedLicenses = policy.DeniedLicenses,
+            poamDeadlines = policy.PoamDeadlines,
+            note = policy.EnforcementLocked
+                ? "This deployment pins enforcement by configuration. Policy editing is closed "
+                  + "through this surface; do not attempt an edit and do not describe the policy as "
+                  + "changeable here."
+                : null,
+        };
+    }
+
     [McpServerTool(Name = "get_controls")]
     [Description("""
         Which compliance controls this project owns, inherits, or has ruled out,
@@ -642,6 +706,46 @@ public sealed class FindingsTools
             posture.ProjectId,
             checks = posture.Checks,
             note = posture.Unavailable,
+        };
+    }
+
+    [McpServerTool(Name = "create_project")]
+    [Description("""
+        Create a project inside this token's client.
+
+        The client is taken from the token, not from an argument, so there is no
+        way to create one inside somebody else's tree. The hierarchy is
+        client → project → build; a build is not created here, it arrives when a
+        pipeline ingests one.
+
+        THIS IS NOT REVERSIBLE. There is no delete and no rename, in this surface
+        or anywhere in the application — a project created by mistake stays until
+        somebody edits the database. Get the name right, and if you are unsure
+        whether a project already exists, call list_scope first.
+
+        Needs a token minted as Architect. CreateProject is held by Admin and
+        Architect, and an agent is never Admin, so an Auditor or Lead Dev token
+        will be refused. Creating a CLIENT is not offered at all: a client is a
+        tenant boundary and not an agent's to mint.
+        """)]
+    public static async Task<object> CreateProjectAsync(
+        AgentAdminService admin,
+        AgentContext context,
+        [Description("The project name. Unique within the client; trimmed.")] string name,
+        [Description("Optional one-line description.")] string? description = null,
+        CancellationToken ct = default)
+    {
+        var result = await admin.CreateProjectAsync(context.Require(), name, description, ct);
+
+        if (!result.Success) return Invalid(result.Refusal!);
+
+        return new
+        {
+            projectId = result.ProjectId,
+            name = result.Name,
+            client = result.Client,
+            note = "Created. There is no way to delete or rename it through any surface, so do not "
+                 + "offer to undo this.",
         };
     }
 

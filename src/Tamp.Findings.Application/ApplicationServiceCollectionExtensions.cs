@@ -159,7 +159,9 @@ public static class ApplicationServiceCollectionExtensions
         // stops a second host from inventing its own way to decide who an agent
         // is — the tools can only read it from this one place.
         services.AddScoped<Mcp.McpTokenService>();
+        services.AddScoped<Mcp.AgentScope>();
         services.AddScoped<Mcp.AgentReadService>();
+        services.AddScoped<Mcp.AgentAdminService>();
         services.AddScoped<Mcp.AgentContext>();
 
         return services;
