@@ -94,6 +94,12 @@ public enum ApprovalKind
     // questions, so every exemption goes through a request, including an InfoSec
     // officer's own.
     StalenessExemption = 8,
+    // A project disposition that WEAKENS a stricter template/archetype default
+    // (ADR 0015 §5, TFND-219). AcceptRisk, like the other two loosenings: the
+    // control stops being proven on this project, and that is a risk decision, not
+    // a policy edit — which is why Admin deliberately does not hold it even though
+    // Admin is who authors dispositions.
+    ControlDispositionDowngrade = 9,
 }
 
 public enum ApprovalState

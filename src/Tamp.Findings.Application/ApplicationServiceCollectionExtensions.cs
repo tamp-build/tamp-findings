@@ -101,6 +101,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<Approvals.IApprovalEffect, Poam.PoamExtensionEffect>();        // TFND-119
         services.AddScoped<Approvals.IApprovalEffect, Vex.VexPublicationEffect>();        // TFND-120
         services.AddScoped<Approvals.IApprovalEffect, Vex.StalenessExemptionEffect>();   // TFND-225
+        services.AddScoped<Approvals.IApprovalEffect, Compliance.ControlDowngradeEffect>(); // TFND-219
+        services.AddScoped<Compliance.ControlDowngradeService>();
         services.AddScoped<Approvals.IApprovalEffect, Attestation.AttestationSignOffEffect>(); // TFND-123
         services.AddScoped<Approvals.IApprovalEffect, Policy.LoosenPolicyTemplateEffect>();   // TFND-179 / ADR 0007
         services.AddScoped<Approvals.IApprovalEffect, Policy.SwitchClientTemplateEffect>();   // TFND-179 / ADR 0007

@@ -31,7 +31,17 @@ public sealed record ControlDispositionResult(
     // or null (Unmapped).
     string? Detail,
     // The policy layer that supplied the winning assertion, or null (Unmapped).
-    string? Source);
+    string? Source,
+    /// <summary>
+    /// True when this disposition is a REVIEWED DOWNGRADE of a stricter default
+    /// (ADR 0015 §5, TFND-219) rather than an ordinary claim.
+    ///
+    /// Carried out to the reader deliberately. It is the one row on a coverage matrix
+    /// an assessor will want to open — somebody decided this control is weaker here
+    /// than the baseline says, and a second person agreed. Rendering it identically to
+    /// every other row would hide the only thing that distinguishes it.
+    /// </summary>
+    bool Overridden = false);
 
 /// <summary>The disposition roll-up for a project's in-scope controls.</summary>
 public sealed record ControlCoverage(
@@ -72,7 +82,8 @@ public static class ControlDispositionResolver
         {
             var (disposition, detail, source) = ResolveOne(control.Id, assertions, capability);
             results.Add(new ControlDispositionResult(
-                control.Id, control.Title, control.Family, disposition, detail, source));
+                control.Id, control.Title, control.Family, disposition, detail, source,
+                assertions.TryGetValue(control.Id, out var winner) && winner.Overridden));
         }
 
         return new ControlCoverage(

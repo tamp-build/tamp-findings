@@ -63,6 +63,9 @@ public sealed class ApprovalService
         // The artifact is a VEX statement, so the authority to bring one into
         // effect is the same one. What differs is that there is no direct path.
         ApprovalKind.StalenessExemption => Capability.PublishVex,
+        // Weakening a control's disposition stops it being proven here. Same
+        // AcceptRisk boundary as loosening a template, and for the same reason.
+        ApprovalKind.ControlDispositionDowngrade => Capability.AcceptRisk,
         _ => Capability.ManageIngestKey,
     };
 
@@ -329,6 +332,7 @@ public sealed class ApprovalService
         ApprovalKind.LoosenPolicyTemplate => "pending InfoSec approval to loosen",
         ApprovalKind.SwitchClientTemplate => "pending InfoSec approval to switch template",
         ApprovalKind.StalenessExemption => "pending review",
+        ApprovalKind.ControlDispositionDowngrade => "pending InfoSec approval to downgrade",
         _ => "pending approval",
     };
 }

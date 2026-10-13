@@ -61,11 +61,24 @@ reference) that backs it.
 
 5. **Downgrades are an explicit, review-gated exception.** A legitimate project downgrade (an admin
    determining a control genuinely does not apply *here*, over a stricter default) is not a silent
-   loosening: it is authored as a project override that takes precedence **only through the review gate**
-   (reuse [0012](0012-findings-as-the-authoritative-conformance-rules-store.md) review-gating), so it is
-   justified and audited — the same rule as loosening an acceptance gate. *Status: the review-gated
-   project-precedence path is not yet built; the current work only fills Unmapped controls, which needs
-   no precedence. It lands when the first real non-Unmapped downgrade is needed.*
+   loosening: it is authored as a project override that takes precedence **only through the review gate**,
+   so it is justified and audited — the same rule as loosening an acceptance gate.
+
+   *Status: built (TFND-219).* `ControlAssertion.Overrides` is the merge's single exception to
+   harden-only, and nothing but `ControlDowngradeEffect` — running on an **approved**
+   `ApprovalKind.ControlDispositionDowngrade` — ever sets it. The authoring endpoint now **refuses**
+   a downgrade with `409` naming the control, the stricter kind and the layer it comes from, and
+   points at `POST /projects/{id}/control-dispositions/downgrades`. The resolved disposition carries
+   `Overridden` out to the coverage matrix and the agent surface, because a reviewed downgrade of a
+   stricter baseline is the one row an assessor wants to open.
+
+   The decider capability is **`AcceptRisk`** (as for `LoosenPolicyTemplate`), not an admin-promoted
+   status. This ADR originally pointed at
+   [0012](0012-findings-as-the-authoritative-conformance-rules-store.md)'s review gate; that gate is a
+   `Draft → Reviewed` status an **admin** promotes, and admin is also who authors dispositions, so it
+   would let one person author and bless their own loosening. "The same rule as loosening an acceptance
+   gate" in the sentence above is the stronger and governing reading: a second person holding a
+   capability admin deliberately lacks.
 
 ## Consequences
 
@@ -77,5 +90,8 @@ reference) that backs it.
 * **Two write surfaces, one model.** Archetype/template defaults are authored in code (content packs
   later; TFND-203 trajectory); project dispositions are authored at runtime via the endpoint. Both are
   just `ControlAssertion`s merged by the same resolver — no parallel machinery.
-* **The one deferred piece** is the review-gated project-precedence path for downgrades (§5). Until
-  then, the model supports fills and upgrades, which covers the entire current unmapped set.
+* **Fills and upgrades need no precedence and no reviewer** — a project taking *more* responsibility
+  for a control already wins on strictness (the `tamp-http` SC-13 case). Only a weakening goes through
+  a reviewer, so the review queue stays about the decisions that actually lower the bar.
+* **An unclassified project is unaffected.** It fails upward to the Service archetype, which asserts no
+  control dispositions at all (a service owns everything), so nothing it authors is a downgrade.

@@ -27,6 +27,19 @@ public sealed record ControlDispositionInput(
     IReadOnlyList<string>? Gates = null);
 public sealed record ControlDispositionsResult(int InScope, int Gated, int Inherited, int NotApplicable, int Unmapped);
 
+// A downgrade the authoring path refused, and what it would have weakened (TFND-219).
+public sealed record DowngradeRefusal(
+    string ControlId, string Proposed, string Inherited, string InheritedSource);
+public sealed record DowngradeRefusedResult(
+    string Message, IReadOnlyList<DowngradeRefusal> Conflicts);
+
+public sealed record RequestDowngradeRequest(
+    string ControlId,
+    string Kind,                        // "Inherited" | "NotApplicable" | "Gated"
+    string Justification,               // what the reviewer decides on
+    string? InheritedFrom = null);
+public sealed record DowngradeRequestedResult(Guid ApprovalId, string ControlId, string Qualifier);
+
 public sealed record RiskPolicyFull(
     Guid Id, string Name, string? Description, bool IsDefault, bool IsSeeded,
     RiskPolicyConfig Config,
@@ -87,7 +100,9 @@ public static class RiskPolicyEndpoints
         g.MapPatch("/projects/{projectId:guid}/gates", UpdateProjectGatesAsync)
          .WithSummary("Replace the per-project gates config.");
         g.MapPatch("/projects/{projectId:guid}/control-dispositions", SetProjectControlDispositionsAsync)
-         .WithSummary("Author per-control dispositions on a project (own/inherit/N-A + justification). Upserts one project-layer assertion per control id; overrides the inherited default from the template/archetype/client stack. Admin only. Returns the updated coverage roll-up.");
+         .WithSummary("Author per-control dispositions on a project (own/inherit/N-A + justification). Upserts one project-layer assertion per control id. Fills an Unmapped control or upgrades one to owned; a disposition that WEAKENS a stricter template/archetype/client default is refused with 409 and the conflicts named — request it instead. Admin only. Returns the updated coverage roll-up.");
+        g.MapPost("/projects/{projectId:guid}/control-dispositions/downgrades", RequestControlDowngradeAsync)
+         .WithSummary("Request a project disposition that weakens a stricter inherited default (ADR 0015 §5). Needs AcceptRisk to approve — which Admin deliberately does not hold — and only an approval writes the override. One request per control.");
 
         return app;
     }
@@ -356,7 +371,9 @@ public static class RiskPolicyEndpoints
     // the concrete justification (and, by convention, the code reference that backs it).
     private static async Task<IResult> SetProjectControlDispositionsAsync(
         Guid projectId, SetControlDispositionsRequest req, HttpContext ctx, FindingsDbContext db,
-        Tamp.Findings.Application.Compliance.ControlDispositionQuery coverage, CancellationToken ct)
+        Tamp.Findings.Application.Compliance.ControlDispositionQuery coverage,
+        Tamp.Findings.Application.Compliance.ControlDowngradeService downgrades,
+        CancellationToken ct)
     {
         var (_, deny) = await RequireAdminAsync(ctx, db, ct);
         if (deny is not null) return deny;
@@ -367,6 +384,9 @@ public static class RiskPolicyEndpoints
 
         var layer = project.PolicyLayer ?? PolicyLayer.Empty();
 
+        // Validate every disposition BEFORE writing any of them, so a bad one in the
+        // middle of a batch does not leave half the batch applied.
+        var proposed = new List<(string ControlId, ControlDispositionKind Kind)>();
         foreach (var d in req.Dispositions)
         {
             if (!Enum.TryParse<ControlDispositionKind>(d.Kind, ignoreCase: true, out var kind))
@@ -383,7 +403,40 @@ public static class RiskPolicyEndpoints
             {
                 var cid = raw.Trim();
                 if (cid.Length == 0) continue;
+                proposed.Add((cid, kind));
+            }
+        }
+
+        // A disposition that WEAKENS a stricter inherited default is refused here
+        // (TFND-219). It used to be accepted, stored, and then silently lost the
+        // harden-only merge: a 200 that changed nothing, with the coverage view still
+        // showing the default and no indication anybody had decided otherwise. Refusing
+        // and naming the conflict is honest; the downgrade endpoint below is the way to
+        // actually get one, through a reviewer.
+        var conflicts = await downgrades.ConflictsAsync(projectId, proposed, ct);
+        if (conflicts.Count > 0)
+        {
+            return Results.Json(new DowngradeRefusedResult(
+                "These dispositions are weaker than what a lower layer asserts, so the harden-only "
+                + "merge would discard them. Request each one on "
+                + $"POST /projects/{projectId}/control-dispositions/downgrades — it needs approval "
+                + "from someone holding AcceptRisk.",
+                [.. conflicts.Select(c => new DowngradeRefusal(
+                    c.ControlId, c.Proposed.ToString(), c.Inherited.ToString(), c.InheritedSource))]),
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
+        foreach (var d in req.Dispositions)
+        {
+            Enum.TryParse<ControlDispositionKind>(d.Kind, ignoreCase: true, out var kind);
+            foreach (var raw in d.ControlIds ?? [])
+            {
+                var cid = raw.Trim();
+                if (cid.Length == 0) continue;
                 // One project-layer assertion per control id: drop any prior project claim for it, then add.
+                // Overrides is NOT set here and cannot be: an override is only ever written by
+                // ControlDowngradeEffect on an approved request, which is what keeps the merge's
+                // single exception to harden-only behind a second person.
                 layer.Assertions.RemoveAll(a => a.ControlIds.Contains(cid));
                 layer.Assertions.Add(new ControlAssertion
                 {
@@ -404,6 +457,48 @@ public static class RiskPolicyEndpoints
         var cov = await coverage.ForProjectAsync(projectId, null, ct);
         return Results.Ok(new ControlDispositionsResult(
             cov?.InScope ?? 0, cov?.Gated ?? 0, cov?.Inherited ?? 0, cov?.NotApplicable ?? 0, cov?.Unmapped ?? 0));
+    }
+
+    /// <summary>
+    /// Ask for a downgrade (ADR 0015 §5, TFND-219).
+    ///
+    /// Admin-gated to REQUEST, matching who authors dispositions at all — but the
+    /// decision needs AcceptRisk, which Admin does not hold, so an admin cannot
+    /// complete their own loosening. ApprovalService refuses self-approval on top of
+    /// that, so even an InfoSec officer who is also an admin has to find a second person.
+    /// </summary>
+    private static async Task<IResult> RequestControlDowngradeAsync(
+        Guid projectId, RequestDowngradeRequest req, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals,
+        Tamp.Findings.Application.Compliance.ControlDowngradeService downgrades,
+        CancellationToken ct)
+    {
+        var (_, deny) = await RequireAdminAsync(ctx, db, ct);
+        if (deny is not null) return deny;
+
+        if (!Enum.TryParse<ControlDispositionKind>(req.Kind, ignoreCase: true, out var kind))
+            return Results.BadRequest($"unknown disposition kind '{req.Kind}' (Gated | Inherited | NotApplicable)");
+
+        var project = await db.Projects.AsNoTracking()
+            .Select(p => new { p.Id, p.ClientId })
+            .FirstOrDefaultAsync(p => p.Id == projectId, ct);
+        if (project is null) return Results.NotFound("project not found");
+
+        var (actor, scope, actorDeny) = await EndpointActor.ForProjectAsync(
+            ctx, db, principals, projectId, ct);
+        if (actorDeny is not null) return actorDeny;
+
+        var result = await downgrades.RequestAsync(
+            actor!, scope, projectId,
+            new Tamp.Findings.Application.Compliance.DowngradeRequest(
+                req.ControlId ?? "", kind, req.Justification ?? "", req.InheritedFrom),
+            ct);
+
+        if (result.WasDenied) return Results.Forbid();
+        if (!result.Success) return Results.BadRequest(result.Error);
+
+        return Results.Ok(new DowngradeRequestedResult(
+            result.Value, req.ControlId!.Trim(), "pending InfoSec approval to downgrade"));
     }
 
     private static async Task<(User? user, IResult? deny)> RequireAdminAsync(HttpContext ctx, FindingsDbContext db, CancellationToken ct)

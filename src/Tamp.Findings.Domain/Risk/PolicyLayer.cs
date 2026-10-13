@@ -84,6 +84,26 @@ public sealed class ControlAssertion
 
     /// <summary>For <see cref="ControlDispositionKind.Inherited"/>: who provides it.</summary>
     public string? InheritedFrom { get; set; }
+
+    /// <summary>
+    /// This assertion takes PRECEDENCE over lower layers instead of being merged
+    /// harden-only (ADR 0015 §5; TFND-219).
+    ///
+    /// The merge is strictest-kind-wins, which lets a project fill an Unmapped control
+    /// or upgrade one to owned, and deliberately stops it weakening what a template or
+    /// archetype asserted — that is the "an unscanned control does not pass" guarantee.
+    /// But a project sometimes genuinely IS the authority: an admin determines a control
+    /// does not apply HERE, over a stricter default. Without this flag that
+    /// determination is stored and silently loses the merge, so the coverage view keeps
+    /// showing the default and nothing says why.
+    ///
+    /// The flag is the narrow hole, and the hole is what makes the loosening visible
+    /// rather than silent: it is only ever set by
+    /// <c>ControlDowngradeEffect</c> on an APPROVED request, never by the authoring
+    /// endpoint, so a downgrade carries a second person's decision and an audit entry.
+    /// Nothing else in a policy layer can weaken a lower one.
+    /// </summary>
+    public bool Overrides { get; set; }
 }
 
 /// <summary>A resolved per-control assertion after the layer merge, with the
@@ -93,7 +113,15 @@ public sealed record EffectiveAssertion(
     IReadOnlyList<string> Gates,
     string? Justification,
     string? InheritedFrom,
-    string Source);
+    string Source,
+    /// <summary>
+    /// True when this disposition won by an approved override rather than by being the
+    /// strictest claim (TFND-219). Surfaced rather than kept internal: a control whose
+    /// disposition is a reviewed downgrade of a stricter default is exactly the row an
+    /// assessor wants to look at, and a coverage view that renders it identically to an
+    /// ordinary claim hides the one thing worth knowing about it.
+    /// </summary>
+    bool Overridden = false);
 
 /// <summary>A resolved value paired with the layer that supplied it. The source
 /// is the human label of the winning layer (e.g. "FedRAMP Moderate v4",

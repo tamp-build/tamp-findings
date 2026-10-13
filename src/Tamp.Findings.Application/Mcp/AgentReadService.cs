@@ -792,7 +792,8 @@ public sealed class AgentReadService
         var controls = matching
             .Take(take)
             .Select(c => new AgentControl(
-                c.ControlId, c.Title, c.Family, c.Disposition.ToString(), c.Detail, c.Source))
+                c.ControlId, c.Title, c.Family, c.Disposition.ToString(), c.Detail, c.Source,
+                c.Overridden))
             .ToArray();
 
         return new AgentControlCoverage(
@@ -1343,7 +1344,15 @@ public sealed record AgentControl(
     /// <summary>Gated, Inherited, NotApplicable or Unmapped.</summary>
     string Disposition,
     string? Detail,
-    string? Source);
+    string? Source,
+    /// <summary>
+    /// True when this disposition is a reviewed DOWNGRADE of a stricter baseline
+    /// default (ADR 0015 §5), approved by someone holding AcceptRisk. An agent must
+    /// not read it as an ordinary claim: somebody decided the control is weaker here
+    /// than the baseline says, so it is a deliberate, audited exception rather than
+    /// evidence the control is covered.
+    /// </summary>
+    bool Overridden = false);
 
 /// <summary>
 /// Open plans of action and milestones, with the roll-up (TFND-238).
