@@ -2,10 +2,14 @@
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject Tamp.Findings.Application.Compliance.ControlCatalogQuery Catalog
+@inject Tamp.Findings.Application.Compliance.Oscal.ControlCatalogImportService Importer
+@inject CurrentUser Me
 @using Tamp.Findings.Domain.Compliance
 @using Tamp.Findings.Domain.Entities
 @using Tamp.Findings.Application.Compliance
 @using Tamp.Findings.Web.Components.Compliance
+@using Tamp.Findings.Application.Compliance.Oscal
+@using Microsoft.AspNetCore.Components.Forms
 
 @* System → Control frameworks (v3 §6): the imported control catalog, the
    frameworks built from it, and a browser into any control's statement. *@
@@ -42,8 +46,18 @@
                         <div class="field__help">Imported @s.ImportedAt.ToString("yyyy-MM-dd")@(s.PriorVersions > 0 ? $" · {s.PriorVersions} prior version{(s.PriorVersions == 1 ? "" : "s")} retained" : "")</div>
                     </div>
                     <div class="row">
-                        <button class="btn" disabled title="OSCAL import lands with TFND-180">Check for update</button>
-                        <button class="btn" disabled title="OSCAL import lands with TFND-180">Import file</button>
+                        @* Fetching from usnistgov would need outbound network access, and the
+                           instance this is built for is explicitly allowed to be air-gapped
+                           (v3 §6). Honest disabled reason rather than the stale one this
+                           carried, which promised the ticket that has now shipped. *@
+                        <button class="btn" disabled
+                                title="Needs outbound access to usnistgov/oscal-content. Download the catalog and use Import file instead.">
+                            Check for update
+                        </button>
+                        <Button Disabled="@(!_canImport.Allowed)" DisabledReason="@_canImport.Reason"
+                                OnClick="() => { _importError = null; _importResult = null; _importing = true; }">
+                            Import file…
+                        </Button>
                     </div>
                 </div>
             </Card>
@@ -107,8 +121,82 @@
     }
 </div>
 
+
+<Dialog Open="_importing" OpenChanged="v => _importing = v" Title="Import control catalog" Width="680">
+    <ChildContent>
+        <p class="field__help">
+            An OSCAL catalog (JSON) becomes the new current catalog. The one it replaces is
+            kept, because an attestation cites the catalog version it was signed against.
+            Re-importing the same file changes nothing.
+        </p>
+
+        <label class="field">
+            <span class="field__label">Catalog · OSCAL JSON (required)</span>
+            <InputFile class="field__input" accept=".json,application/json"
+                       OnChange="e => _catalogFile = e.File" />
+        </label>
+
+        <p class="field__help" style="margin-top: var(--space-3)">
+            Baseline profiles are optional and each one is a separate OSCAL profile. Without
+            them the catalog still carries every control and parameter, but <strong>no control
+            claims membership of Low, Moderate or High</strong> — membership is read from the
+            profiles rather than guessed.
+        </p>
+
+        @foreach (var level in new[] { BaselineLevel.Low, BaselineLevel.Moderate, BaselineLevel.High })
+        {
+            <label class="field">
+                <span class="field__label">@level baseline profile (optional)</span>
+                <InputFile class="field__input" accept=".json,application/json"
+                           OnChange="e => Pick(level, e.File)" />
+            </label>
+        }
+
+        @if (_importError is not null)
+        {
+            <p style="color: var(--color-critical)">@_importError</p>
+        }
+        @if (_importResult is { } r)
+        {
+            <Card>
+                @if (r.Unchanged)
+                {
+                    <p><strong>Nothing changed.</strong> That file is identical to the current catalog.</p>
+                }
+                else
+                {
+                    <p><strong>@r.Name</strong> imported.</p>
+                    <dl class="stamp">
+                        <dt>Controls</dt><dd class="num">@r.Controls</dd>
+                        <dt>Parameters</dt><dd class="num">@r.Parameters</dd>
+                        <dt>Low / Moderate / High</dt><dd class="num">@r.Low / @r.Moderate / @r.High</dd>
+                        <dt>OSCAL</dt><dd class="mono">@(r.OscalVersion ?? "—")</dd>
+                        <dt>sha256</dt><dd class="mono">@r.Sha[..12]</dd>
+                    </dl>
+                }
+            </Card>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary"
+                Disabled="@(_busy || _catalogFile is null)"
+                DisabledReason="Choose a catalog file first."
+                OnClick="Import">
+            @(_busy ? "Importing…" : "Import")
+        </Button>
+        <Button OnClick="() => _importing = false">Close</Button>
+    </Footer>
+</Dialog>
+
 @code {
     private bool _loading = true;
+    private AuthorizationDecision _canImport = AuthorizationDecision.Deny("Checking…");
+    private bool _importing;
+    private bool _busy;
+    private string? _importError;
+    private CatalogImportOutcome? _importResult;
+    private IBrowserFile? _catalogFile;
+    private readonly Dictionary<BaselineLevel, IBrowserFile> _profileFiles = [];
     private CatalogSummary? _summary;
     private IReadOnlyList<Framework> _frameworks = [];
     private IReadOnlyList<Control> _controls = [];
@@ -135,11 +223,68 @@
         }
     }
 
+
+    private void Pick(BaselineLevel level, IBrowserFile file) => _profileFiles[level] = file;
+
+    private async Task Import()
+    {
+        if (_busy || _catalogFile is null) return;
+        _busy = true;
+        _importError = null;
+        _importResult = null;
+
+        var opened = new List<Stream>();
+        try
+        {
+            var actor = await Me.AtAsync(ScopeTarget.Instance);
+            if (actor is null) { _importError = "You are not signed in."; return; }
+
+            var profiles = new Dictionary<BaselineLevel, Stream>();
+            foreach (var (level, file) in _profileFiles)
+            {
+                var s = file.OpenReadStream(ControlCatalogImportService.MaxBytes);
+                opened.Add(s);
+                profiles[level] = s;
+            }
+
+            await using var catalog = _catalogFile.OpenReadStream(ControlCatalogImportService.MaxBytes);
+
+            var result = await Importer.ImportAsync(
+                actor, catalog, profiles, $"Uploaded · {_catalogFile.Name}");
+
+            if (!result.Success) { _importError = result.Error; return; }
+            _importResult = result.Value;
+
+            // Re-read rather than patch the fields: the import may have retired a prior
+            // catalog and changed the control set the browser below is showing.
+            await Reload();
+        }
+        catch (Exception ex)
+        {
+            _importError = ex.Message;
+        }
+        finally
+        {
+            foreach (var s in opened) await s.DisposeAsync();
+            _busy = false;
+        }
+    }
+
+    private async Task Reload()
+    {
+        _summary = await Catalog.CurrentCatalogAsync();
+        _frameworks = await Catalog.FrameworksAsync();
+        _controls = await Catalog.ControlsAsync();
+        _selected = _controls.FirstOrDefault(c => c.Id == _selected?.Id) ?? _controls.FirstOrDefault();
+        _family = _selected?.Family ?? Families.FirstOrDefault() ?? "";
+    }
+
     protected override async Task OnInitializedAsync()
     {
         _loading = true;
         try
         {
+            _canImport = await Me.CanAsync(Capability.EditPolicyWeights, ScopeTarget.Instance);
             _summary = await Catalog.CurrentCatalogAsync();
             _frameworks = await Catalog.FrameworksAsync();
             _controls = await Catalog.ControlsAsync();
