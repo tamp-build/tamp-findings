@@ -60,6 +60,9 @@ public sealed class ApprovalService
         // (ADR 0007 §4) — the same AcceptRisk boundary Admin deliberately lacks.
         ApprovalKind.LoosenPolicyTemplate => Capability.AcceptRisk,
         ApprovalKind.SwitchClientTemplate => Capability.AcceptRisk,
+        // The artifact is a VEX statement, so the authority to bring one into
+        // effect is the same one. What differs is that there is no direct path.
+        ApprovalKind.StalenessExemption => Capability.PublishVex,
         _ => Capability.ManageIngestKey,
     };
 
@@ -325,6 +328,7 @@ public sealed class ApprovalService
         ApprovalKind.AttestationSignOff => "pending sign-off",
         ApprovalKind.LoosenPolicyTemplate => "pending InfoSec approval to loosen",
         ApprovalKind.SwitchClientTemplate => "pending InfoSec approval to switch template",
+        ApprovalKind.StalenessExemption => "pending review",
         _ => "pending approval",
     };
 }
