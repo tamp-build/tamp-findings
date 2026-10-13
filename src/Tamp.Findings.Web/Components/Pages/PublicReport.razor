@@ -4,7 +4,11 @@
    unguessable key in the URL is the capability, and it only resolves while the project's public-report
    toggle is on. Everything shown comes from PublicReportQuery's allow-list (posture + counts; no file
    paths, snippets, finding text, receipt notes or justifications). Served no-store, and stamped with the
-   build sha and generation time so a cached copy is self-evidently stale. *@
+   build sha and generation time so a cached copy is self-evidently stale.
+
+   Everything reachable from PublicReportBody is a scalar or an already-narrowed row, so this markup
+   CANNOT reach finding text, file paths, justifications or image references — they are not in the model
+   it is handed. Keep it that way: widen PublicReportQuery deliberately, never reach past it. *@
 @page "/report/{Key}"
 @attribute [AllowAnonymous]
 @layout PublicReportLayout
@@ -36,7 +40,7 @@ else
             <div class="kicker">Evidence report · read-only</div>
             <h1>@_report.Project</h1>
             <p class="muted">
-                @_report.Client@(s.Baseline is { Length: > 0 } ? " · " + s.Baseline : "") · policy @b.Hub.PolicyName
+                @_report.Client@(s.Baseline is { Length: > 0 } ? " · " + s.Baseline : "") · policy @b.PolicyName
             </p>
             <p class="muted">
                 Build <span class="mono">@s.CommitShaShort</span> · @s.BuiltAt.ToString("yyyy-MM-dd HH:mm") UTC ·
@@ -59,13 +63,13 @@ else
 
         <Card>
             <h2>Gates</h2>
-            <p class="field__help">@b.Hub.Gates.Passed passed · @b.Hub.Gates.Failed failed · @b.Hub.Gates.Unknown not measured · @b.Hub.Gates.NotApplicable not applicable</p>
+            <p class="field__help">@b.Gates.Passed passed · @b.Gates.Failed failed · @b.Gates.Unknown not measured · @b.Gates.NotApplicable not applicable</p>
             <table class="table">
                 <thead><tr><th>Gate</th><th>Result</th><th>Observed</th></tr></thead>
                 <tbody>
-                @foreach (var g in b.Hub.Gates.Results.Where(r => r.Enabled))
+                @foreach (var g in b.Gates.Results)
                 {
-                    <tr><td>@GateEvaluator.Label(g.Key)</td><td>@g.Verdict</td><td>@g.Observed</td></tr>
+                    <tr><td>@g.Label</td><td>@g.Verdict</td><td>@g.Observed</td></tr>
                 }
                 </tbody>
             </table>

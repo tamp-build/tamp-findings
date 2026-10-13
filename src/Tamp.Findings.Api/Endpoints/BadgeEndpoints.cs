@@ -50,7 +50,9 @@ public static class BadgeEndpoints
 
         var svg = data is null
             ? BadgeSvg.RenderUnbuilt(project.Name, Subtitle(project.Client.Name, data))
-            : BadgeSvg.Render(ProjectStatus.From(data), DateTimeOffset.UtcNow);
+            // ForPublic, not From: this SVG is anonymous and gets embedded in READMEs, so a
+            // blocking gate's subtitle must not carry a producer's own observed text (TFND-215).
+            : BadgeSvg.Render(ProjectStatus.ForPublic(data), DateTimeOffset.UtcNow);
 
         return Results.Text(svg, "image/svg+xml", System.Text.Encoding.UTF8);
     }
