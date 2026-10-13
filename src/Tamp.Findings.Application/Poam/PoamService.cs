@@ -22,12 +22,18 @@ public sealed class PoamService
     private readonly FindingsDbContext _db;
     private readonly CapabilityEvaluator _capabilities;
     private readonly AuditLog _audit;
+    private readonly Compliance.ControlCatalogQuery _catalog;
 
-    public PoamService(FindingsDbContext db, CapabilityEvaluator capabilities, AuditLog audit)
+    public PoamService(
+        FindingsDbContext db,
+        CapabilityEvaluator capabilities,
+        AuditLog audit,
+        Compliance.ControlCatalogQuery catalog)
     {
         _db = db;
         _capabilities = capabilities;
         _audit = audit;
+        _catalog = catalog;
     }
 
     public async Task<Result<Guid>> CreateAsync(
@@ -37,6 +43,9 @@ public sealed class PoamService
         if (!decision.Allowed) return Result<Guid>.Denied(decision.Reason!);
 
         if (Validate(draft) is { } invalid) return Result<Guid>.Invalid(invalid);
+
+        var controls = await ResolveControlIdsAsync(draft, ct);
+        if (!controls.Success) return Result<Guid>.Invalid(controls.Error!);
 
         var item = new PoamItem
         {
@@ -50,6 +59,7 @@ public sealed class PoamService
             Status = draft.Status,
             ScheduledCompletionDate = draft.ScheduledCompletionDate,
             LinkedFindingIds = draft.LinkedFindingIds.Distinct().ToList(),
+            ControlIds = controls.Value!,
             AuthorUserId = actor.UserId,
         };
 
@@ -75,6 +85,9 @@ public sealed class PoamService
 
         if (Validate(draft) is { } invalid) return Result<Guid>.Invalid(invalid);
 
+        var controls = await ResolveControlIdsAsync(draft, ct);
+        if (!controls.Success) return Result<Guid>.Invalid(controls.Error!);
+
         var item = await _db.PoamItems.SingleOrDefaultAsync(
             p => p.Id == itemId && p.ProjectId == projectId, ct);
         if (item is null) return Result<Guid>.Invalid("That POA&M item no longer exists.");
@@ -93,6 +106,7 @@ public sealed class PoamService
         item.Severity = draft.Severity;
         item.ScheduledCompletionDate = draft.ScheduledCompletionDate;
         item.LinkedFindingIds = draft.LinkedFindingIds.Distinct().ToList();
+        item.ControlIds = controls.Value!;
         item.UpdatedAt = DateTimeOffset.UtcNow;
 
         _audit.Record(actor, "poam.updated", AuditClass.Risk, scope,
@@ -314,6 +328,50 @@ public sealed class PoamService
         item.ActualCompletionDate = status == PoamStatus.Completed ? item.ActualCompletionDate ?? now : null;
     }
 
+    /// <summary>
+    /// Normalise the draft's control ids and check each one resolves to a control in the
+    /// current catalog (TFND-180).
+    ///
+    /// Normalising first means the stored value is always the catalog's own display form,
+    /// so "cm-6", "CM-6" and "cm-6.1" are the same reference and a reader never sees two
+    /// spellings of one control. It reuses <see cref="Compliance.Oscal.OscalCatalogParser.DisplayId"/>
+    /// rather than reimplementing the rule, because a second copy of it would drift from
+    /// the one the importer applies and the two would disagree about what "cm-6.1" is.
+    ///
+    /// Unknown ids are REFUSED, naming them. This is not strictness for its own sake: the
+    /// point of a structured control field over the free-form SourceRef is that the value
+    /// resolves, and an id that resolves to nothing would print a typo into a document an
+    /// AO reads as the control they are being asked about.
+    ///
+    /// With no catalog imported there is nothing to check against, and the ids are stored
+    /// normalised but unchecked — "cannot check" is not "everything is invalid", and
+    /// refusing every control reference on an instance that has not imported a catalog
+    /// yet would block the record rather than improve it.
+    /// </summary>
+    private async Task<Result<List<string>>> ResolveControlIdsAsync(
+        PoamDraft draft, CancellationToken ct)
+    {
+        var normalised = (draft.ControlIds ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => Compliance.Oscal.OscalCatalogParser.DisplayId(id.Trim()))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (normalised.Count == 0) return Result<List<string>>.Ok(normalised);
+
+        var known = await _catalog.ControlIdsAsync(ct);
+        if (known.Count == 0) return Result<List<string>>.Ok(normalised);
+
+        var unknown = normalised.Where(id => !known.Contains(id)).ToArray();
+        if (unknown.Length > 0)
+        {
+            return Result<List<string>>.Invalid(
+                $"Not a control in the current catalog: {string.Join(", ", unknown)}.");
+        }
+
+        return Result<List<string>>.Ok(normalised);
+    }
+
     private static string? Validate(PoamDraft draft)
     {
         if (draft.Title.Trim().Length == 0) return "A POA&M item needs a title.";
@@ -345,4 +403,11 @@ public sealed record PoamDraft(
     Severity Severity,
     PoamStatus Status,
     DateTimeOffset? ScheduledCompletionDate,
-    IReadOnlyList<Guid> LinkedFindingIds);
+    IReadOnlyList<Guid> LinkedFindingIds,
+    /// <summary>
+    /// The 800-53 controls the weakness is in. Accepted in any form the catalog can be
+    /// addressed by — "cm-6", "CM-6", "cm-6.1" — and normalised to the catalog's own
+    /// display form on write. Defaulted so every existing caller and test keeps
+    /// compiling with no control mapping, which is a legitimate state.
+    /// </summary>
+    IReadOnlyList<string>? ControlIds = null);

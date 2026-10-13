@@ -36,6 +36,7 @@ public sealed class PoamQuery
             {
                 p.Id, p.Title, p.Severity, p.Status, p.ScheduledCompletionDate,
                 p.CreatedAt, p.ClosedAt, p.WeaknessDescription, p.LinkedFindingIds, p.AuthorUserId,
+                p.ControlIds,
             })
             .ToArrayAsync(ct);
 
@@ -58,7 +59,8 @@ public sealed class PoamQuery
                 p.CreatedAt,
                 p.ClosedAt,
                 IsPastDue(p.Status, p.ClosedAt, p.ScheduledCompletionDate, asOf),
-                p.LinkedFindingIds.Count))
+                p.LinkedFindingIds.Count,
+                p.ControlIds))
             // Past due first, then by severity, then by due date. An AO opening
             // this page is asking "what has slipped", and that has to be the
             // first thing on the screen.
@@ -125,7 +127,9 @@ public sealed class PoamQuery
             item.ClosedAt,
             IsPastDue(item.Status, item.ClosedAt, item.ScheduledCompletionDate, asOf),
             links,
-            danglingCount);
+            danglingCount,
+            item.LinkedFindingIds,
+            item.ControlIds);
     }
 
     /// <summary>
@@ -164,7 +168,11 @@ public sealed record PoamRow(
     DateTimeOffset CreatedAt,
     DateTimeOffset? ClosedAt,
     bool PastDue,
-    int LinkCount);
+    int LinkCount,
+    // The 800-53 controls the weakness is in (TFND-180). On the ROW as well as the
+    // record: an AO scanning the board is asking which controls have slipped, and
+    // making them open each item to find out defeats the board.
+    IReadOnlyList<string> ControlIds);
 
 public sealed record PoamRecord(
     Guid Id,
@@ -182,8 +190,16 @@ public sealed record PoamRecord(
     DateTimeOffset UpdatedAt,
     DateTimeOffset? ClosedAt,
     bool PastDue,
+    // The links that RESOLVED to a finding on this project, for rendering.
     IReadOnlyList<PoamLink> LinkedFindings,
-    int UnresolvedLinkCount);
+    int UnresolvedLinkCount,
+    // Every linked id as stored, resolvable or not. The edit dialog writes the whole
+    // list back, so it has to see the whole list: rebuilding it from LinkedFindings
+    // would silently drop the UnresolvedLinkCount ids that did not resolve — and an
+    // id stops resolving for reasons that are none of the editor's business, such as
+    // the finding ageing out of the current build.
+    IReadOnlyList<Guid> AllLinkedFindingIds,
+    IReadOnlyList<string> ControlIds);
 
 public sealed record PoamLink(
     Guid FindingId, Severity Severity, string RuleId, string Title,

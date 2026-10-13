@@ -24,6 +24,9 @@ public sealed record PoamItemDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     DateTimeOffset? ClosedAt,
+    // The 800-53 controls the weakness is in (TFND-180), in the catalog's display
+    // form. Always present, often empty.
+    IReadOnlyList<string> ControlIds,
     // Convenience surface for the SPA — true when ScheduledCompletionDate
     // is in the past and Status is still open/in-progress. Same shape the
     // poamPastDue gate uses.
@@ -38,7 +41,9 @@ public sealed record CreatePoamItemRequest(
     PoamStatus? Status,
     DateTimeOffset? ScheduledCompletionDate,
     IReadOnlyList<Guid>? LinkedFindingIds,
-    string? ReferenceUrl);
+    string? ReferenceUrl,
+    // Optional, and checked against the current catalog rather than stored as typed.
+    IReadOnlyList<string>? ControlIds = null);
 
 public sealed record UpdatePoamItemRequest(
     string? Title,
@@ -49,7 +54,8 @@ public sealed record UpdatePoamItemRequest(
     PoamStatus? Status,
     DateTimeOffset? ScheduledCompletionDate,
     IReadOnlyList<Guid>? LinkedFindingIds,
-    string? ReferenceUrl);
+    string? ReferenceUrl,
+    IReadOnlyList<string>? ControlIds = null);
 
 // TFND-156: these writes route through PoamService — the same capability-gated,
 // audited path the Blazor UI uses — rather than an Admin-only, unaudited path.
@@ -122,7 +128,8 @@ public static class PoamItemEndpoints
             req.Severity,
             req.Status ?? PoamStatus.Open,
             req.ScheduledCompletionDate,
-            req.LinkedFindingIds?.ToList() ?? []);
+            req.LinkedFindingIds?.ToList() ?? [],
+            req.ControlIds?.ToList() ?? []);
 
         var result = await poam.CreateAsync(actor!, scope, projectId, draft, ct);
         if (!result.Success) return Fail(result.WasDenied, result.Error);
@@ -152,7 +159,10 @@ public static class PoamItemEndpoints
             req.Severity ?? item.Severity,
             item.Status,
             req.ScheduledCompletionDate ?? item.ScheduledCompletionDate,
-            req.LinkedFindingIds?.ToList() ?? item.LinkedFindingIds);
+            req.LinkedFindingIds?.ToList() ?? item.LinkedFindingIds,
+            // Omitted means unchanged, the same as every other field on this PATCH.
+            // Clearing the mapping is an explicit empty array.
+            req.ControlIds?.ToList() ?? item.ControlIds);
 
         var upd = await poam.UpdateAsync(actor!, scope, item.ProjectId, id, draft, ct);
         if (!upd.Success) return Fail(upd.WasDenied, upd.Error);
@@ -199,6 +209,6 @@ public static class PoamItemEndpoints
             p.Id, p.ProjectId, p.Title, p.WeaknessDescription, p.MitigationPlan,
             p.ResourcesRequired, p.Severity, p.Status, p.ScheduledCompletionDate,
             p.ActualCompletionDate, p.LinkedFindingIds, p.ReferenceUrl,
-            p.AuthorUserId, p.CreatedAt, p.UpdatedAt, p.ClosedAt, isPastDue);
+            p.AuthorUserId, p.CreatedAt, p.UpdatedAt, p.ClosedAt, p.ControlIds, isPastDue);
     }
 }

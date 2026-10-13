@@ -81,6 +81,26 @@ public sealed class PoamItem
     // The in-force mandate-pack version at creation time, for point-in-time defence
     // (which mandate definition this item was raised against).
     public string? MandatePackVersion { get; set; }
+
+    // The 800-53 controls this weakness is a weakness IN (TFND-180 increment 4).
+    //
+    // SourceRef above is free-form and interpreted per SourceKind — a mandate id, a ZT
+    // function ref — so it cannot answer "which controls are affected", which is the
+    // column the federal POA&M template puts next to the weakness and the first thing
+    // an AO reads across from it. This is that column, structured: catalog control ids
+    // in the catalog's own display form (CM-6, AC-4(2)), normalised and checked against
+    // the current catalog on write so the stored value always resolves to a real
+    // control rather than printing a typo to an AO.
+    //
+    // A LIST, not one id: a single weakness routinely violates several controls (an
+    // unprotected boundary is both SC-7 and AC-4), and one id would force either a lie
+    // or a duplicate item. Empty is allowed and ordinary — a weakness found by a
+    // scanner may have no control mapped yet, and refusing to record it until someone
+    // does would just push the record out of the product.
+    //
+    // Stored as jsonb like LinkedFindingIds: read whole with the item, never queried
+    // relationally.
+    public List<string> ControlIds { get; set; } = new();
 }
 
 // What raised a POA&M (ADR 0010 §9). One shared POA&M model across tamp-findings

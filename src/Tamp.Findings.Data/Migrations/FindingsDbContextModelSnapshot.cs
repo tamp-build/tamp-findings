@@ -1931,6 +1931,10 @@ namespace Tamp.Findings.Data.Migrations
                     b.Property<DateTimeOffset?>("ClosedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.PrimitiveCollection<string>("ControlIds")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 

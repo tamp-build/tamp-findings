@@ -43,6 +43,23 @@
             <p>@(Record.ResourcesRequired is { Length: > 0 } r ? r : "—")</p>
         </div>
         <div>
+            @* The column the federal template puts beside the weakness: which controls
+               this is a weakness IN. Grey when empty, not amber — unlike the mitigation
+               plan above, an unmapped item is an ordinary state (a scanner finding may
+               have no control mapped yet), so flagging it would cry wolf. *@
+            <div class="kicker">Affected controls</div>
+            <p class="mono">
+                @if (Record.ControlIds.Count == 0)
+                {
+                    <span class="muted">— not mapped to a control</span>
+                }
+                else
+                {
+                    @string.Join(", ", Record.ControlIds)
+                }
+            </p>
+        </div>
+        <div>
             <div class="kicker">Scheduled completion</div>
             <p class="mono">
                 @if (Record.ScheduledCompletionDate is { } due)

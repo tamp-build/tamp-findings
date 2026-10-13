@@ -24,7 +24,7 @@
         <h1>POA&amp;M</h1>
         <Card>
             <div class="row">
-                <Chip Label="Unavailable" Tone="var(--color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
+                <Chip Label="Unavailable" Tone="var(—color-high)" Style="Chip.ChipStyle.Solid" Glyph="!" />
                 <span>Could not load the plan of action.</span>
             </div>
             <p class="field__help">
@@ -44,7 +44,7 @@ else if (_project is null)
 else
 {
     <div class="stack">
-        <div class="row row--between">
+        <div class="row row—between">
             <div>
                 <div class="kicker">NIST SP 800-53 CA-5 · plan of action &amp; milestones</div>
                 <h1>@_project.ProjectName</h1>
@@ -60,8 +60,8 @@ else
                three legitimate ways out — because a gate that only says "no"
                teaches the team to route around it. *@
             <Card>
-                <div class="row" style="gap: var(--space-3)">
-                    <Chip Label="GATE FAILING" Tone="var(--color-accent)" Style="Chip.ChipStyle.Solid" Glyph="✕" />
+                <div class="row" style="gap: var(—space-3)">
+                    <Chip Label="GATE FAILING" Tone="var(—color-accent)" Style="Chip.ChipStyle.Solid" Glyph="✕" />
                     <strong>
                         <code class="mono">poamPastDue</code> has @_board.Stats.PastDue overdue
                         item@(_board.Stats.PastDue == 1 ? "" : "s").
@@ -82,8 +82,8 @@ else
                never be past due, so a project could park everything here and
                pass poamPastDue forever. *@
             <Card>
-                <div class="row" style="gap: var(--space-3)">
-                    <Chip Label="UNSCHEDULED" Tone="var(--color-high)" Style="Chip.ChipStyle.Outlined" />
+                <div class="row" style="gap: var(—space-3)">
+                    <Chip Label="UNSCHEDULED" Tone="var(—color-high)" Style="Chip.ChipStyle.Outlined" />
                     <span>
                         @_board.Stats.Unscheduled open item@(_board.Stats.Unscheduled == 1 ? " has" : "s have")
                         no committed date, so the past-due gate cannot see @(_board.Stats.Unscheduled == 1 ? "it" : "them").
@@ -101,10 +101,10 @@ else
                put every InfoSec officer's name on every decision and teach all
                of them to ignore it. *@
             <Card>
-                <div class="row row--between">
-                    <div class="row" style="gap: var(--space-3)">
+                <div class="row row—between">
+                    <div class="row" style="gap: var(—space-3)">
                         <Chip Label="@($"AWAITING YOU · {_awaitingYou.Count}")"
-                              Tone="var(--color-accent)" Style="Chip.ChipStyle.Solid" />
+                              Tone="var(—color-accent)" Style="Chip.ChipStyle.Solid" />
                         <span>
                             @_awaitingYou.Count decision@(_awaitingYou.Count == 1 ? "" : "s")
                             on this project @(_awaitingYou.Count == 1 ? "needs" : "need") you.
@@ -122,10 +122,10 @@ else
             <div class="card-body poam-stats">
                 <Stat Label="Open" Value="@_board.Stats.Open" />
                 <Stat Label="In progress" Value="@_board.Stats.InProgress" />
-                <Stat Label="Completed" Value="@_board.Stats.Completed" Tone="var(--color-pass)" />
-                <Stat Label="Risk accepted" Value="@_board.Stats.RiskAccepted" Tone="var(--color-accent)" />
+                <Stat Label="Completed" Value="@_board.Stats.Completed" Tone="var(—color-pass)" />
+                <Stat Label="Risk accepted" Value="@_board.Stats.RiskAccepted" Tone="var(—color-accent)" />
                 <Stat Label="Past due" Value="@_board.Stats.PastDue"
-                      Tone="@(_board.Stats.PastDue > 0 ? "var(--color-critical)" : null)" />
+                      Tone="@(_board.Stats.PastDue > 0 ? "var(—color-critical)" : null)" />
             </div>
 
             @if (_board.Items.Count == 0)
@@ -142,12 +142,12 @@ else
             else
             {
                 <ScrollBox Label="POA&amp;M items">
-                    <table class="table table--rows">
+                    <table class="table table—rows">
                         <thead>
                             <tr>
                                 <th>Weakness</th><th>Sev</th><th>Status</th><th>Owner</th>
                                 <th>Scheduled</th><th class="align-end">Age</th>
-                                <th class="align-end">Links</th><th>Actions</th>
+                                <th class="align-end">Links</th><th>Controls</th><th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -157,13 +157,13 @@ else
                                     @onclick="() => Select(row.Id)">
                                     <td>
                                         <div>@row.Title</div>
-                                        <div class="muted" style="font-size: var(--text-secondary)">
+                                        <div class="muted" style="font-size: var(—text-secondary)">
                                             @Truncate(row.WeaknessDescription)
                                         </div>
                                     </td>
                                     <td><SeverityBadge Severity="row.Severity" /></td>
                                     <td>
-                                        <span class="row" style="gap: var(--space-2)">
+                                        <span class="row" style="gap: var(—space-2)">
                                             <PoamStatusChip Status="row.Status" PastDue="row.PastDue" />
                                             <PendingMark State="@Pending(row.Id)" />
                                         </span>
@@ -172,24 +172,34 @@ else
                                     <td class="mono">
                                         @if (row.ScheduledCompletionDate is { } due)
                                         {
-                                            <span style="@(row.PastDue ? "color: var(--color-critical)" : null)">
+                                            <span style="@(row.PastDue ? "color: var(—color-critical)" : null)">
                                                 @due.ToString("yyyy-MM-dd")
                                             </span>
                                         }
                                         else
                                         {
-                                            <span style="color: var(--color-high)">unscheduled</span>
+                                            <span style="color: var(—color-high)">unscheduled</span>
                                         }
                                     </td>
                                     <td class="num align-end">@Age(row) d</td>
                                     <td class="num align-end">@row.LinkCount</td>
+                                    <td class="mono">
+                                        @if (row.ControlIds.Count == 0)
+                                        {
+                                            <span class="muted">—</span>
+                                        }
+                                        else
+                                        {
+                                            @string.Join(", ", row.ControlIds)
+                                        }
+                                    </td>
                                     <td>
                                         <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
                                                 Disabled="@(!_canCreate.Allowed || Pending(row.Id) is not null)"
                                                 DisabledReason="@RowReason(row.Id)"
                                                 OnClick="() => StartEdit(row.Id)">edit</Button>
                                         <Button Variant="Button.ButtonVariant.Text" StopPropagation="true"
-                                                Class="btn--danger"
+                                                Class="btn—danger"
                                                 Disabled="@(!_canCreate.Allowed || Pending(row.Id) is not null)"
                                                 DisabledReason="@RowReason(row.Id)"
                                                 OnClick="() => _deleting = row">delete</Button>
@@ -220,7 +230,7 @@ else
     </div>
 }
 
-@* ---- Create / edit ---------------------------------------------------- *@
+@* —— Create / edit —————————————————————————— *@
 <Dialog Open="_editing" OpenChanged="v => _editing = v"
         Title="@(_editingId is null ? "New POA&M item" : "Edit POA&M item")" Width="780">
     <ChildContent>
@@ -234,10 +244,12 @@ else
                    Help="People, budget, dependencies. Surfaces in exports for AO review." />
         <TextField Label="Reference URL" Mono="true" @bind-Value="_draftReference"
                    Help="Ticket, AO memo or vendor advisory. Optional." />
+        <TextField Label="Affected controls" Mono="true" @bind-Value="_draftControls"
+                   Help="800-53 control ids, comma separated — CM-6, AC-4(2). Checked against the imported catalog, so a typo is refused rather than printed to an AO. Optional: leave it blank if nobody has mapped the weakness yet." />
 
         <div class="field">
             <span class="field__label">Severity</span>
-            <div class="row" style="gap: var(--space-2)">
+            <div class="row" style="gap: var(—space-2)">
                 @foreach (var severity in new[] { Severity.Critical, Severity.High, Severity.Medium, Severity.Low, Severity.Info })
                 {
                     <span @onclick="() => _draftSeverity = severity" style="cursor: pointer">
@@ -256,11 +268,11 @@ else
                deliberately separates — completing versus accepting risk. *@
             <div class="field">
                 <span class="field__label">Status</span>
-                <div class="row" style="gap: var(--space-2)">
+                <div class="row" style="gap: var(—space-2)">
                     @foreach (var status in new[] { PoamStatus.Open, PoamStatus.InProgress })
                     {
                         <span @onclick="() => _draftStatus = status" style="cursor: pointer">
-                            <Chip Label="@status.ToString()" Tone="var(--color-accent)"
+                            <Chip Label="@status.ToString()" Tone="var(—color-accent)"
                                   Style="@(_draftStatus == status ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
                         </span>
                     }
@@ -276,7 +288,7 @@ else
 
         @if (_dialogError is not null)
         {
-            <p style="color: var(--color-critical)">@_dialogError</p>
+            <p style="color: var(—color-critical)">@_dialogError</p>
         }
     </ChildContent>
     <Footer>
@@ -286,7 +298,7 @@ else
     </Footer>
 </Dialog>
 
-@* ---- AO extension ------------------------------------------------------ *@
+@* —— AO extension ——————————————————————————— *@
 <Dialog Open="_extending" OpenChanged="v => _extending = v" Title="Request AO extension" Width="620">
     <ChildContent>
         <TextField Label="New scheduled completion" Type="date" Mono="true" @bind-Value="_extendDate" />
@@ -294,7 +306,7 @@ else
                    Help="Required, and recorded verbatim in the audit log. An extension with no stated reason is indistinguishable from making a past-due item quietly stop being past due." />
         @if (_dialogError is not null)
         {
-            <p style="color: var(--color-critical)">@_dialogError</p>
+            <p style="color: var(—color-critical)">@_dialogError</p>
         }
     </ChildContent>
     <Footer>
@@ -304,7 +316,7 @@ else
     </Footer>
 </Dialog>
 
-@* ---- Request completion (TFND-118) ------------------------------------- *@
+@* —— Request completion (TFND-118) ——————————————————- *@
 <Dialog Open="_requestingComplete" OpenChanged="v => _requestingComplete = v"
         Title="Request completion" Width="620">
     <ChildContent>
@@ -317,7 +329,7 @@ else
                    Help="The evidence the approver will read: how the weakness was remediated. Recorded with the request." />
         @if (_dialogError is not null)
         {
-            <p style="color: var(--color-critical)">@_dialogError</p>
+            <p style="color: var(—color-critical)">@_dialogError</p>
         }
     </ChildContent>
     <Footer>
@@ -326,7 +338,7 @@ else
     </Footer>
 </Dialog>
 
-@* ---- Request risk acceptance (the two-person path, TFND-117) ----------- *@
+@* —— Request risk acceptance (the two-person path, TFND-117) —————- *@
 <Dialog Open="_requestingAccept" OpenChanged="v => _requestingAccept = v"
         Title="Request risk acceptance" Width="620">
     <ChildContent>
@@ -338,7 +350,7 @@ else
                    Help="The case the AO will read: why the weakness is tolerable, and for how long. Recorded with the request." />
         @if (_dialogError is not null)
         {
-            <p style="color: var(--color-critical)">@_dialogError</p>
+            <p style="color: var(—color-critical)">@_dialogError</p>
         }
     </ChildContent>
     <Footer>
@@ -347,7 +359,7 @@ else
     </Footer>
 </Dialog>
 
-@* ---- Accept risk yourself, signed (the self-serve path, TFND-117) ------ *@
+@* —— Accept risk yourself, signed (the self-serve path, TFND-117) ——— *@
 <Dialog Open="_signing" OpenChanged="v => _signing = v" Title="Accept the residual risk" Width="640">
     <ChildContent>
         @if (_record is { } rec)
@@ -366,7 +378,7 @@ else
                        Help="@($"Type {_myLogin} to sign.")" />
             @if (_dialogError is not null)
             {
-                <p style="color: var(--color-critical)">@_dialogError</p>
+                <p style="color: var(—color-critical)">@_dialogError</p>
             }
         }
     </ChildContent>
@@ -376,7 +388,7 @@ else
     </Footer>
 </Dialog>
 
-@* ---- Decide a request (the approver's action, TFND-117/118/119) -------- *@
+@* —— Decide a request (the approver's action, TFND-117/118/119) ———— *@
 <Dialog Open="_deciding" OpenChanged="v => _deciding = v"
         Title="@($"{(_decideApprove ? "Approve" : "Reject")} {DecideNoun}")" Width="640">
     <ChildContent>
@@ -399,7 +411,7 @@ else
                        Help="Recorded with the decision. A rejection needs a reason the requester can act on." />
             @if (_dialogError is not null)
             {
-                <p style="color: var(--color-critical)">@_dialogError</p>
+                <p style="color: var(—color-critical)">@_dialogError</p>
             }
         }
     </ChildContent>
@@ -416,7 +428,7 @@ else
     </Footer>
 </Dialog>
 
-@* ---- Delete, which steers away from itself ----------------------------- *@
+@* —— Delete, which steers away from itself ——————————————- *@
 <Dialog Open="_deleting is not null" OpenChanged="v => { if (!v) _deleting = null; }"
         Title="Delete POA&amp;M item" Width="660">
     <ChildContent>
@@ -429,7 +441,7 @@ else
             </p>
             @if (_dialogError is not null)
             {
-                <p style="color: var(--color-critical)">@_dialogError</p>
+                <p style="color: var(—color-critical)">@_dialogError</p>
             }
         }
     </ChildContent>
@@ -478,6 +490,18 @@ else
     private AwaitingRow? _decideRow;
 
     private string? _draftTitle, _draftWeakness, _draftPlan, _draftResources, _draftReference, _draftScheduled;
+    private string? _draftControls;
+
+    // The lists the dialog does NOT author, held so an edit preserves them.
+    //
+    // Save used to read the finding links off _record, guarded by
+    // "_record is not null && _editingId == _record.Id". _record is only loaded when
+    // the URL carries an item id, so pressing edit on a row of the board — the
+    // ordinary way in — took the else branch and passed an EMPTY list, and
+    // UpdateAsync wrote it: every finding link on the item, silently gone, on an edit
+    // that only meant to fix a typo. Holding the loaded record's list in draft state
+    // removes the dependency on which item the URL happens to have selected.
+    private IReadOnlyList<Guid> _draftLinkedFindingIds = [];
     private Severity _draftSeverity = Severity.Medium;
     private PoamStatus _draftStatus = PoamStatus.Open;
     private string? _extendDate, _extendReason;
@@ -587,17 +611,19 @@ else
 
     private static string SeverityTone(Severity severity) => severity switch
     {
-        Severity.Critical => "var(--color-critical)",
-        Severity.High => "var(--color-high)",
-        Severity.Medium => "var(--color-medium)",
-        Severity.Low => "var(--color-low)",
-        _ => "var(--color-info)",
+        Severity.Critical => "var(—color-critical)",
+        Severity.High => "var(—color-high)",
+        Severity.Medium => "var(—color-medium)",
+        Severity.Low => "var(—color-low)",
+        _ => "var(—color-info)",
     };
 
     private void StartCreate()
     {
         _editingId = null;
         _draftTitle = _draftWeakness = _draftPlan = _draftResources = _draftReference = _draftScheduled = null;
+        _draftControls = null;
+        _draftLinkedFindingIds = [];
         _draftSeverity = Severity.Medium;
         _draftStatus = PoamStatus.Open;
         _dialogError = null;
@@ -620,6 +646,8 @@ else
         _draftSeverity = record.Severity;
         _draftStatus = record.Status;
         _draftScheduled = record.ScheduledCompletionDate?.ToString("yyyy-MM-dd");
+        _draftControls = record.ControlIds.Count == 0 ? null : string.Join(", ", record.ControlIds);
+        _draftLinkedFindingIds = record.AllLinkedFindingIds;
         _dialogError = null;
         _editing = true;
     }
@@ -649,9 +677,8 @@ else
             _draftSeverity,
             _draftStatus,
             ParseDate(_draftScheduled),
-            _record is not null && _editingId == _record.Id
-                ? _record.LinkedFindings.Select(l => l.FindingId).ToArray()
-                : []);
+            _draftLinkedFindingIds,
+            SplitControls(_draftControls));
 
         var result = _editingId is { } id
             ? await Service.UpdateAsync(actor, Here, _project.ProjectId, id, draft)
@@ -675,7 +702,7 @@ else
         await OnParametersSetAsync();
     }
 
-    // ---- Risk acceptance (TFND-117) --------------------------------------
+    // —— Risk acceptance (TFND-117) ———————————————————
 
     private void StartRequestComplete()
     {
@@ -893,4 +920,14 @@ else
         DateOnly.TryParse(value, out var date)
             ? new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero)
             : null;
+
+    // Comma OR whitespace separated, because people paste control lists from
+    // documents and the document decides the separator. Normalising the ids and
+    // refusing unknown ones is PoamService's job — doing any of it here would put a
+    // second opinion about what a control id is in front of the one that counts.
+    private static IReadOnlyList<string> SplitControls(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? []
+            : value.Replace(',', ' ').Replace(';', ' ')
+                   .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
 }

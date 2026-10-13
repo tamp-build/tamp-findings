@@ -602,6 +602,10 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // (see ServiceCollectionExtensions) lets Npgsql round-trip the
             // List<Guid> without a converter.
             e.Property(x => x.LinkedFindingIds).HasColumnType("jsonb");
+            // The affected 800-53 control ids, same jsonb treatment (TFND-180). No index:
+            // a POA&M is read by project and the list is read whole with the item, so
+            // there is no query that would use one.
+            e.Property(x => x.ControlIds).HasColumnType("jsonb");
             // Past-due gate scans by (ProjectId, ClosedAt IS NULL, ScheduledCompletionDate)
             // — index matches that shape.
             e.HasIndex(x => new { x.ProjectId, x.Status, x.ScheduledCompletionDate });

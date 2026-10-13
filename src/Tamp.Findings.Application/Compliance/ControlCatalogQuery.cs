@@ -41,6 +41,19 @@ public sealed class ControlCatalogQuery(FindingsDbContext db)
         return current?.Controls.FirstOrDefault(c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// Every control id in the current catalog, for checking a reference resolves
+    /// (TFND-180). Case-insensitive, and empty when no catalog has been imported —
+    /// which callers must read as "cannot check" rather than "nothing is valid".
+    /// </summary>
+    public async Task<HashSet<string>> ControlIdsAsync(CancellationToken ct = default)
+    {
+        var current = await db.ControlCatalogs.AsNoTracking().FirstOrDefaultAsync(c => c.IsCurrent, ct);
+        return current is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : current.Controls.Select(c => c.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
     /// <summary>All frameworks, current first then drafts, alphabetical within.</summary>
     public async Task<IReadOnlyList<Framework>> FrameworksAsync(CancellationToken ct = default) =>
         await db.Frameworks.AsNoTracking()

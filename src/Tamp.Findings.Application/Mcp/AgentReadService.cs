@@ -824,7 +824,7 @@ public sealed class AgentReadService
             .Select(i => new AgentPoamItem(
                 i.Id, i.Title, i.WeaknessDescription, i.Severity, i.Status.ToString(),
                 i.Owner, i.ScheduledCompletionDate, i.CreatedAt, i.ClosedAt, i.PastDue,
-                i.LinkCount))
+                i.LinkCount, i.ControlIds))
             .ToArray();
 
         return new AgentPoamBoard(
@@ -1376,7 +1376,13 @@ public sealed record AgentPoamItem(
     DateTimeOffset? ClosedAt,
     bool PastDue,
     /// <summary>How many findings this item covers.</summary>
-    int LinkedFindings);
+    int LinkedFindings,
+    /// <summary>
+    /// The 800-53 controls this weakness is in, in the catalog's display form
+    /// (TFND-180). The reason an agent can ask "what is outstanding against SC-7"
+    /// and get an answer, instead of grepping weakness prose for a control number.
+    /// </summary>
+    IReadOnlyList<string> ControlIds);
 
 /// <summary>
 /// ADR-conformance verdicts for a build (TFND-238 / ADR 0012).
