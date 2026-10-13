@@ -48,12 +48,24 @@ public sealed class ControlCatalogImportService(
     AuditLog audit)
 {
     /// <summary>
-    /// Refuse anything larger than this. The real NIST 800-53 Rev 5 catalog is ~10 MB,
-    /// so this is generous — it exists because the import buffers the upload in memory
-    /// to hash it and parse it, and an unbounded upload would be an easy way to exhaust
-    /// a server that any instance administrator can reach.
+    /// Refuse anything larger than this. The import buffers the whole upload in memory —
+    /// it has to hash it and parse it — so an unbounded upload would be an easy way to
+    /// exhaust a server, and the cap is what stops that.
+    ///
+    /// The number is sized on the real artifact, not picked round: the NIST 800-53 Rev 5
+    /// catalog that ships in Content/oscal is ~10.4 MB, and this is a little over twice
+    /// that. It started at 64 MB, which was generosity with nothing behind it; every byte
+    /// of headroom above what a real catalog needs is memory an administrator can make
+    /// the server allocate for no reason.
+    ///
+    /// Sonar's S5693 fires on any limit above its 8 MB default and will keep firing here:
+    /// the catalog this product exists to import is larger than that default, so the rule
+    /// cannot be satisfied by lowering the number. Streaming to a temp file would move
+    /// the bound from memory to disk and make the rule moot — worth doing if catalogs ever
+    /// get much bigger, not worth the temp-file lifecycle for 10 MB behind an
+    /// instance-administrator capability.
     /// </summary>
-    public const long MaxBytes = 64L * 1024 * 1024;
+    public const long MaxBytes = 24L * 1024 * 1024;
 
     /// <summary>
     /// Import a catalog an operator supplied. Needs EditPolicyWeights at the instance —
