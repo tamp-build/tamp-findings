@@ -78,6 +78,27 @@ public static class PolicyTemplateDefaults
         ("CA-8",  [GateKeys.CriticalDast]),                                                           // penetration testing (web)
         ("CM-6",  [GateKeys.CriticalIac]),                                                            // config settings (iac)
         ("CM-7",  [GateKeys.CriticalIac]),                                                            // least functionality (iac)
+
+        // Promoted from a project layer (TFND-218). These were authored by hand on
+        // tamp-core during the ADR 0015 walk and then lived only in that one project's
+        // prod DB — not in git, not reviewable in a PR, and needing re-authoring on every
+        // other project. They are archetype-independent: the product gates these controls
+        // the same way for a library and a service, so they belong beside the mappings
+        // above rather than on an archetype layer.
+        //
+        // The project keeps its own richer assertion, which cites the concrete evidence
+        // (its nightly workflow, by path). On a same-kind tie the nearer layer's
+        // explanation now wins, so promoting these defaults adds coverage everywhere
+        // WITHOUT displacing the evidence a project has already written — which it would
+        // have done before the tie fix in this change.
+        ("CA-5",    [GateKeys.PoamPastDue]),                                                          // POA&M, enforced by the past-due gate
+        ("CA-7",    [GateKeys.SbomAge, GateKeys.PoamPastDue]),                                        // continuous monitoring
+        ("CA-7(4)", [GateKeys.SbomAge, GateKeys.PoamPastDue]),                                        // risk monitoring
+        ("SI-2(2)", [GateKeys.PoamPastDue, GateKeys.CriticalCves, GateKeys.KevExposure]),             // automated flaw-remediation status
+        ("CM-8(1)", [GateKeys.SbomAge]),                                                              // inventory updated on install/remove
+        ("CM-8(2)", [GateKeys.SbomAge]),                                                              // inventory automatically maintained
+        ("RA-3(1)", [GateKeys.CriticalCves, GateKeys.HighCves, GateKeys.KevExposure, GateKeys.SbomAge]), // supply-chain risk assessment
+        ("RA-5(2)", [GateKeys.SbomAge, GateKeys.KevExposure]),                                        // scan against current advisory data
     ];
 
     // Enable the no-unmapped meta-gate and attach the starter assertions the
@@ -131,6 +152,13 @@ public static class PolicyTemplateDefaults
                 "SR-2", "SR-2(1)", "SR-5", "SR-6", "SR-8", "SR-12", "SR-11(1)", "SR-11(2)",
                 "RA-2", "RA-3", "RA-7", "RA-9",
                 "PL-2", "PL-4", "PL-4(1)", "PL-8",
+                // Promoted from tamp-core's project layer (TFND-218). Each was written as
+                // an org-program claim, which is what this block is for, and none is
+                // library-specific: authenticated scanning is a property of scanning in
+                // CI at all, a disclosure program and an SDLC are organizational, and
+                // baseline selection and tailoring are the AO's by definition. They were
+                // missing here only because the walk reached them from one project.
+                "RA-5(5)", "RA-5(11)", "SA-10", "SA-15(3)", "PL-10", "PL-11",
             ],
         });
 
