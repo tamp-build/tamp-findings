@@ -15,6 +15,7 @@
 @inject ProjectHubQuery Hub
 @inject ProjectSettingsService Settings
 @inject McpTokenService AgentTokens
+@inject HierarchyService Hierarchy
 @inject CurrentUser Me
 @inject AuthenticationStateProvider Auth
 
@@ -498,9 +499,55 @@ else
                     <a class="btn btn--text btn--danger" href="/auth/signout">Sign out</a>
                 </div>
             </Card>
+
+            @* TFND-169: until now the only way to remove a project was a cascade DELETE
+               against Postgres by hand, which no operator can do and which left no audit
+               row. Administrator only — creating a project is delegable to an Architect,
+               erasing its evidence history is not. *@
+            <Card>
+                <h2>Delete this project</h2>
+                <p class="field__help">
+                    Removes the project and every build, finding, SBOM, coverage report and scan
+                    receipt beneath it. This cannot be undone and there is no export first — if the
+                    evidence matters, attest or export it before deleting.
+                </p>
+                <div class="row" style="margin-top: var(--space-3)">
+                    <Button Variant="Button.ButtonVariant.Danger"
+                            Disabled="@(!_canDelete.Allowed)" DisabledReason="@_canDelete.Reason"
+                            OnClick="() => { _deleteEcho = null; _deleteError = null; _deleting = true; }">
+                        Delete project…
+                    </Button>
+                </div>
+            </Card>
         }
     </div>
 }
+
+<Dialog Open="_deleting" OpenChanged="v => _deleting = v" Title="Delete project" Width="620">
+    <ChildContent>
+        <p>
+            This deletes <strong>@Project</strong> and everything recorded under it.
+            It cannot be undone.
+        </p>
+        @* The echo is the whole guard. It is also enforced server-side, so this field is
+           the courtesy, not the control. *@
+        <TextField Label="@($"Type {Project} to confirm")" @bind-Value="_deleteEcho"
+                   Help="Exact match, including capitalisation." />
+        @if (_deleteError is not null)
+        {
+            <p style="color: var(--color-critical)">@_deleteError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Danger"
+                Disabled="@(_deleteEcho?.Trim() != Project)"
+                DisabledReason="Type the project's name to enable this."
+                OnClick="DeleteProject">
+            Delete permanently
+        </Button>
+        <Button OnClick="() => _deleting = false">Cancel</Button>
+    </Footer>
+</Dialog>
 
 <Dialog Open="_minting" OpenChanged="v => _minting = v" Title="Generate ingest token" Width="620">
     <ChildContent>
@@ -642,6 +689,10 @@ else
     private AuthorizationDecision _canManageKeys = AuthorizationDecision.Deny("Checking…");
     private AuthorizationDecision _canEditVdp = AuthorizationDecision.Deny("Checking…");
     private AuthorizationDecision _canEditGates = AuthorizationDecision.Deny("Checking…");
+    private AuthorizationDecision _canDelete = AuthorizationDecision.Deny("Checking…");
+    private bool _deleting;
+    private string? _deleteEcho;
+    private string? _deleteError;
 
     // Archetype (TFND-203): "" = unclassified (null), else the ProjectArchetype int.
     // Public evidence report (TFND-215).
@@ -707,6 +758,13 @@ else
             _canManageKeys = await Me.CanAsync(Capability.ManageIngestKey, Here);
             _canEditVdp = await Me.CanAsync(Capability.EditDisclosurePolicy, Here);
             _canEditGates = await Me.CanAsync(Capability.EditGates, Here);
+
+            // Not a Capability: deleting hierarchy is an instance-level act, and there is
+            // no capability that should ever delegate it. Asking the principal directly
+            // keeps this aligned with HierarchyService, which enforces the same rule.
+            _canDelete = (await Me.AtAsync(ScopeTarget.Instance))?.Actors.Contains(Actor.Admin) == true
+                ? AuthorizationDecision.Allow()
+                : AuthorizationDecision.Deny("Deleting a project requires an administrator.");
             _repository = await Settings.RepositoryAsync(_project.ProjectId);
 
             (_reportEnabled, _reportKey) = await Settings.PublicReportAsync(_project.ProjectId);
@@ -827,6 +885,27 @@ else
         if (!result.Success) { _repoError = result.Error; return; }
 
         _repoSaved = true;
+    }
+
+    private async Task DeleteProject()
+    {
+        if (_project is null) return;
+        _deleteError = null;
+
+        // Instance scope, matching the rule the service applies — asking at the project
+        // scope would resolve a principal whose admin-ness is incidental to where they
+        // happen to be standing.
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _deleteError = "You are not signed in."; return; }
+
+        var result = await Hierarchy.DeleteProjectAsync(actor, _project.ProjectId, _deleteEcho);
+        if (!result.Success) { _deleteError = result.Error; return; }
+
+        // The project this page is about no longer exists, so there is nothing to
+        // re-render — go to the portfolio rather than leave a page describing a
+        // deleted thing.
+        _deleting = false;
+        Nav.NavigateTo("/", forceLoad: true);
     }
 
     private string ReportUrl => $"{_instanceUrl}/report/{_reportKey}";

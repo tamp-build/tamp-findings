@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Api.Contracts;
 using Tamp.Findings.Application.Authorization;
@@ -28,6 +29,13 @@ namespace Tamp.Findings.Api.Endpoints;
 public sealed record CreateClientRequest(string Name);
 public sealed record CreateProjectRequest(string Name, Guid ClientId, string? Description);
 
+/// <summary>
+/// The name the caller must echo to confirm an irreversible cascade (TFND-169).
+/// Sent in the body rather than as a query string so it does not end up in an access
+/// log or a shell history beside the id it authorises.
+/// </summary>
+public sealed record DeleteHierarchyRequest(string? ConfirmName);
+
 public static class HierarchyCreateEndpoints
 {
     public static IEndpointRouteBuilder MapHierarchyCreate(this IEndpointRouteBuilder app)
@@ -38,6 +46,13 @@ public static class HierarchyCreateEndpoints
          .WithSummary("Create a client. Administrator only — a client sits above every project, so nothing narrower can grant it. Audited.");
         g.MapPost("/projects", CreateProjectAsync)
          .WithSummary("Create a project under a client. Needs the CreateProject capability (Admin or Architect). Audited.");
+
+        g.MapDelete("/projects/{projectId:guid}", DeleteProjectAsync)
+         .WithName("DeleteProject")
+         .WithSummary("Delete a project and every build, finding, SBOM, coverage report and scan receipt under it. Administrator only. IRREVERSIBLE — the body must echo the project's name exactly. Audited.");
+        g.MapDelete("/clients/{clientId:guid}", DeleteClientAsync)
+         .WithName("DeleteClient")
+         .WithSummary("Delete a client and every project beneath it. Administrator only. IRREVERSIBLE — the body must echo the client's name exactly. Audited.");
         return app;
     }
 
@@ -93,6 +108,52 @@ public static class HierarchyCreateEndpoints
             .SingleAsync(ct);
 
         return Results.Created($"/projects/{row.Id}", row);
+    }
+
+    // Delete is addressed by PATH, so an id that does not exist is a 404 — unlike the
+    // unknown clientId above, which arrives in a body and is therefore a bad field.
+    // The existence check is here rather than in the service because the service speaks
+    // Result, which distinguishes "you may not" from "that does not work" but has no
+    // way to say "there is nothing at this URL".
+    private static async Task<IResult> DeleteProjectAsync(
+        Guid projectId, [FromBody] DeleteHierarchyRequest? req, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals, HierarchyService hierarchy, CancellationToken ct)
+    {
+        var owner = await db.Projects.AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => new { p.ClientId })
+            .FirstOrDefaultAsync(ct);
+        if (owner is null) return Results.NotFound("project not found");
+
+        var (actor, _, deny) = await EndpointActor.ForScopeAsync(
+            ctx, db, principals, owner.ClientId, projectId, ct);
+        if (deny is not null) return deny;
+
+        var result = await hierarchy.DeleteProjectAsync(actor!, projectId, req?.ConfirmName, ct);
+        if (result.WasDenied) return Results.Forbid();
+        if (!result.Success) return Results.BadRequest(result.Error);
+
+        // The counts come back rather than a bare 204: an operator who has just run an
+        // irreversible cascade should be told what went, and a 204 cannot say.
+        return Results.Ok(result.Value);
+    }
+
+    private static async Task<IResult> DeleteClientAsync(
+        Guid clientId, [FromBody] DeleteHierarchyRequest? req, HttpContext ctx, FindingsDbContext db,
+        PrincipalResolver principals, HierarchyService hierarchy, CancellationToken ct)
+    {
+        if (!await db.Clients.AsNoTracking().AnyAsync(c => c.Id == clientId, ct))
+            return Results.NotFound("client not found");
+
+        var (actor, _, deny) = await EndpointActor.ForScopeAsync(
+            ctx, db, principals, clientId, projectId: null, ct);
+        if (deny is not null) return deny;
+
+        var result = await hierarchy.DeleteClientAsync(actor!, clientId, req?.ConfirmName, ct);
+        if (result.WasDenied) return Results.Forbid();
+        if (!result.Success) return Results.BadRequest(result.Error);
+
+        return Results.Ok(result.Value);
     }
 
     // The service reports "already exists" as an invalid result rather than an
