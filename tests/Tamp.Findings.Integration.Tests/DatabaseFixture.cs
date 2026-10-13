@@ -62,9 +62,39 @@ public sealed class DatabaseFixture : IAsyncLifetime
         using var scope = Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FindingsDbContext>();
         db.Database.Migrate();
+        EmptyEveryTable(db);
 
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Empty the database once per assembly run, after migrating.
+    ///
+    /// Nothing used to clean up, so locally this database only ever grew: a developer
+    /// machine reached 14,847 projects and 12,199 clients accumulated over repeated
+    /// runs. CI never noticed, because its Postgres is a fresh service container every
+    /// time — which is exactly what made the symptoms look environmental.
+    ///
+    /// They were not. Any test that renders or queries something INSTANCE-WIDE scales
+    /// with that junk: an instance admin's portfolio loads every project there is. So
+    /// those tests got slower on every run until they timed out. That is the real story
+    /// behind PageARenderSweepTests.Admin_renders_every_group_a_route failing locally at
+    /// ~1m42s with a client abort while passing in CI, and it is why a component test
+    /// that renders Portfolio as an admin could not finish inside 90 seconds.
+    ///
+    /// Truncating is safe because no migration seeds anything — there is not one HasData
+    /// call in the model, and every test builds the world it needs. Doing it once at
+    /// assembly init rather than per test is what keeps the parallel collections
+    /// working: they share this fixture, and a per-test wipe would delete a concurrent
+    /// test's rows out from under it.
+    /// </summary>
+    private static void EmptyEveryTable(FindingsDbContext db) =>
+        db.Database.ExecuteSqlRaw(
+            "DO $$ DECLARE t text; BEGIN " +
+            "  FOR t IN SELECT tablename FROM pg_tables " +
+            "           WHERE schemaname = 'public' AND tablename <> '__EFMigrationsHistory' " +
+            "  LOOP EXECUTE format('TRUNCATE TABLE %I CASCADE', t); END LOOP; " +
+            "END $$;");
 
     // Rewrite the Database= key on a connection string, provider-agnostically.
     // DbConnectionStringBuilder parses the standard key/value form and indexes

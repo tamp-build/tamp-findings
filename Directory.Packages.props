@@ -143,6 +143,9 @@
     <PackageVersion Include="Bogus" Version="35.6.1" />
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.8" />
+    <!-- Component rendering for the Blazor pages (TFND-257). Framework-agnostic
+         in v2 — no xunit dependency — so it sits alongside xunit 2.9.2. -->
+    <PackageVersion Include="bunit" Version="2.11.3" />
   </ItemGroup>
 
   <ItemGroup Label="Source link">
