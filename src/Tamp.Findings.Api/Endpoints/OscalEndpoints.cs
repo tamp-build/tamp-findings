@@ -32,7 +32,93 @@ public static class OscalEndpoints
                + "component-definition, or a bundle of all three with shared UUIDs. FedRAMP "
                + "RFC-0024 requires machine-readable packages from 30 Sep 2026.");
 
+        // Catalog IMPORT, the other direction (TFND-180, v3 §6).
+        //
+        // Multipart rather than a JSON body, and an endpoint rather than only a Blazor
+        // handler, for one reason: the catalog is ~10 MB of OSCAL. The house pattern for
+        // importing reference content is a textarea paste (see /system/policy-pack),
+        // which is fine for a policy pack and hopeless for this.
+        //
+        // An HTTP route also serves the case the spec actually names — an air-gapped
+        // instance, where somebody carries the file in and curls it, with no browser
+        // and no egress to usnistgov.
+        app.MapPost("/system/control-catalog", ImportCatalogAsync)
+           .WithName("ImportControlCatalog")
+           .WithTags("Compliance")
+           .WithSummary(
+               "Import an OSCAL control catalog as the new current one, with optional "
+               + "baseline profiles (form fields: catalog, baseline-low, baseline-moderate, "
+               + "baseline-high). Needs EditPolicyWeights. Idempotent by content hash; prior "
+               + "catalogs are retained because attestations cite the version they signed against.")
+           .DisableAntiforgery();
+
         return app;
+    }
+
+    private static async Task<IResult> ImportCatalogAsync(
+        HttpContext ctx,
+        FindingsDbContext db,
+        PrincipalResolver principals,
+        Application.Compliance.Oscal.ControlCatalogImportService import,
+        CancellationToken ct)
+    {
+        if (!ctx.Request.HasFormContentType)
+            return Results.BadRequest("Send multipart/form-data with a 'catalog' file.");
+
+        var (actor, _, deny) = await EndpointActor.ForScopeAsync(
+            ctx, db, principals, clientId: null, projectId: null, ct);
+        if (deny is not null) return deny;
+
+        // A malformed or empty multipart body throws rather than returning an empty form,
+        // and that is a bad request, not a server fault.
+        IFormCollection form;
+        try
+        {
+            form = await ctx.Request.ReadFormAsync(ct);
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        {
+            return Results.BadRequest($"That upload could not be read: {ex.Message}");
+        }
+
+        var catalog = form.Files["catalog"] ?? form.Files.FirstOrDefault();
+        if (catalog is null) return Results.BadRequest("No 'catalog' file in the request.");
+
+        // Profiles are OPTIONAL, and leaving them out is a real choice rather than an
+        // incomplete request: a catalog on its own still carries every control and its
+        // parameters. What it cannot carry is baseline membership, which lives in the
+        // profiles — so without them every control imports as belonging to no baseline.
+        var profiles = new Dictionary<Domain.Compliance.BaselineLevel, Stream>();
+        var opened = new List<Stream>();
+        try
+        {
+            void Add(Domain.Compliance.BaselineLevel level, string field)
+            {
+                if (form.Files[field] is not { Length: > 0 } file) return;
+                var s = file.OpenReadStream();
+                opened.Add(s);
+                profiles[level] = s;
+            }
+            Add(Domain.Compliance.BaselineLevel.Low, "baseline-low");
+            Add(Domain.Compliance.BaselineLevel.Moderate, "baseline-moderate");
+            Add(Domain.Compliance.BaselineLevel.High, "baseline-high");
+
+            await using var catalogStream = catalog.OpenReadStream();
+
+            var source = form["source"].ToString() is { Length: > 0 } s2
+                ? s2
+                : $"Uploaded · {catalog.FileName}";
+
+            var result = await import.ImportAsync(actor!, catalogStream, profiles, source, ct);
+
+            if (result.WasDenied) return Results.Forbid();
+            if (!result.Success) return Results.BadRequest(result.Error);
+            return Results.Ok(result.Value);
+        }
+        finally
+        {
+            foreach (var s in opened) await s.DisposeAsync();
+        }
     }
 
     private static async Task<Results<ContentHttpResult, NotFound<string>, BadRequest<string>, ForbidHttpResult>>

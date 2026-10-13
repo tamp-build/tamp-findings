@@ -436,37 +436,32 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
     var catalogPath = Path.Combine(oscalDir, "catalog.json");
     if (File.Exists(catalogPath))
     {
-        var sha = Convert.ToHexString(
-            System.Security.Cryptography.SHA256.HashData(await File.ReadAllBytesAsync(catalogPath)));
-        var current = await db.ControlCatalogs.FirstOrDefaultAsync(c => c.IsCurrent);
-        if (current?.ImportedSha != sha)
+        // ControlCatalogImportService owns the hash check, the retire-then-add and the
+        // prior-version retention, so the operator's upload path (TFND-180) behaves
+        // identically to this one. It used to live here inline, which is precisely why
+        // there was nowhere for the upload to get it.
+        var import = scope.ServiceProvider
+            .GetRequiredService<Tamp.Findings.Application.Compliance.Oscal.ControlCatalogImportService>();
+
+        var profiles = new Dictionary<Tamp.Findings.Domain.Compliance.BaselineLevel, Stream>();
+        void AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel level, string file)
         {
-            var import = scope.ServiceProvider
-                .GetRequiredService<Tamp.Findings.Application.Compliance.Oscal.OscalImportService>();
-            var profiles = new Dictionary<Tamp.Findings.Domain.Compliance.BaselineLevel, Stream>();
-            void AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel level, string file)
-            {
-                var path = Path.Combine(oscalDir, file);
-                if (File.Exists(path)) profiles[level] = File.OpenRead(path);
-            }
-            AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel.Low, "baseline-low.json");
-            AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel.Moderate, "baseline-moderate.json");
-            AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel.High, "baseline-high.json");
+            var path = Path.Combine(oscalDir, file);
+            if (File.Exists(path)) profiles[level] = File.OpenRead(path);
+        }
+        AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel.Low, "baseline-low.json");
+        AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel.Moderate, "baseline-moderate.json");
+        AddProfile(Tamp.Findings.Domain.Compliance.BaselineLevel.High, "baseline-high.json");
 
-            Tamp.Findings.Domain.Entities.ControlCatalog built;
-            using (var cat = File.OpenRead(catalogPath))
-                built = import.BuildCatalog(cat, profiles, "usnistgov/oscal-content · OSCAL 1.2 catalog (shipped)", sha);
+        try
+        {
+            using var cat = File.OpenRead(catalogPath);
+            await import.ImportShippedAsync(
+                cat, profiles, "usnistgov/oscal-content · OSCAL 1.2 catalog (shipped)");
+        }
+        finally
+        {
             foreach (var s in profiles.Values) s.Dispose();
-
-            // Retire the prior current catalog first (the partial-unique index
-            // allows only one IsCurrent), then add the new one.
-            if (current is not null)
-            {
-                current.IsCurrent = false;
-                await db.SaveChangesAsync();
-            }
-            db.ControlCatalogs.Add(built);
-            await db.SaveChangesAsync();
         }
     }
     else if (!await db.ControlCatalogs.AnyAsync())

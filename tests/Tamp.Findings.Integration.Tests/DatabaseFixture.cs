@@ -55,14 +55,29 @@ public sealed class DatabaseFixture : IAsyncLifetime
         // assemblies simply never touch the same schema again.
         ConnectionString = WithDatabaseSuffix(baseConn, "_integration");
 
+        // Migrate and empty BEFORE the host exists, using a standalone context.
+        //
+        // Order matters and got this wrong once. The host's startup seeds real reference
+        // content — the shipped OSCAL control catalog, the frameworks, the EO mandate
+        // corpus — and that seeding happens when the host is first constructed. Emptying
+        // the database afterwards deleted all of it. Nothing failed at the time, because
+        // no test then depended on seeded content, which made it a trap rather than a
+        // bug: the first test to need the catalog found none. Emptying first means the
+        // host seeds into a clean database and tests see a realistic instance.
+        using (var standalone = new FindingsDbContext(
+            new DbContextOptionsBuilder<FindingsDbContext>().UseNpgsql(ConnectionString).Options))
+        {
+            standalone.Database.Migrate();
+            EmptyEveryTable(standalone);
+        }
+
         Factory = new IntegrationFactory(ConnectionString);
 
-        // Force host construction now, so a misconfigured connection string
-        // fails here rather than inside the first test that touches it.
+        // Force host construction now, so a misconfigured connection string fails here
+        // rather than inside the first test that touches it — and so the startup seeding
+        // has run before any test reads it.
         using var scope = Factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<FindingsDbContext>();
-        db.Database.Migrate();
-        EmptyEveryTable(db);
+        _ = scope.ServiceProvider.GetRequiredService<FindingsDbContext>();
 
         return Task.CompletedTask;
     }
