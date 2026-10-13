@@ -40,7 +40,13 @@ public sealed record GateResult(
     // owns the messaging.
     string Observed,
     double? Threshold,
-    string? Reason)
+    string? Reason,
+    // True when Observed is text a PRODUCER supplied (a posture reading's
+    // Detail), not text this evaluator composed. Authenticated surfaces show it
+    // verbatim — that is the point of reporting evidence. The public report
+    // (TFND-215) must not, because nobody on our side reviewed those bytes and
+    // they are exactly where an internal hostname or URL shows up.
+    bool ObservedIsProducerText = false)
 {
     // Pass and NotApplicable ship; Fail/Unknown/Error block. The distinction
     // between the blocking verdicts is about what the reader should DO, not about
@@ -433,10 +439,12 @@ public static class GateEvaluator
             return new GateResult(key, true, GateVerdict.Unknown, $"last observed {(int)age} days ago", maxAgeDays,
                 $"the observation is {(int)age} days old, older than the {maxAgeDays}-day limit, so it is unassessed");
 
+        var fromProducer = reading.Detail is { Length: > 0 };
         return reading.Status == Values.PostureStatus.Pass
-            ? new GateResult(key, true, GateVerdict.Pass, reading.Detail ?? "configured", maxAgeDays, reading.Detail)
+            ? new GateResult(key, true, GateVerdict.Pass, reading.Detail ?? "configured", maxAgeDays,
+                reading.Detail, fromProducer)
             : new GateResult(key, true, GateVerdict.Fail, reading.Detail ?? "not configured", maxAgeDays,
-                reading.Detail ?? $"'{check.Title}' is not configured");
+                reading.Detail ?? $"'{check.Title}' is not configured", fromProducer);
     }
 
     // Generic threshold gate: fail when observed > threshold (0 by default).

@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Tamp.Findings.Application.Authorization;
 using Tamp.Findings.Application.Projects;
 using Tamp.Findings.Domain.Entities;
+using Tamp.Findings.Domain.Risk;
 using Tamp.Findings.Domain.Values;
 
 namespace Tamp.Findings.Integration.Tests;
@@ -16,6 +17,15 @@ public class PublicReportIntegrationTests
     private const string SecretPath = "src/Internal/SecretPaymentsModule.cs";
     private const string SecretTitle = "Hardcoded credential in vault bootstrap";
     private const string SecretNote = "internal-host.corp.example scanned 77 files";
+
+    // Producer-supplied posture evidence. The producer writes whatever it likes here
+    // and the gate evaluator uses it verbatim as the gate's "observed" text, so it is
+    // the one field on this page whose content nobody on our side chose.
+    private const string SecretPostureDetail =
+        "2 approvals required, enforced by ci-gw.internal.corp.example/rules/42";
+
+    // The image this build produced. A registry hostname is an internal hostname.
+    private const string SecretImage = "registry.internal.corp.example/payments/api:1.0.0";
 
     private readonly DatabaseFixture _fx;
     public PublicReportIntegrationTests(DatabaseFixture fx) => _fx = fx;
@@ -43,6 +53,26 @@ public class PublicReportIntegrationTests
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-2), CompletedAt = DateTimeOffset.UtcNow,
             FindingsCount = 1, ToolName = "OpenGrep", ToolVersion = "1.0", Notes = SecretNote,
         });
+
+        // A posture observation whose detail names an internal host, with its gate
+        // ENABLED so the gate row actually renders.
+        project.GatesConfig = new ProjectGatesConfig
+        {
+            Gates = { [GateKeys.BranchProtection] = new GateConfig { Enabled = true } },
+        };
+        db.PostureObservations.Add(new PostureObservation
+        {
+            // Fail, so the gate BLOCKS: that is what puts the detail into the ship reasons the
+            // badge subtitle renders, as well as into the report's gate table.
+            ProjectId = project.Id, CheckId = "branch-protection", Status = PostureStatus.Fail,
+            Detail = SecretPostureDetail, Source = "tamp/github-actions",
+            ObservedAt = DateTimeOffset.UtcNow,
+        });
+        db.ContainerImages.Add(new ContainerImage
+        {
+            ComponentVersionId = cv.Id, Reference = SecretImage, Digest = "sha256:" + new string('a', 64),
+        });
+
         await db.SaveChangesAsync();
         return new World(project.Id, user.Id, user.Login, project.Name);
     }
@@ -127,6 +157,77 @@ public class PublicReportIntegrationTests
         Assert.DoesNotContain(SecretTitle, html);
         Assert.DoesNotContain(SecretNote, html);
         Assert.Contains("no-store", resp.Headers.CacheControl?.ToString() ?? "");
+    }
+
+    [SkippableFact]
+    public async Task Producer_supplied_posture_detail_is_not_echoed_to_anonymous_readers()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // The allow-list is "posture and counts", and the ticket is explicit: no internal
+        // hostnames. But a posture gate's observed text IS the producer's own Detail string
+        // (GateEvaluator.EvaluatePosture), so an unreviewed field was reaching this page
+        // verbatim — and it reaches ShipReasons too, which the badge subtitle renders.
+        //
+        // The verdict must still be published. Withholding the free text is the fix;
+        // withholding the gate would be hiding the evidence this page exists to show.
+        var w = await SeedAsync();
+        var key = await EnableAsync(w);
+        var http = _fx.Factory!.CreateClient();
+
+        var html = await (await http.GetAsync($"/report/{key}")).Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain("corp.example", html);
+        Assert.Contains(GateEvaluator.Label(GateKeys.BranchProtection), html);
+    }
+
+    [SkippableFact]
+    public async Task The_public_badge_does_not_echo_producer_posture_detail_either()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // The badge is the WIDER anonymous surface: it is embedded in READMEs, and unlike the
+        // report it is not behind an opt-in toggle — a badge key is all it takes. Its ship-gate
+        // subtitle is built from the same blocking-gate reasons.
+        //
+        // This is a REGRESSION GUARD, not a reproduction: the badge was not leaking before the
+        // fix, and the reason is pure coincidence. The subtitle wraps to two 24-character lines,
+        // and every posture check's label is long enough to fill both on its own, so the detail
+        // was always truncated off the card. Shorten one label — or add a check with a short one
+        // — and it would have started showing. ForPublic removes the dependence on that accident.
+        var w = await SeedAsync();
+        string? badgeKey;
+        using (var scope = _fx.Scope())
+        {
+            var db = _fx.Db(scope);
+            var p = await db.Projects.SingleAsync(x => x.Id == w.ProjectId);
+            p.BadgeKey = badgeKey = Guid.NewGuid().ToString("N");
+            await db.SaveChangesAsync();
+        }
+
+        var svg = await (await _fx.Factory!.CreateClient().GetAsync($"/badge/{badgeKey}.svg"))
+            .Content.ReadAsStringAsync();
+
+        Assert.Contains("<svg", svg);
+        Assert.DoesNotContain("corp.example", svg);
+    }
+
+    [SkippableFact]
+    public async Task The_image_this_build_produced_is_not_named()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // An image reference carries the registry hostname, and a private registry's
+        // hostname is infrastructure detail. Nothing renders it today; this pins that,
+        // because the hub data the page is handed does carry it.
+        var w = await SeedAsync();
+        var key = await EnableAsync(w);
+        var http = _fx.Factory!.CreateClient();
+
+        var html = await (await http.GetAsync($"/report/{key}")).Content.ReadAsStringAsync();
+
+        Assert.DoesNotContain(SecretImage, html);
+        Assert.DoesNotContain("registry.internal", html);
     }
 
     [SkippableFact]
