@@ -761,8 +761,70 @@ class Build : SecurityPipelineBuild
     Target SecurityScanSecrets => _ => _
         .Produces("artifacts/security/trufflehog.jsonl")
         .Requires(() => TrufflehogTool is not null)
-        .Description("TruffleHog filesystem scan emitting JSONL findings (one per line). --no-verification keeps this offline and fast; verification can be re-enabled in CI when network egress is allowed. NOTE: bypasses Tamp.TruffleHog.V3.SetOutput due to TAM-263 — TruffleHog v3 has no --output flag, so we capture stdout to a file directly.")
+        .Description("TruffleHog filesystem scan emitting JSONL findings (one per line). --no-verification keeps this offline and fast; verification can be re-enabled in CI when network egress is allowed. Scans explicit top-level paths rather than '.' because --exclude-paths filters RESULTS and not traversal (TFND-172 / TAM-291). NOTE: bypasses Tamp.TruffleHog.V3.SetOutput due to TAM-263 — TruffleHog v3 has no --output flag, so we capture stdout to a file directly.")
         .Executes(() => RunTrufflehog());
+
+    // Top-level entries TruffleHog must not be handed, because it WALKS whatever
+    // it is given (TFND-172).
+    //
+    // --exclude-paths filters RESULTS, not traversal: TruffleHog still reads
+    // every file in an excluded path and applies every detector regex before
+    // discarding the matches. So the ignore file cannot save us from
+    // build/tools/node/node_modules, where the reflow tooling's puppeteer
+    // bundles a full Chromium — the whole-tree scan then runs for minutes or
+    // effectively hangs.
+    //
+    // TODO(TAM-291): the wrapper has no way to express "do not walk here".
+    // Remove this enumeration once Tamp.TruffleHog.V3 can take scan paths or a
+    // traversal deny-list directly.
+    static readonly string[] SecretScanSkip =
+    [
+        ".git",          // compressed object blobs: random bytes, and random bytes match detectors
+        "artifacts",     // our own scan output — findings about findings
+        "docker",        // docker/.data is the dev Postgres volume: data files and WAL segments
+        ".vs",
+        "node_modules",
+        // Build output. .trufflehogignore already drops these from the RESULTS,
+        // so walking them is pure cost — which is the whole point here.
+        "bin", "obj", "dist",
+    ];
+
+    /// <summary>
+    /// What to hand TruffleHog: every top-level entry EXCEPT the known-heavy
+    /// trees, plus the build directory's own sources without its tool downloads.
+    ///
+    /// Enumerated rather than listed, so a new top-level directory is scanned by
+    /// DEFAULT. A hardcoded list of paths to scan would mean a new folder is
+    /// silently never secret-scanned, and for a security scan that failure is
+    /// worse than being slow — it is the one that looks like success.
+    /// </summary>
+    IEnumerable<string> SecretScanPaths()
+    {
+        foreach (var entry in Directory.EnumerateFileSystemEntries(RootDirectory.Value))
+        {
+            var name = Path.GetFileName(entry);
+
+            if (SecretScanSkip.Contains(name, StringComparer.OrdinalIgnoreCase)) continue;
+
+            // The build directory holds our sources AND the downloaded tools
+            // (build/tools/node). Descend one level so the sources are scanned
+            // and the tool tree is not.
+            if (string.Equals(name, "build", StringComparison.OrdinalIgnoreCase)
+                && Directory.Exists(entry))
+            {
+                foreach (var inner in Directory.EnumerateFileSystemEntries(entry))
+                {
+                    var innerName = Path.GetFileName(inner);
+                    if (string.Equals(innerName, "tools", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (SecretScanSkip.Contains(innerName, StringComparer.OrdinalIgnoreCase)) continue;
+                    yield return inner;
+                }
+                continue;
+            }
+
+            yield return entry;
+        }
+    }
 
     void RunTrufflehog()
     {
@@ -770,12 +832,13 @@ class Build : SecurityPipelineBuild
         var excludeFile = (RootDirectory / "build" / ".trufflehogignore").Value;
         var psi = new System.Diagnostics.ProcessStartInfo(TrufflehogTool!.Executable.Value)
         {
-            // --exclude-paths skips node_modules, .git, artifacts, build outputs.
-            // Without this TruffleHog walks the full web/node_modules tree and
-            // never returns — every file gets every detector regex applied.
+            // Explicit paths rather than "." — see SecretScanPaths and TFND-172.
+            // --exclude-paths is STILL passed: it is the right tool for in-tree
+            // noise that cannot be skipped at the top level (bin/obj under every
+            // project, lock files), and it correctly removes those from results.
             ArgumentList =
             {
-                "filesystem", ".",
+                "filesystem",
                 "--json", "--no-verification", "--no-update",
                 "--exclude-paths", excludeFile,
             },
@@ -784,14 +847,34 @@ class Build : SecurityPipelineBuild
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+
+        foreach (var path in SecretScanPaths()) psi.ArgumentList.Add(path);
         using var proc = System.Diagnostics.Process.Start(psi)!;
+        // BOTH pipes must be drained CONCURRENTLY (TFND-172).
+        //
+        // This used to read stdout to EOF and then read stderr, with a comment
+        // claiming that drained stderr "so the buffer doesn't deadlock". Doing
+        // it in sequence IS the deadlock: trufflehog logs a line per unit to
+        // stderr, fills that pipe's buffer, blocks on the write, therefore
+        // stops writing stdout — while we are still blocked reading stdout.
+        // Neither side can move.
+        //
+        // It presented as "the secret scan hangs", and it was blamed on
+        // TruffleHog walking node_modules, because scoping the scan smaller
+        // made it go away: fewer stderr lines, buffer never fills. The scoping
+        // in SecretScanPaths is still worth having, but this is what was
+        // actually wrong — a whole-tree scan of this repo takes 97ms when both
+        // pipes are read.
+        var stderrDrain = proc.StandardError.ReadToEndAsync();
+
         using (var sw = File.CreateText(TrufflehogJsonFile.Value))
         {
             sw.Write(proc.StandardOutput.ReadToEnd());
         }
-        // Drain stderr so the buffer doesn't deadlock; ignore the
-        // contents — trufflehog logs progress there.
-        proc.StandardError.ReadToEnd();
+
+        // Ignore the contents — trufflehog logs progress there — but wait for
+        // the drain so the child is never left blocked on a full pipe.
+        stderrDrain.GetAwaiter().GetResult();
         proc.WaitForExit();
         if (proc.ExitCode != 0)
         {
