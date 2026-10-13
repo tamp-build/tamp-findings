@@ -24,8 +24,7 @@ public static class AuthExtensions
     ///
     /// Read by the startup warning in <c>Program.cs</c>. A static rather than
     /// an injected option because the decision is made during service
-    /// registration, before there is a logger to tell — the same shape the
-    /// design-access flag uses.
+    /// registration, before there is a logger to tell.
     /// </summary>
     public static bool GitHubCredentialsLookTemplated { get; private set; }
 

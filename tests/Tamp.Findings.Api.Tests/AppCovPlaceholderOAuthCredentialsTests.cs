@@ -46,7 +46,11 @@ public class AppCovPlaceholderOAuthCredentialsTests
     [InlineData("Iv1.8a61f9b3a7aba766")]
     [InlineData("Ov23liQ8N2mKpX1aZbCd")]
     [InlineData("23f1a9c4e7b2d6085a1c")]
-    [InlineData("gho_16C7e42F292c6912E7710c838347Ae178B4a")]
+    // Deliberately NOT a gho_/ghp_ token shape. The field under test is a
+    // client ID, which never looks like that — and a token-shaped literal here
+    // is a real finding for the secret scanner (TFND-172), which would mean a
+    // test about false positives generating one of its own.
+    [InlineData("Ov23liABCDEFGHIJ1234")]
     public void Real_looking_credentials_are_left_alone(string value) =>
         Assert.False(LooksLikePlaceholder(value), $"'{value}' is plausible and must not be rejected");
 

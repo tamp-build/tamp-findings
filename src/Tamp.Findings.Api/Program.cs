@@ -605,11 +605,6 @@ app.UseRequestLocalization(new Microsoft.AspNetCore.Builder.RequestLocalizationO
     .AddSupportedUICultures(supportedCultures));
 
 app.UseAuthentication();
-// TFND-167 (dev-only, REMOVE LATER): inline ?__design=<token> auth for Claude
-// Design's stateless single-GET fetcher — authenticates the request before
-// authorization runs, so the page renders authenticated with no cookie and no
-// redirect. No-op unless the design env vars are set.
-app.UseDesignTokenAuth();
 app.UseAuthorization();
 
 // TFND-12: bearer-token auth for the agent surface, attached to the PATH
@@ -691,21 +686,6 @@ app.MapGet("/version", () => Results.Ok(new
 // Auth surface — challenge, callback (registered by the OAuth handler at
 // /auth/github/callback), /auth/me, /auth/logout, /auth/denied.
 app.MapAuth();
-
-// TEMPORARY / DEV-ONLY (TFND-167): pure-URL access for Claude Design. Off unless
-// TAMP_FINDINGS_DESIGN_TOKEN + TAMP_FINDINGS_DESIGN_LOGIN are set. Remove this
-// call and Endpoints/DesignAccessEndpoints.cs when the design work is done.
-app.MapDesignAccess();
-if (Tamp.Findings.Api.Endpoints.DesignAccessEndpoints.Enabled)
-{
-    app.Services.GetRequiredService<ILoggerFactory>()
-        .CreateLogger("Tamp.Findings.DesignAccess")
-        .LogWarning(
-            "DEV-ONLY design access is ENABLED (TFND-167): /auth/design mints an auth cookie "
-            + "for '{Login}' to anyone holding the token. This is an auth bypass — unset "
-            + "TAMP_FINDINGS_DESIGN_TOKEN to disable it.",
-            Environment.GetEnvironmentVariable(Tamp.Findings.Api.Endpoints.DesignAccessEndpoints.LoginVar));
-}
 
 // TFND-255: GitHub OAuth credentials that are set but look like an unedited
 // template. The provider was left unregistered, so there is no "Continue with
