@@ -104,6 +104,28 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
         var secretsVerified   = findings.Where(x => IsSecret(x.Scanner, x.SubCategory) && x.Severity == Severity.Critical).Sum(x => x.Count);
         var secretsUnverified = findings.Where(x => IsSecret(x.Scanner, x.SubCategory) && x.Severity == Severity.High).Sum(x => x.Count);
 
+        // TFND-213 / RA-5(4) discoverable information. A SECOND query rather than a reuse
+        // of the grouping above, because classification is by RULE ID — which alert fired,
+        // not how severe it was — and adding rule id to the main grouping would multiply
+        // every other count's group-by for one gate's benefit. Restricted to the scanners
+        // the registry can classify at all, so this reads a few hundred rows, not a build's
+        // whole finding set.
+        var exposureScanners = ExposureClasses.Scanners.ToArray();
+        var exposureRows = await db.Findings.AsNoTracking()
+            .Where(f => cvIds.Contains(f.ComponentVersionId) && f.Status == FindingStatus.Open && !dupeIds.Contains(f.Id))
+            .Where(f => exposureScanners.Contains(f.Scanner))
+            .GroupBy(f => new { f.Scanner, f.RuleId, f.Severity, f.SubCategory })
+            .Select(g => new { g.Key.Scanner, g.Key.RuleId, g.Key.Severity, g.Key.SubCategory, Count = g.Count() })
+            .ToListAsync(ct);
+        // Capped by the same per-scanner ceiling the counts above use. The live/candidate
+        // credential split rides on severity, and an admin who ceilings a secret scanner
+        // changes what "verified" means for the verifiedSecrets gate — the two must not
+        // then disagree about which secrets are live.
+        var exposures = ExposureClasses.Roll(exposureRows.Select(r => (
+            new ExposureSignal(r.Scanner, r.RuleId,
+                CapSeverity(r.Scanner, r.Severity, policy.ScannerOverrides), r.SubCategory),
+            r.Count)));
+
         // TFND-25 VEX suppression: project-scoped statements take
         // matching vulnerabilities OUT of the CVE counts and the KEV
         // count. Required for the per-build evaluator so VEX changes
@@ -367,7 +389,12 @@ public sealed class RiskInputsBuilder(FindingsDbContext db, VexResolver vexResol
             UnanalyzedLanguages: unanalyzedLanguages,
             HasAnalysisCoverage: hasAnalysisCoverage,
             UnauthorizedComponents: unauthorizedComponents,
-            Posture: posture);
+            Posture: posture,
+            DisclosureExposures: exposures.Disclosure,
+            FingerprintExposures: exposures.Fingerprint,
+            // Either lane answers the question; neither means nobody looked.
+            RanExposureAnalysis: ranSecrets || ranDast,
+            ExposuresByClass: exposures.ByClass);
     }
 
     // Per-policy severity ceiling. Default (no override) returns the

@@ -231,6 +231,7 @@ public static class GateEvaluator
         GateKeys.HighDast,
         GateKeys.CriticalIac,
         GateKeys.VerifiedSecrets,
+        GateKeys.DiscoverableInformation,
         GateKeys.DeniedLicenses,
         GateKeys.UnauthorizedComponent,
         GateKeys.BranchProtection,
@@ -270,6 +271,7 @@ public static class GateEvaluator
         GateKeys.HighDast => "High DAST",
         GateKeys.CriticalIac => "Critical IaC",
         GateKeys.VerifiedSecrets => "Verified secrets",
+        GateKeys.DiscoverableInformation => "Discoverable information",
         GateKeys.DeniedLicenses => "Denied licences",
         GateKeys.UnauthorizedComponent => "Unauthorized components",
         GateKeys.BranchProtection => "Branch protection",
@@ -314,6 +316,14 @@ public static class GateEvaluator
         GateKeys.CriticalIac => "Blocks on critical infrastructure misconfiguration. Needs an IaC scan.",
         GateKeys.VerifiedSecrets =>
             "Blocks on secrets a scanner verified as live. Needs a secret scan.",
+        GateKeys.DiscoverableInformation =>
+            "Blocks on what an adversary can LEARN about this system: a disclosed credential, debug "
+            + "output, source or configuration served to clients, an identifier carried in a URL "
+            + "(RA-5(4)). Fingerprints — server banners, versions, internal addresses, developer "
+            + "comments — are counted and named but never block, because a build that fails over a "
+            + "Server header is a gate somebody switches off. Unanswerable without a secret or "
+            + "dynamic scan. External reconnaissance (DNS, cloud metadata, undeclared hosts) is NOT "
+            + "covered — nothing produces it, and this gate does not pretend otherwise.",
         GateKeys.DeniedLicenses => "Blocks on dependencies under a denied licence tier. Needs an SBOM.",
         GateKeys.BranchProtection or GateKeys.PrReviewsRequired or GateKeys.SignedCommits
             or GateKeys.OrgTwoFactor or GateKeys.Codeowners =>
@@ -401,6 +411,7 @@ public static class GateEvaluator
             GateKeys.HighDast            => Threshold(key, cfg, current.DastHigh, 0, "high DAST", current.RanDast, "DAST"),
             GateKeys.CriticalIac         => Threshold(key, cfg, current.IacCritical, 0, "critical IaC misconfigs", current.RanIac, "IaC"),
             GateKeys.VerifiedSecrets     => Threshold(key, cfg, current.SecretsVerified, 0, "verified secrets", current.RanSecrets, "secrets"),
+            GateKeys.DiscoverableInformation => EvaluateDiscoverableInformation(key, cfg, current),
 
             GateKeys.TestFailures        => EvaluateTestFailures(key, cfg, current),
             GateKeys.CoverageRegression  => EvaluateCoverageRegression(key, cfg, current, prior),
@@ -445,6 +456,68 @@ public static class GateEvaluator
                 reading.Detail, fromProducer)
             : new GateResult(key, true, GateVerdict.Fail, reading.Detail ?? "not configured", maxAgeDays,
                 reading.Detail ?? $"'{check.Title}' is not configured", fromProducer);
+    }
+
+    // TFND-213 / RA-5(4). Not a Threshold() call, because the whole point of this gate is
+    // that it reports MORE than it blocks on: the control asks us to determine what is
+    // discoverable AND to take corrective action, and a verdict that mentioned only the
+    // blocking tier would answer half of it.
+    private static GateResult EvaluateDiscoverableInformation(string key, GateConfig cfg, RiskInputs current)
+    {
+        var threshold = (int)(cfg.Threshold ?? 0);
+
+        // Same honesty rule as every scanner gate. Either lane answers it — a library with
+        // no deployed target still has a tree to scan for secrets, and a deployed service
+        // with no secret scan still has a surface to probe — but with NEITHER, a count of
+        // zero is nobody having looked.
+        if (!current.RanExposureAnalysis)
+            return new GateResult(key, true, GateVerdict.Unknown,
+                "no secret or dynamic scan on this build", threshold,
+                "cannot determine what is discoverable: neither a secret scan nor a dynamic scan ran, "
+                + "so a count of zero means nobody looked");
+
+        var disclosure = current.DisclosureExposures;
+        var fingerprint = current.FingerprintExposures;
+
+        // Composed from class TITLES and counts — never from a finding's own text. The
+        // public report renders Observed verbatim (TFND-215), and a finding's title is
+        // exactly where an internal hostname or a URL shows up.
+        var named = NamedClasses(current.ExposuresByClass, ExposureTier.Disclosure);
+
+        if (disclosure > threshold)
+            return new GateResult(key, true, GateVerdict.Fail,
+                $"{disclosure} disclosed", threshold,
+                $"{disclosure} item(s) of discoverable information exceed the {threshold} allowed"
+                + (named is null ? "" : $" — {named}"));
+
+        // Pass, and still say what is collectable. A clean verdict that silently dropped
+        // the fingerprint count would make the determination look complete when the thing
+        // RA-5(4) asks us to act on is sitting right there.
+        var observed = fingerprint == 0
+            ? "nothing disclosed"
+            : $"nothing disclosed, {fingerprint} fingerprint";
+        var fpNamed = NamedClasses(current.ExposuresByClass, ExposureTier.Fingerprint);
+        var reason = fingerprint == 0
+            ? $"no discoverable information found above the {threshold} allowed"
+            : $"no blocking disclosure; {fingerprint} fingerprint signal(s) reported for corrective action"
+              + (fpNamed is null ? "" : $" — {fpNamed}");
+
+        return new GateResult(key, true, GateVerdict.Pass, observed, threshold, reason);
+    }
+
+    // "Live credential disclosed (2), Debug and diagnostic output reachable (1)" — ordered
+    // by count so the biggest thing to fix is first.
+    private static string? NamedClasses(IReadOnlyDictionary<string, int>? byClass, ExposureTier tier)
+    {
+        if (byClass is null || byClass.Count == 0) return null;
+        var parts = byClass
+            .Select(kv => (Class: ExposureClasses.ById(kv.Key), kv.Value))
+            .Where(x => x.Class is not null && x.Class.Tier == tier && x.Value > 0)
+            .OrderByDescending(x => x.Value)
+            .ThenBy(x => x.Class!.Title, StringComparer.Ordinal)
+            .Select(x => $"{x.Class!.Title} ({x.Value})")
+            .ToList();
+        return parts.Count == 0 ? null : string.Join(", ", parts);
     }
 
     // Generic threshold gate: fail when observed > threshold (0 by default).

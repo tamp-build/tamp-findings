@@ -73,6 +73,15 @@ public static class GateKeys
     public const string HighDast = "highDast";
     // Any verified secret (TruffleHog verified bucket).
     public const string VerifiedSecrets = "verifiedSecrets";
+    // TFND-213 / RA-5(4). What an adversary can learn about the system from the evidence
+    // we already hold: disclosed credentials, debug output, source or configuration served
+    // to clients, identifiers in URLs — and, counted but never blocking, the fingerprints
+    // (server banners, versions, internal addresses, developer comments). Threshold is the
+    // number of DISCLOSURE-tier items allowed, default 0; see ExposureClasses for the split
+    // and for why the fingerprint tier does not block. Unanswerable when neither a secret
+    // scan nor a dynamic scan ran.
+    public const string DiscoverableInformation = "discoverableInformation";
+
     // Any denied-license component.
     public const string DeniedLicenses = "deniedLicenses";
     public const string UnauthorizedComponent = "unauthorizedComponent";

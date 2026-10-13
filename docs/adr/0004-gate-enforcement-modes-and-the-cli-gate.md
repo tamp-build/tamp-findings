@@ -172,6 +172,29 @@ an over-eager agent — no malicious actor required:
 * The VisibilityScope zero-assignment bootstrap posture (every approved user sees everything until
   the first role grant exists) is closed, pending confirmation.
 
+### 6. A gate may count more than it blocks on (TFND-213)
+
+`discoverableInformation` is the first gate whose inputs are split into two tiers: a
+**disclosure** tier that blocks, and a **fingerprint** tier that is counted, named in the
+verdict, and never blocks. The rule it establishes, for any gate that follows it:
+
+* A tier split is legitimate only when the control itself asks for two different things.
+  RA-5(4) asks us to *determine* what information about the system is discoverable **and** to
+  *take corrective action*; the determination is the whole list, and the corrective action is
+  the part worth stopping a release over. A stack trace served to the internet is a defect. A
+  `Server:` banner is something to fix at leisure, and a build that failed over one is a gate
+  somebody switches off — which costs us the determination as well (see also *a tool, not a
+  regime*: strictness is a dial, never a rule).
+* The non-blocking tier must appear in the **verdict**, not only in a report somewhere. A Pass
+  that silently dropped the fingerprint count would make an incomplete determination look
+  finished, which is the failure mode ADR 0009's meta-gate exists to prevent in the disposition
+  model.
+* The split lives in findings-owned content (`ExposureClasses`), beside the signals, so adding a
+  signal means deciding its tier in the same line of code.
+* Invariant 2 is untouched: the gate still fails closed. Neither a secret scan nor a dynamic scan
+  having run reads Unknown, because zero exposures from nothing having looked is not a clean
+  build.
+
 ## Consequences
 
 **Positive**

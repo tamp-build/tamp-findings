@@ -90,7 +90,21 @@ public sealed record RiskInputs(
     // Components in the build's SBOM that match the banned / known-malicious list (CM-8(3), TFND-211).
     int UnauthorizedComponents = 0,
     // Producer-reported posture, keyed by PostureCheck.Id (TFND-212). Null/absent = never reported.
-    IReadOnlyDictionary<string, PostureReading>? Posture = null);
+    IReadOnlyDictionary<string, PostureReading>? Posture = null,
+    // TFND-213 / RA-5(4) discoverable information. Classified from findings we already
+    // ingest (see ExposureClasses): Disclosure-tier items block, Fingerprint-tier ones are
+    // counted and reported. RanExposureAnalysis is the ran-flag — a secret scan OR a
+    // dynamic scan produced a receipt. Zero from neither is nobody having looked.
+    //
+    // The scorer ignores all three: an exposure is already scored under its own category
+    // (a verified secret in secrets, a ZAP alert in dast). Counting it twice would move a
+    // number without any new evidence behind it. This is a gate input.
+    int DisclosureExposures = 0,
+    int FingerprintExposures = 0,
+    bool RanExposureAnalysis = false,
+    // Per-class counts keyed by ExposureClass.Id, so the gate's verdict can say WHAT is
+    // discoverable rather than how much. Null when nothing was classified.
+    IReadOnlyDictionary<string, int>? ExposuresByClass = null);
 
 /// <summary>The latest producer-reported state of one posture check.</summary>
 public sealed record PostureReading(Values.PostureStatus Status, string? Detail, DateTimeOffset ObservedAt);

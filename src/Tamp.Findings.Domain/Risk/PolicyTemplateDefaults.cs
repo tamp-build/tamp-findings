@@ -99,6 +99,18 @@ public static class PolicyTemplateDefaults
         ("CM-8(2)", [GateKeys.SbomAge]),                                                              // inventory automatically maintained
         ("RA-3(1)", [GateKeys.CriticalCves, GateKeys.HighCves, GateKeys.KevExposure, GateKeys.SbomAge]), // supply-chain risk assessment
         ("RA-5(2)", [GateKeys.SbomAge, GateKeys.KevExposure]),                                        // scan against current advisory data
+
+        // TFND-213. RA-5(4) was the one disposition TFND-218 deliberately left on
+        // tamp-core's project layer rather than promoting: it was a PARTIAL claim resting
+        // on verifiedSecrets alone, and promoting a partial default is how a gap stops
+        // being visible. It is promoted here now that the discoverableInformation gate
+        // reads the rest of what we can actually answer — disclosed credentials, debug
+        // output, source or configuration served to clients, identifiers in URLs.
+        //
+        // Still not the whole control: external reconnaissance has no producer (see
+        // ExposureClasses). What changed is that the remainder is a tracked gap behind a
+        // gate that names what it does cover, rather than a claim resting on one slice.
+        ("RA-5(4)", [GateKeys.VerifiedSecrets, GateKeys.DiscoverableInformation]),                    // discoverable information
     ];
 
     // Enable the no-unmapped meta-gate and attach the starter assertions the
@@ -109,6 +121,12 @@ public static class PolicyTemplateDefaults
     {
         // The federal baselines require CM-8(3), so they enable the gate that evidences it (TFND-211).
         layer.Gates.TryAdd(GateKeys.UnauthorizedComponent, On(0));
+        // RA-5(4) is in every federal baseline, so they enable the gate that evidences it
+        // (TFND-213). Safe to switch on by default in a way the posture gates were not: it
+        // is answered by a secret scan OR a dynamic scan, both already in the required
+        // scanner set, and only the disclosure tier blocks — the fingerprints that make up
+        // the bulk of a real dynamic scan are reported instead.
+        layer.Gates.TryAdd(GateKeys.DiscoverableInformation, On(0));
         var enabled = layer.Gates.Where(g => g.Value.Enabled).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
         foreach (var (control, gates) in StarterGatedMap)
         {
