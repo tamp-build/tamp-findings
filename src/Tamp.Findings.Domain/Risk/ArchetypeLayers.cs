@@ -124,6 +124,40 @@ public static class ArchetypeLayers
                     "SI-4(14)", "SI-8", "SI-8(2)",
                 ],
             },
+
+            // Promoted from tamp-core's project layer (TFND-218). Authored by hand during
+            // the ADR 0015 walk and then living only in that project's prod DB, when the
+            // claim is true of any code library — so every other library had to repeat the
+            // work, and none of it was in git.
+            //
+            // The justifications here are deliberately GENERIC. tamp-core keeps its own
+            // assertion citing the exact call site, and on a same-kind tie the nearer
+            // layer's explanation wins, so the specific evidence survives this promotion
+            // rather than being replaced by the text below. Before that tie fix (same
+            // change) promoting these would have destroyed that evidence.
+            new ControlAssertion
+            {
+                Kind = ControlDispositionKind.Inherited,
+                InheritedFrom = "the deploying/hosting system (validated platform crypto module, under its ATO)",
+                Justification = "A code library implements no confidentiality cryptography, key management, or crypto module of its own; content hashing for build determinism is not confidentiality crypto. The deploying system provides the validated module and the key management around it.",
+                ControlIds =
+                [
+                    "SC-8", "SC-8(1)", "SC-12", "SC-12(1)", "SC-13", "SC-17", "SC-28", "SC-28(1)", "IA-7",
+                ],
+            },
+            new ControlAssertion
+            {
+                Kind = ControlDispositionKind.Inherited,
+                InheritedFrom = "the project owner (a library has a single accountable owner)",
+                Justification = "Per-component accountability information: a library is small enough to have one accountable owner for all of its components, rather than per-component assignment.",
+                ControlIds = ["CM-8(4)"],
+            },
+            new ControlAssertion
+            {
+                Kind = ControlDispositionKind.NotApplicable,
+                Justification = "A code library is not mobile code (applets, browser script, ActiveX) and hosts no execution surface for it, so the control has no applicable surface.",
+                ControlIds = ["SC-18"],
+            },
         },
     };
 

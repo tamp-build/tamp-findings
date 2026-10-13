@@ -132,6 +132,31 @@ public static class PolicyLayerMerge
                     assertions[controlId] = new EffectiveAssertion(
                         a.Kind, mergedGates, a.Justification, a.InheritedFrom, source);
                 }
+                // SAME KIND: the nearer layer's EXPLANATION wins (TFND-218).
+                //
+                // Harden-only is about the KIND, and the kind is identical here, so
+                // nothing is loosened by this — only the text that explains it changes.
+                // It matters because ADR 0015 §2 makes the justification carry the code
+                // reference that backs the call: "the disposition is not an opinion; it
+                // points at the code". Keeping the first layer's text meant a generic
+                // archetype default silently displaced a project's specific evidence, so
+                // promoting a library-general default into the archetype would have
+                // destroyed the evidence on every project that had done the work.
+                //
+                // Only when the nearer layer actually HAS an explanation: a bare
+                // assertion (the template's gate mappings carry gates and no prose) must
+                // not blank out a real one.
+                else if ((int)a.Kind == (int)existing.Kind
+                      && (a.Justification is { Length: > 0 } || a.InheritedFrom is { Length: > 0 }))
+                {
+                    assertions[controlId] = existing with
+                    {
+                        Gates = mergedGates,
+                        Justification = a.Justification is { Length: > 0 } ? a.Justification : existing.Justification,
+                        InheritedFrom = a.InheritedFrom is { Length: > 0 } ? a.InheritedFrom : existing.InheritedFrom,
+                        Source = source,
+                    };
+                }
                 else
                 {
                     assertions[controlId] = existing with { Gates = mergedGates };
