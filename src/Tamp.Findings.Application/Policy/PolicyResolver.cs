@@ -22,12 +22,29 @@ namespace Tamp.Findings.Application.Policy;
 public sealed class PolicyResolver(FindingsDbContext db)
 {
     /// <summary>The full template → client → project stack for one project.</summary>
-    public async Task<EffectivePolicyLayer> ForProjectAsync(Guid projectId, CancellationToken ct = default)
+    public async Task<EffectivePolicyLayer> ForProjectAsync(Guid projectId, CancellationToken ct = default) =>
+        PolicyLayerMerge.Resolve(await StackAsync(projectId, includeProjectLayer: true, ct));
+
+    /// <summary>
+    /// The same stack WITHOUT the project's own layer — what the project inherits
+    /// (TFND-219).
+    ///
+    /// Needed to answer one question the authoring path has to ask before it writes: is
+    /// this proposed disposition a DOWNGRADE of something a layer below already
+    /// asserts? Comparing against the full stack cannot answer it, because the full
+    /// stack already contains the project's previous claim for that control.
+    /// </summary>
+    public async Task<EffectivePolicyLayer> InheritedForProjectAsync(
+        Guid projectId, CancellationToken ct = default) =>
+        PolicyLayerMerge.Resolve(await StackAsync(projectId, includeProjectLayer: false, ct));
+
+    private async Task<List<(PolicyLayer, string)>> StackAsync(
+        Guid projectId, bool includeProjectLayer, CancellationToken ct)
     {
         var project = await db.Projects.AsNoTracking()
             .Include(p => p.Client)
             .FirstOrDefaultAsync(p => p.Id == projectId, ct);
-        if (project is null) return PolicyLayerMerge.Resolve([]);
+        if (project is null) return [];
 
         var layers = new List<(PolicyLayer, string)>();
         await AddTemplateAndClientAsync(project.Client, layers, ct);
@@ -38,8 +55,8 @@ public sealed class PolicyResolver(FindingsDbContext db)
         var packed = await db.ArchetypeDefinitions.AsNoTracking()
             .FirstOrDefaultAsync(a => a.Archetype == effective, ct);
         layers.Add((packed?.Layer ?? ArchetypeLayers.For(project.Archetype), ArchetypeLayers.Label(project.Archetype)));
-        layers.Add((ProjectLayer(project), "this project"));
-        return PolicyLayerMerge.Resolve(layers);
+        if (includeProjectLayer) layers.Add((ProjectLayer(project), "this project"));
+        return layers;
     }
 
     /// <summary>The merged effective gates for a project, projected back into the

@@ -92,7 +92,8 @@ public static class PolicyLayerMerge
                 if (existing is null)
                 {
                     assertions[controlId] = new EffectiveAssertion(
-                        a.Kind, a.Gates.ToList(), a.Justification, a.InheritedFrom, source);
+                        a.Kind, a.Gates.ToList(), a.Justification, a.InheritedFrom, source,
+                        a.Overrides);
                     continue;
                 }
 
@@ -100,12 +101,41 @@ public static class PolicyLayerMerge
                 // gated by two layers is covered by the union of their gates.
                 var mergedGates = existing.Gates.Concat(a.Gates).Distinct().ToList();
 
+                // An OVERRIDING assertion wins whatever its kind (ADR 0015 §5,
+                // TFND-219). This is the one place harden-only is allowed to bend, and
+                // the flag is only ever set by an approved downgrade — the authoring
+                // endpoint cannot set it, so reaching this branch means a second person
+                // with AcceptRisk agreed and an audit entry exists. Keeping it here
+                // rather than in the resolver matters: the merge stays pure and a
+                // coverage result recorded against a build can still be recomputed.
+                //
+                // A later override beats an earlier one, for the same reason the layers
+                // are ordered at all: the nearer layer is the more specific authority.
+                // In practice only the project layer carries the flag.
+                if (a.Overrides)
+                {
+                    assertions[controlId] = new EffectiveAssertion(
+                        a.Kind, mergedGates, a.Justification, a.InheritedFrom, source,
+                        Overridden: true);
+                }
+                // A non-overriding assertion cannot displace an override, even if it is
+                // stricter. The downgrade was reviewed on its merits; letting the next
+                // layer's generic default win would undo the decision silently, which is
+                // the failure this whole path exists to avoid.
+                else if (existing.Overridden)
+                {
+                    assertions[controlId] = existing with { Gates = mergedGates };
+                }
                 // Strictness ordering: lower enum value is stricter (Gated=0).
-                if ((int)a.Kind < (int)existing.Kind)
+                else if ((int)a.Kind < (int)existing.Kind)
+                {
                     assertions[controlId] = new EffectiveAssertion(
                         a.Kind, mergedGates, a.Justification, a.InheritedFrom, source);
+                }
                 else
+                {
                     assertions[controlId] = existing with { Gates = mergedGates };
+                }
             }
         }
 
