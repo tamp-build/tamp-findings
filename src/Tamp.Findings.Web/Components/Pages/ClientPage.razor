@@ -16,6 +16,7 @@
 @inject ClientQuery Clients
 @inject PolicyService Policies
 @inject McpTokenService AgentTokens
+@inject HierarchyService Hierarchy
 @inject CurrentUser Me
 
 <PageTitle>@Client — tamp.findings</PageTitle>
@@ -256,8 +257,52 @@ else
                 </ScrollBox>
             }
         </Card>
+
+        @* TFND-169. Deleting a client is the single most destructive action in the
+           product — it takes every project beneath it — so it is administrator only and
+           guarded by a name echo that the service enforces independently. *@
+        <Card>
+            <h2>Delete this client</h2>
+            <p class="field__help">
+                Removes <strong>@Client</strong>, every project beneath it, and all of their builds,
+                findings, SBOMs, coverage reports and scan receipts. This cannot be undone and
+                nothing is exported first.
+            </p>
+            <div class="row" style="margin-top: var(--space-3)">
+                <Button Variant="Button.ButtonVariant.Danger"
+                        Disabled="@(!_canDelete.Allowed)" DisabledReason="@_canDelete.Reason"
+                        OnClick="() => { _deleteEcho = null; _deleteError = null; _deleting = true; }">
+                    Delete client…
+                </Button>
+            </div>
+        </Card>
     </div>
 }
+
+<Dialog Open="_deleting" OpenChanged="v => _deleting = v" Title="Delete client" Width="620">
+    <ChildContent>
+        <p>
+            This deletes <strong>@Client</strong> and
+            @(_detail is { } d ? $"{d.Projects.Count} project(s)" : "every project") beneath it,
+            with all of their evidence. It cannot be undone.
+        </p>
+        <TextField Label="@($"Type {Client} to confirm")" @bind-Value="_deleteEcho"
+                   Help="Exact match, including capitalisation." />
+        @if (_deleteError is not null)
+        {
+            <p style="color: var(--color-critical)">@_deleteError</p>
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Danger"
+                Disabled="@(_deleteEcho?.Trim() != Client)"
+                DisabledReason="Type the client's name to enable this."
+                OnClick="DeleteClient">
+            Delete permanently
+        </Button>
+        <Button OnClick="() => _deleting = false">Cancel</Button>
+    </Footer>
+</Dialog>
 
 <Dialog Open="_editing" OpenChanged="v => _editing = v" Title="Client settings" Width="620">
     <ChildContent>
@@ -328,6 +373,10 @@ else
     private bool _mintingAgent;
     private string? _agentName, _agentError, _mintedAgent;
     private AuthorizationDecision _canMintAgent = AuthorizationDecision.Deny("Checking…");
+    private AuthorizationDecision _canDelete = AuthorizationDecision.Deny("Checking…");
+    private bool _deleting;
+    private string? _deleteEcho;
+    private string? _deleteError;
 
     private ScopeTarget Here =>
         _detail is null ? ScopeTarget.Instance : ScopeTarget.Client(_detail.Id);
@@ -344,6 +393,14 @@ else
 
             _canEdit = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Client(_detail.Id));
             _canMintAgent = await Me.CanAsync(Capability.AssignRoles, Here);
+
+            // Not a Capability. _canEdit above uses CreateProject, which an Architect
+            // holds — reusing it here would let whoever may add a project to this client
+            // delete the client and every project in it.
+            _canDelete = (await Me.AtAsync(ScopeTarget.Instance))?.Actors.Contains(Actor.Admin) == true
+                ? AuthorizationDecision.Allow()
+                : AuthorizationDecision.Deny("Deleting a client requires an administrator.");
+
             _policies = await Policies.LibraryAsync();
             _agentTokens = await AgentTokens.ListAsync(Here, DateTimeOffset.UtcNow);
         }
@@ -351,6 +408,22 @@ else
         {
             _error = ex.GetType().Name;
         }
+    }
+
+    private async Task DeleteClient()
+    {
+        if (_detail is null) return;
+        _deleteError = null;
+
+        var actor = await Me.AtAsync(ScopeTarget.Instance);
+        if (actor is null) { _deleteError = "You are not signed in."; return; }
+
+        var result = await Hierarchy.DeleteClientAsync(actor, _detail.Id, _deleteEcho);
+        if (!result.Success) { _deleteError = result.Error; return; }
+
+        // This page describes a client that no longer exists.
+        _deleting = false;
+        Nav.NavigateTo("/", forceLoad: true);
     }
 
     private async Task MintAgent()
