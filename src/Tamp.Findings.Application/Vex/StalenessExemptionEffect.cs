@@ -1,5 +1,3 @@
-using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
 using Tamp.Findings.Application.Approvals;
 using Tamp.Findings.Application.Auditing;
 using Tamp.Findings.Application.Authorization;
@@ -54,12 +52,8 @@ public sealed class StalenessExemptionEffect : IApprovalEffect
 
     public async Task ApplyAsync(PendingApproval approval, Principal decider, CancellationToken ct)
     {
-        if (approval.Payload is not { Length: > 0 } payload) return;
-
-        VexDraft? draft;
-        try { draft = JsonSerializer.Deserialize<VexDraft>(payload); }
-        catch (JsonException) { return; }
-        if (draft is null || approval.ProjectId is not { } projectId) return;
+        if (ApprovedVexDraft.Read(approval) is not { } draft) return;
+        if (approval.ProjectId is not { } projectId) return;
 
         // An exemption with no justification does not exempt anything —
         // StalenessExemptions.LoadAsync skips Justification None, matching the federal
@@ -67,31 +61,9 @@ public sealed class StalenessExemptionEffect : IApprovalEffect
         // statement that reads as an exemption on the VEX page and silently is not one.
         if (draft.Justification is null or VexJustification.None) return;
 
-        // Re-check at decision time: somebody may have exempted this component between
-        // the request and the approval, through this path or by publishing a statement
-        // directly. Two answers of record for one component is what VexQuery.SaveAsync's
-        // clash guard prevents, so honour it here rather than create a duplicate.
-        var clash = await _db.VexStatements.AnyAsync(
-            v => v.ProjectId == projectId
-              && v.RetiredAt == null
-              && v.AdvisoryId == draft.AdvisoryId
-              && v.Purl == draft.Purl
-              && v.ComponentVersion == draft.ComponentVersion, ct);
-        if (clash) return;
+        if (await ApprovedVexDraft.ClashesAsync(_db, projectId, draft, ct)) return;
 
-        var statement = new VexStatement
-        {
-            ProjectId = projectId,
-            Purl = draft.Purl.Trim(),
-            ComponentVersion = string.IsNullOrWhiteSpace(draft.ComponentVersion) ? null : draft.ComponentVersion.Trim(),
-            AdvisoryId = draft.AdvisoryId.Trim(),
-            Status = draft.Status,
-            Justification = draft.Justification,
-            ImpactStatement = string.IsNullOrWhiteSpace(draft.ImpactStatement) ? null : draft.ImpactStatement.Trim(),
-            ResponseReferenceUrl = string.IsNullOrWhiteSpace(draft.ResponseReferenceUrl) ? null : draft.ResponseReferenceUrl.Trim(),
-            // The rationale is the requester's; the reviewer let it take effect.
-            AuthorUserId = approval.RequestedByUserId,
-        };
+        var statement = ApprovedVexDraft.ToStatement(draft, projectId, approval.RequestedByUserId);
         _db.VexStatements.Add(statement);
 
         _audit.Record(decider, AuditActions.VexPublished, AuditClass.Risk,
