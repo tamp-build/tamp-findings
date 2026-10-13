@@ -169,7 +169,23 @@ public class PageBClientDeleteTests : IDisposable
             TimeSpan.FromSeconds(10));
 
         // And nothing has been deleted by merely arming the button.
-        using var scope = _fx.Scope();
-        Assert.True(await _fx.Db(scope).Clients.AnyAsync(c => c.Name == name));
+        using (var scope = _fx.Scope())
+            Assert.True(await _fx.Db(scope).Clients.AnyAsync(c => c.Name == name));
+
+        // Now press it, so the handler that calls HierarchyService actually runs. Arming
+        // a button and pressing it are different amounts of covered code, and only one of
+        // them is the thing an operator does.
+        confirm().Click();
+
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            using var poll = _fx.Scope();
+            if (!await _fx.Db(poll).Clients.AnyAsync(c => c.Name == name)) break;
+            await Task.Delay(100);
+        }
+
+        using var after = _fx.Scope();
+        Assert.False(await _fx.Db(after).Clients.AnyAsync(c => c.Name == name));
     }
 }

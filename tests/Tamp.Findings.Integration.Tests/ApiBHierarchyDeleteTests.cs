@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Tamp.Findings.Domain.Values;
 using static Tamp.Findings.Integration.Tests.ApiAHarness;
 
@@ -186,6 +187,31 @@ public class ApiBHierarchyDeleteTests
             (await admin.SendAsync(Delete($"/projects/{Guid.NewGuid()}", "anything"))).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound,
             (await admin.SendAsync(Delete($"/clients/{Guid.NewGuid()}", "anything"))).StatusCode);
+    }
+
+    [SkippableFact]
+    public async Task The_service_refuses_an_id_that_is_already_gone()
+    {
+        Skip.IfNot(_fx.Available);
+
+        // Unreachable through HTTP, because the endpoint answers 404 before the service is
+        // called — so it is exercised directly. The branch still has to exist: two
+        // administrators deleting the same project, or a retry after a timeout, both land
+        // here, and the service must say so rather than throw.
+        using var scope = _fx.Scope();
+        var hierarchy = scope.ServiceProvider
+            .GetRequiredService<Tamp.Findings.Application.Projects.HierarchyService>();
+        var actor = Tamp.Findings.Application.Authorization.Principal.For(
+            Guid.NewGuid(), "ghost-admin", isAdmin: true, []);
+
+        var project = await hierarchy.DeleteProjectAsync(actor, Guid.NewGuid(), "anything");
+        Assert.False(project.Success);
+        Assert.False(project.WasDenied);
+        Assert.Contains("no longer exists", project.Error!, StringComparison.Ordinal);
+
+        var client = await hierarchy.DeleteClientAsync(actor, Guid.NewGuid(), "anything");
+        Assert.False(client.Success);
+        Assert.Contains("no longer exists", client.Error!, StringComparison.Ordinal);
     }
 
     [SkippableFact]
