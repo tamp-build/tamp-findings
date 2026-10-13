@@ -386,6 +386,26 @@
     protected override async Task OnInitializedAsync()
     {
         Scope.Clear();
+
+        // Authorisation FIRST, then the roll-up (TFND-261).
+        //
+        // The header's actions are rendered outside the _loading block, as though they
+        // do not depend on the table — but _isAdmin used to be resolved after the
+        // roll-up, so they did. On an instance admin the roll-up loads every project
+        // there is, and the buttons were hostage to it: a slow table meant no "New
+        // client" button, which is the one thing a new instance needs most.
+        //
+        // These two calls are a single row read each. Doing them before the await on
+        // the roll-up means Blazor's render after that await already knows whether to
+        // offer the actions, so the header fills immediately and the table says
+        // "Loading…" under it.
+        //
+        // Instance scope: a client sits above every project, so nothing narrower can
+        // grant the right to create one.
+        _canCreateProject = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Instance);
+        _isAdmin = ClientCreation.MayCreate(await Me.AtAsync(ScopeTarget.Instance));
+        StateHasChanged();
+
         try
         {
             _rows = await Query.LoadAsync(await Me.VisibleAsync());
@@ -399,10 +419,6 @@
             // imply a clean one it could not measure.
             _error = ex.GetType().Name;
         }
-        // Instance scope: a client sits above every project, so nothing
-        // narrower can grant the right to create one.
-        _canCreateProject = await Me.CanAsync(Capability.CreateProject, ScopeTarget.Instance);
-        _isAdmin = ClientCreation.MayCreate(await Me.AtAsync(ScopeTarget.Instance));
         _loading = false;
     }
 
