@@ -509,6 +509,12 @@ public sealed class FindingsTools
         'pastDue' marks an item whose scheduled date has passed — a different
         state from in-progress, and one whose remedy is somebody's attention
         rather than code. 'unscheduled' counts items with no date at all.
+
+        'controlIds' lists the 800-53 controls each weakness is in, in the
+        catalog's display form (CM-6, AC-4(2)). Use it to answer what is
+        outstanding against a control rather than reading it out of the
+        weakness prose. An empty list means nobody has mapped the item to a
+        control — not that no control is affected.
         """)]
     public static async Task<object> ListPoamsAsync(
         AgentReadService reads,
