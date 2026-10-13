@@ -7,6 +7,7 @@
 @inject Tamp.Findings.Application.Licensing.LicenseResolutionService Licenses
 @inject CurrentUser Me
 @inject Tamp.Findings.Application.Vex.VexQuery VexStatements
+@inject Tamp.Findings.Application.Approvals.ApprovalService Approvals
 
 <PageTitle>@Label(Key) — tamp.findings</PageTitle>
 <NewBuildBanner ProjectId="@_project?.ProjectId" />
@@ -649,6 +650,10 @@ else
                                         @foreach (var c in _stale)
                                         {
                                             var exempt = c.ExemptVexId is not null;
+                                            @* Pending is NOT greyed. The component is still counted while a
+                                               reviewer has not agreed, and greying it would show a score
+                                               relief that has not happened (TFND-225). *@
+                                            var pending = exempt ? null : PendingExemption(c);
                                             <tr style="@(exempt ? "opacity: .5" : null)">
                                                 <td class="mono">@c.Name</td>
                                                 <td class="mono muted">@c.Version</td>
@@ -663,6 +668,10 @@ else
                                                     {
                                                         <span class="contrib__sat mono" style="color: var(--color-band-orange)">STALE</span>
                                                     }
+                                                    @if (pending is not null)
+                                                    {
+                                                        <span class="contrib__sat mono" style="color: var(--color-accent)">PENDING REVIEW</span>
+                                                    }
                                                 </td>
                                                 <td class="align-end">
                                                     @if (exempt)
@@ -670,9 +679,28 @@ else
                                                         <a href="@Routes.VexStatement(Client, Project, Tamp.Findings.Application.Risk.VexResolver.StripPurlVersion(c.Purl), Tamp.Findings.Domain.Entities.VexStatement.StalenessAdvisoryId)"
                                                            title="View the VEX statement that exempts this component" style="text-decoration: none">⋯</a>
                                                     }
+                                                    else if (pending is { } req)
+                                                    {
+                                                        @* The decision is an action here, in the context that
+                                                           shows what it costs — not a notification somewhere
+                                                           else. ApprovalService refuses self-approval, so the
+                                                           requester sees who it is waiting on instead. *@
+                                                        @if (_awaiting.Any(a => a.ApprovalId == req.Id))
+                                                        {
+                                                            <Button Variant="Button.ButtonVariant.Text"
+                                                                    OnClick="() => _deciding = req">review…</Button>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="muted mono" style="font-size: 12px"
+                                                                  title="@($"Requested by {req.RequestedByLogin}: {req.Justification}")">
+                                                                awaiting a reviewer
+                                                            </span>
+                                                        }
+                                                    }
                                                     else
                                                     {
-                                                        <span @onclick="() => OpenExemptAsync(c)" title="File a VEX exemption for this component" style="cursor: pointer">⋯</span>
+                                                        <span @onclick="() => OpenExemptAsync(c)" title="Request a VEX exemption for this component" style="cursor: pointer">⋯</span>
                                                     }
                                                 </td>
                                             </tr>
@@ -683,7 +711,7 @@ else
                         </Card>
                         <p class="field__help">
                             @_stale.Count component@(_stale.Count == 1 ? "" : "s") behind their newest release; @_stale.Count(c => c.Stale && c.ExemptVexId is null) marked
-                            <strong>STALE</strong> (that newer release itself shipped over 180 days ago)@(_stale.Count(c => c.ExemptVexId is not null) is var nEx and > 0 ? $"; {nEx} exempt by VEX (grey, not scored)" : ""). Vulnerable components score under Known CVEs, not here. Use <strong>⋯</strong> on a row to file a VEX exemption.
+                            <strong>STALE</strong> (that newer release itself shipped over 180 days ago)@(_stale.Count(c => c.ExemptVexId is not null) is var nEx and > 0 ? $"; {nEx} exempt by VEX (grey, not scored)" : ""). Vulnerable components score under Known CVEs, not here. Use <strong>⋯</strong> on a row to request a VEX exemption — it needs a reviewer's approval before the component stops counting.
                         </p>
                     }
                 }
@@ -894,11 +922,16 @@ else
     </div>
 }
 
-<Dialog Open="_exempting is not null" OpenChanged="v => { if (!v) _exempting = null; }" Title="File VEX exemption — SBOM staleness" Width="780">
+<Dialog Open="_exempting is not null" OpenChanged="v => { if (!v) _exempting = null; }" Title="Request VEX exemption — SBOM staleness" Width="780">
     <ChildContent>
         @if (_exempting is { } ex)
         {
-            <p class="field__help">Exempting <code class="mono">@ex.Name @ex.Version</code> from the staleness score. The component stays on the page, greyed, with this statement attached.</p>
+            <p class="field__help">
+                Requesting an exemption for <code class="mono">@ex.Name @ex.Version</code> from the staleness
+                score. It needs a reviewer's approval before it takes effect: until then the component
+                <strong>keeps counting</strong> and shows <span class="mono">PENDING REVIEW</span>. Approved, it
+                greys out and costs nothing. You cannot approve your own request.
+            </p>
             <div class="field">
                 <span class="field__label">Justification</span>
                 <div class="row" style="gap: var(--space-2); flex-wrap: wrap">
@@ -950,9 +983,51 @@ else
         }
     </ChildContent>
     <Footer>
-        <Button Variant="Button.ButtonVariant.Primary" OnClick="SaveExemptAsync">File exemption</Button>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="SaveExemptAsync">Request exemption</Button>
         <Button OnClick="() => _exempting = null">Cancel</Button>
         <span class="field__help">Writes a risk-class audit entry. Needs the publish-VEX capability.</span>
+    </Footer>
+</Dialog>
+
+<Dialog Open="_deciding is not null" OpenChanged="v => { if (!v) _deciding = null; }"
+        Title="Review staleness exemption" Width="680">
+    <ChildContent>
+        @if (_deciding is { } req)
+        {
+            <p class="field__help">
+                @req.RequestedByLogin requested this on @req.RequestedAt.ToString("yyyy-MM-dd").
+                Approving creates the VEX statement and the component stops counting against the
+                staleness score. Declining leaves it counted; nothing is written either way until
+                you decide.
+            </p>
+            <div class="field">
+                <span class="field__label">Rationale given</span>
+                <p>@(req.Justification is { Length: > 0 } j ? j : "—")</p>
+            </div>
+            <div class="field">
+                <span class="field__label">Decision</span>
+                <div class="row" style="gap: var(--space-2)">
+                    <span @onclick="() => _decideApprove = true" style="cursor: pointer">
+                        <Chip Label="APPROVE" Tone="var(--color-ok)"
+                              Style="@(_decideApprove ? Chip.ChipStyle.Solid : Chip.ChipStyle.Outlined)" />
+                    </span>
+                    <span @onclick="() => _decideApprove = false" style="cursor: pointer">
+                        <Chip Label="DECLINE" Tone="var(--color-critical)"
+                              Style="@(_decideApprove ? Chip.ChipStyle.Outlined : Chip.ChipStyle.Solid)" />
+                    </span>
+                </div>
+            </div>
+            <TextField Label="Note" Multiline="true" Rows="2" @bind-Value="_decideNote"
+                       Help="Goes on the audit entry. A decline with no reason is one the requester cannot act on." />
+            @if (_decideError is not null)
+            {
+                <p style="color: var(--color-critical)">@_decideError</p>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <Button Variant="Button.ButtonVariant.Primary" OnClick="DecideExemptionAsync">Record decision</Button>
+        <Button OnClick="() => _deciding = null">Cancel</Button>
     </Footer>
 </Dialog>
 
@@ -1049,6 +1124,7 @@ else
                 else if (Key == "sbomStaleness")
                 {
                     _stale = await CategoryFindings.SbomStalenessAsync(_project.ProjectId, _commitSha);
+                    await LoadExemptionRequestsAsync();
                     _sbom = await CategoryFindings.SbomSummaryAsync(_project.ProjectId, _commitSha);
                 }
                 else if (Key == "missingScanners")
@@ -1158,6 +1234,71 @@ else
     // TFND-226: staleness VEX exemption, prefilled from the clicked row + dependency-graph closure.
     private static readonly Tamp.Findings.Domain.Entities.VexJustification[] ExemptJustifications = [Tamp.Findings.Domain.Entities.VexJustification.BuildTimeOnly, Tamp.Findings.Domain.Entities.VexJustification.DoesNotShip, Tamp.Findings.Domain.Entities.VexJustification.FrozenContract, Tamp.Findings.Domain.Entities.VexJustification.AcceptedRisk];
     private Tamp.Findings.Application.Risk.StaleComponent? _exempting;
+
+    // The outstanding exemption requests on this project, and which of them this
+    // reader may actually decide (TFND-225). Two lists rather than one because the
+    // questions differ: a request is pending for EVERYBODY, but it is only actionable
+    // for someone who holds PublishVex here and did not file it themselves.
+    private IReadOnlyList<Tamp.Findings.Domain.Entities.PendingApproval> _exPending = [];
+    private IReadOnlyList<Tamp.Findings.Application.Approvals.AwaitingRow> _awaiting = [];
+    private Tamp.Findings.Domain.Entities.PendingApproval? _deciding;
+    private bool _decideApprove = true;
+    private string? _decideNote, _decideError;
+
+    private Tamp.Findings.Domain.Entities.PendingApproval? PendingExemption(
+        Tamp.Findings.Application.Risk.StaleComponent c)
+    {
+        if (_exPending.Count == 0 || _project is null) return null;
+        var bare = Tamp.Findings.Application.Risk.VexResolver.StripPurlVersion(c.Purl);
+        // Matched on the SUBJECT ID rather than by parsing the payload: the id is
+        // derived from the same (project, purl, version) the request was filed under,
+        // so a version-bare request and an exact-version one stay distinct, which is
+        // the distinction the exemption itself turns on.
+        var exact = Tamp.Findings.Application.Risk.StalenessExemptions.SubjectId(_project.ProjectId, bare, c.Version);
+        var all = Tamp.Findings.Application.Risk.StalenessExemptions.SubjectId(_project.ProjectId, bare, null);
+        return _exPending.FirstOrDefault(a => a.SubjectId == exact || a.SubjectId == all);
+    }
+
+    private async Task LoadExemptionRequestsAsync()
+    {
+        if (_project is null) return;
+        _exPending = await Approvals.PendingByKindForProjectAsync(
+            Tamp.Findings.Domain.Entities.ApprovalKind.StalenessExemption, _project.ProjectId);
+
+        // No requests, or no resolvable principal, means nothing is actionable — which
+        // is an empty list, not an exception. This runs during page load, so throwing
+        // here would take the whole category page down over a decision affordance.
+        var actor = await Me.AtAsync(new ScopeTarget(_project.ClientId, _project.ProjectId));
+        _awaiting = _exPending.Count == 0 || actor is null
+            ? []
+            : (await Approvals.AwaitingAsync(actor, scope => Me.AtAsync(scope)))
+               .Where(a => a.Kind == Tamp.Findings.Domain.Entities.ApprovalKind.StalenessExemption)
+               .ToArray();
+    }
+
+    private async Task DecideExemptionAsync()
+    {
+        if (_project is null || _deciding is not { } approval) return;
+        _decideError = null;
+
+        var actor = await Me.AtAsync(new ScopeTarget(_project.ClientId, _project.ProjectId));
+        if (actor is null) { _decideError = "You are not signed in."; return; }
+
+        var result = await Approvals.DecideAsync(actor, approval.Id, _decideApprove, _decideNote);
+        if (!result.Success) { _decideError = result.Error; return; }
+
+        _deciding = null;
+        _decideNote = null;
+
+        // The score moves on an approval, so the header and the breakdown have to be
+        // re-read, not patched.
+        _stale = await CategoryFindings.SbomStalenessAsync(_project.ProjectId, _commitSha);
+        _sbom = await CategoryFindings.SbomSummaryAsync(_project.ProjectId, _commitSha);
+        await LoadExemptionRequestsAsync();
+        var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
+        var data = await Hub.LoadAsync(_project, sha);
+        _row = data?.Risk.Breakdown.FirstOrDefault(b => b.Key == Key);
+    }
     private IReadOnlyList<Tamp.Findings.Application.Risk.ClosureSuggestion> _closure = [];
     private readonly HashSet<string> _exPicked = new();
     private Tamp.Findings.Domain.Entities.VexJustification _exJustification = Tamp.Findings.Domain.Entities.VexJustification.BuildTimeOnly;
@@ -1192,24 +1333,38 @@ else
         var targets = _closure.Where(x => x.Clicked || _exPicked.Contains(x.Purl)).Where(x => !x.AlreadyExempt).ToList();
         if (targets.Count == 0)
             targets.Add(new Tamp.Findings.Application.Risk.ClosureSuggestion(origin.Name, origin.Version, origin.Purl, true, true, false, ""));
+        // A REQUEST, not a write (TFND-225). v1 saved the statement here and the
+        // component stopped counting immediately, on one person's say-so — which is
+        // the first thing an assessor questions about a score-lowering override. The
+        // proposed statement rides on the approval's payload and only an approval
+        // creates it, so until a reviewer agrees the component keeps counting. There
+        // is deliberately no direct path for a PublishVex holder: the point is a
+        // second person, and ApprovalService refuses self-approval.
         foreach (var t in targets)
         {
+            var bare = Tamp.Findings.Application.Risk.VexResolver.StripPurlVersion(t.Purl);
+            var version = _exAllVersions ? null : t.Version;
             var draft = new Tamp.Findings.Application.Vex.VexDraft(
                 Tamp.Findings.Domain.Entities.VexStatement.StalenessAdvisoryId,
-                Tamp.Findings.Application.Risk.VexResolver.StripPurlVersion(t.Purl),
-                _exAllVersions ? null : t.Version,
+                bare,
+                version,
                 Tamp.Findings.Domain.Entities.VexStatementStatus.NotAffected,
                 _exJustification, _exRationale.Trim(), null);
-            var res = await VexStatements.SaveAsync(actor, scope, _project.ProjectId, null, draft);
+
+            var res = await Approvals.RequestAsync(
+                actor, scope,
+                Tamp.Findings.Domain.Entities.ApprovalKind.StalenessExemption,
+                nameof(Tamp.Findings.Domain.Entities.VexStatement),
+                Tamp.Findings.Application.Risk.StalenessExemptions.SubjectId(_project.ProjectId, bare, version),
+                justification: _exRationale.Trim(),
+                payload: System.Text.Json.JsonSerializer.Serialize(draft));
             if (!res.Success) { _exError = $"{t.Name}: {res.Error}"; return; }
         }
         _exempting = null;
 
-        _stale = await CategoryFindings.SbomStalenessAsync(_project.ProjectId, _commitSha);
-        _sbom = await CategoryFindings.SbomSummaryAsync(_project.ProjectId, _commitSha);
-        var sha = string.Equals(Sha, Routes.LatestBuild, StringComparison.OrdinalIgnoreCase) ? null : Sha;
-        var data = await Hub.LoadAsync(_project, sha);
-        _row = data?.Risk.Breakdown.FirstOrDefault(b => b.Key == Key);
+        // The score has NOT moved — nothing is exempt yet. Only the pending markers
+        // are new, so that is all this reloads.
+        await LoadExemptionRequestsAsync();
     }
 
     // Attest a license for an unresolved package. The write is global (TFND-222); it

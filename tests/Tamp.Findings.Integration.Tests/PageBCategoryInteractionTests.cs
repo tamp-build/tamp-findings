@@ -43,8 +43,17 @@ public sealed class PageBCategoryInteractionTests(DatabaseFixture fx)
         Assert.False(await lead.ClickAsync("Resolve"));
     }
 
+    /// <summary>
+    /// Requesting a staleness exemption, and what it does NOT do yet (TFND-225).
+    ///
+    /// This test used to assert the dialog wrote the VEX statement, which was v1's
+    /// behaviour (TFND-226): the component stopped counting the moment one person said
+    /// so. The assertion is inverted deliberately — a request now writes a pending
+    /// approval and nothing else, and the component keeps counting until a reviewer
+    /// agrees.
+    /// </summary>
     [SkippableFact]
-    public async Task Stale_components_can_be_exempted_through_the_vex_dialog()
+    public async Task Requesting_a_stale_exemption_files_an_approval_and_relieves_nothing_yet()
     {
         Skip.IfNot(_fx.Available, "TAMP_FINDINGS_TEST_DB not set");
         var w = await PageBWorld.GetAsync(_fx);
@@ -54,9 +63,9 @@ public sealed class PageBCategoryInteractionTests(DatabaseFixture fx)
         Assert.Contains("behind their newest release", page.Text);
 
         Assert.True(await page.ClickWhereAsync(e => e.Text == "⋯"));
-        Assert.Contains("File VEX exemption", page.Text);
+        Assert.Contains("Request VEX exemption", page.Text);
         // No rationale: refused.
-        Assert.True(await page.ClickAsync("File exemption"));
+        Assert.True(await page.ClickAsync("Request exemption"));
         Assert.Contains("Add a rationale", page.Text);
 
         Assert.True(await page.ClickAsync("does_not_ship"));
@@ -64,20 +73,75 @@ public sealed class PageBCategoryInteractionTests(DatabaseFixture fx)
         Assert.True(await page.ClickAsync("this version"));
         Assert.True(await page.TypeLabelAsync("Rationale", "Dev tooling only, never shipped"));
         if (page.Text.Contains("Also exempt")) Assert.True(await page.CheckNthAsync(0, true));
-        Assert.True(await page.ClickAsync("File exemption"));
+        Assert.True(await page.ClickAsync("Request exemption"));
 
         using var scope = w.Host.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<FindingsDbContext>();
-        var exempt = await db.VexStatements.AsNoTracking()
-            .Where(v => v.ProjectId == pid && v.AdvisoryId == VexStatement.StalenessAdvisoryId).ToListAsync();
-        Assert.NotEmpty(exempt);
-        Assert.Equal(VexJustification.DoesNotShip, exempt[0].Justification);
 
-        // Cancelling the dialog closes it without writing.
+        // A request, and no statement.
+        Assert.NotEmpty(await db.PendingApprovals.AsNoTracking()
+            .Where(a => a.ProjectId == pid
+                     && a.Kind == ApprovalKind.StalenessExemption
+                     && a.State == ApprovalState.Pending).ToListAsync());
+        Assert.Empty(await db.VexStatements.AsNoTracking()
+            .Where(v => v.ProjectId == pid && v.AdvisoryId == VexStatement.StalenessAdvisoryId).ToListAsync());
+
+        // The row says so, and still says STALE rather than greying out.
         await using var again = await PageBRenderHost.RenderAsync<CategoryPage>(w, Cat(w, name, sha, "sbomStaleness"));
-        Assert.Contains("EXEMPT", again.Text);
-        if (await again.ClickWhereAsync(e => e.Text == "⋯")) Assert.True(await again.ClickAsync("Cancel"));
+        Assert.Contains("PENDING REVIEW", again.Text);
+        Assert.DoesNotContain("EXEMPT", again.Text);
+
+        // And the admin who filed it is not offered the review — ApprovalService
+        // refuses self-approval, so the page shows who it is waiting on instead.
+        Assert.Contains("awaiting a reviewer", again.Text);
+        Assert.False(await again.ClickAsync("review…"));
         Assert.Empty(page.Errors);
+    }
+
+    /// <summary>
+    /// The reviewer's side (TFND-225): the decision is an action in the place that shows
+    /// what it costs, not a notification somewhere else, and taking it is what moves the
+    /// score.
+    /// </summary>
+    [SkippableFact]
+    public async Task A_reviewer_approves_the_exemption_and_the_component_goes_grey()
+    {
+        Skip.IfNot(_fx.Available, "TAMP_FINDINGS_TEST_DB not set");
+        var w = await PageBWorld.GetAsync(_fx);
+        var (name, pid, sha) = await w.NewBuiltProjectAsync("catsrev");
+
+        // The LEAD files it, so the InfoSec officer is a second person.
+        await using var filed = await PageBRenderHost.RenderAsync<CategoryPage>(
+            w, Cat(w, name, sha, "sbomStaleness"), PageBWorld.Lead);
+        Assert.True(await filed.ClickWhereAsync(e => e.Text == "⋯"));
+        Assert.True(await filed.ClickAsync("does_not_ship"));
+        Assert.True(await filed.TypeLabelAsync("Rationale", "Build-time analyzer"));
+        Assert.True(await filed.ClickAsync("Request exemption"));
+
+        // The InfoSec officer holds PublishVex here and did not file it, so the review
+        // is offered to them.
+        await using var review = await PageBRenderHost.RenderAsync<CategoryPage>(
+            w, Cat(w, name, sha, "sbomStaleness"), PageBWorld.Iso);
+        Assert.Contains("PENDING REVIEW", review.Text);
+        Assert.True(await review.ClickAsync("review…"));
+        Assert.Contains("Build-time analyzer", review.Text);
+
+        Assert.True(await review.TypeLabelAsync("Note", "Confirmed, analyzer only."));
+        Assert.True(await review.ClickAsync("Record decision"));
+
+        using var scope = w.Host.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<FindingsDbContext>();
+        var statement = await db.VexStatements.AsNoTracking()
+            .SingleAsync(v => v.ProjectId == pid && v.AdvisoryId == VexStatement.StalenessAdvisoryId);
+        Assert.Equal(VexJustification.DoesNotShip, statement.Justification);
+        // Authorship stays with the requester; the reviewer let it take effect.
+        Assert.Equal(PageBWorld.LeadId, statement.AuthorUserId);
+
+        await using var after = await PageBRenderHost.RenderAsync<CategoryPage>(
+            w, Cat(w, name, sha, "sbomStaleness"), PageBWorld.Iso);
+        Assert.Contains("EXEMPT", after.Text);
+        Assert.DoesNotContain("PENDING REVIEW", after.Text);
+        Assert.Empty(review.Errors);
     }
 
     [SkippableFact]

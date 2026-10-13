@@ -86,6 +86,14 @@ public enum ApprovalKind
     LoosenPolicyTemplate = 6,
     // Switching a client's template swaps its whole inherited baseline (ADR 0007).
     SwitchClientTemplate = 7,
+    // An SBOM-staleness exemption stops a component counting against the score
+    // (TFND-225). Distinct from VexPublication although the artifact is a VEX
+    // statement and the capability is the same one: publication has a direct path
+    // for whoever holds PublishVex, and this deliberately has none — a
+    // score-lowering override with no second person is the first thing an auditor
+    // questions, so every exemption goes through a request, including an InfoSec
+    // officer's own.
+    StalenessExemption = 8,
 }
 
 public enum ApprovalState
