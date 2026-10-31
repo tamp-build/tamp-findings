@@ -108,6 +108,10 @@ Eight endpoints, all bearer-token gated:
 | `POST /sbom-vulnerabilities/upsert` | OSV-Scanner CVE rows |
 | `POST /ingest/container-image` | Image + base-image metadata (Tamp.Trivy `InspectImage`) |
 
+There are more than the eight above (quality gate, analysis coverage, posture, conformance, diagnostics, scan usage, and raw `.trx` / JUnit / Cobertura / OpenCover variants); `/openapi/v1.json` is the complete, current list.
+
+**Build identity is the commit.** Always send `commitSha`, and the same one for every piece of evidence from a build: one commit is one build whatever version string is stamped on it, and two commits are two builds even if they share a version string. **Every ingest response says what was stored and where** — counts, ids, and a `build` object (`componentVersionId`, `versionString`, `commitSha`, `flavor`, `branch`, `pullRequestRef`) naming the build the evidence landed on. Log that, not what you sent, and check its `commitSha` matches yours. Each route's response schema is declared in `/openapi/v1.json`.
+
 A `cli_*` token authorizes ingest under any project beneath one client; a `prj_*` token is locked to one project. Mint on the project's Ingest tokens tab (Settings > Ingest tokens); store in repo-root `.env` as `TAMP_FINDINGS_INGEST_TOKEN=cli_...` (gitignored). The Nuke build picks it up automatically — copy [`.env.example`](.env.example) to get started.
 
 **Leave `TAMP_FINDINGS_URL` unset locally.** Unset, the build defaults to `http://localhost:5080`, so an ingest target run by accident writes to the instance on your own machine rather than to a shared one — the safe target should be the one you get without thinking about it. Set it (with a matching token minted on *that* instance) only for a deliberate roll to the cluster, and comment it back out afterwards. The build prints a banner whenever it is posting anywhere that is not localhost, so a forgotten setting is visible rather than silent.

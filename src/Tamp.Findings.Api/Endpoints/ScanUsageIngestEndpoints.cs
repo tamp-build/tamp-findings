@@ -14,7 +14,8 @@ public static class ScanUsageIngestEndpoints
     {
         app.MapPost("/ingest/scan-usage", IngestAsync)
            .WithName("IngestScanUsage")
-           .WithSummary("Replace-on-ingest LLM usage (tokens/model/latency) for a build's scans. Cost is computed by findings from the dated pricing table — do not send it. Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<ScanUsageIngestResponse>(
+               "LLM usage (tokens/model/latency) for a build's scans. Cost is computed by findings from the dated pricing table; do not send it. Requires Authorization: Bearer cli_… or prj_… ingest token.", replaceOnIngest: true)
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         return app;
@@ -62,6 +63,6 @@ public static class ScanUsageIngestEndpoints
             $"scan-usage: {count} observations — {req.Project}@{req.Version}", ct);
         await db.SaveChangesAsync(ct);
 
-        return Results.Ok(new ScanUsageIngestResponse(version.Id, count));
+        return Results.Ok(new ScanUsageIngestResponse(version.Id, count, ResolvedBuild.From(version)));
     }
 }

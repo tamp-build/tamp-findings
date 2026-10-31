@@ -21,12 +21,14 @@ public static class TestResultsEndpoints
     {
         app.MapPost("/ingest/test-results", IngestAsync)
            .WithName("IngestTestResults")
-           .WithSummary("Replace-on-ingest test run results. Suites + cases under one TestRunReport per ComponentVersion. Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<TestResultsIngestResponse>(
+               "Test run results for a build: suites + cases under one test-run report per build. Requires Authorization: Bearer cli_… or prj_… ingest token.", replaceOnIngest: true)
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         app.MapPost("/ingest/test-results/raw", IngestRawAsync)
            .WithName("IngestTestResultsRaw")
-           .WithSummary("Ingest a RAW test report file (.trx or JUnit XML) — POST the file body; the server parses it into the canonical model. Hierarchy comes from the query string (client, project, version required; commitSha, branch, buildId, pullRequestRef, flavor, toolVersion optional). Pass the SAME commitSha your build's other evidence uses — builds reconcile on the commit (short or full sha), so all evidence lands on one build. Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<TestResultsIngestResponse>(
+               "Ingest a RAW test report file (.trx or JUnit XML): POST the file body; the server parses it into the canonical model. Hierarchy comes from the query string (client, project, version required; commitSha, branch, buildId, pullRequestRef, flavor, toolVersion optional). Requires Authorization: Bearer cli_… or prj_… ingest token.", replaceOnIngest: true)
            .Accepts<string>("application/xml", "text/xml", "application/octet-stream")
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
@@ -172,7 +174,7 @@ public static class TestResultsEndpoints
 
         await snapshots.RecordForBuildAsync(version.Id, ct);   // TFND-176: tests moved the score
 
-        return Results.Ok(new TestResultsIngestResponse(version.Id, report.Id, suitesCount, casesCount));
+        return Results.Ok(new TestResultsIngestResponse(version.Id, report.Id, suitesCount, casesCount, ResolvedBuild.From(version)));
     }
 
     // Raw path: the producer POSTs the .trx / JUnit file it already has, and the sink owns the parse.

@@ -28,4 +28,8 @@ public sealed record ScanUsageDto(
     double LatencyMs,
     DateTimeOffset ObservedAt);
 
-public sealed record ScanUsageIngestResponse(Guid ComponentVersionId, int Observations);
+public sealed record ScanUsageIngestResponse(
+    Guid ComponentVersionId,
+    int Observations,
+    // TFND-266: the build this landed on (id, version, commit, flavor, branch, PR) — compare its commit with the one sent.
+    ResolvedBuild? Build = null);

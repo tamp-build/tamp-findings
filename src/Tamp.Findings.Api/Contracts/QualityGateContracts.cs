@@ -29,4 +29,6 @@ public sealed record QualityGateConditionDto(
 public sealed record QualityGateIngestResponse(
     Guid ComponentVersionId,
     string Status,
-    bool Blocks);
+    bool Blocks,
+    // TFND-266: the build this landed on (id, version, commit, flavor, branch, PR) — compare its commit with the one sent.
+    ResolvedBuild? Build = null);

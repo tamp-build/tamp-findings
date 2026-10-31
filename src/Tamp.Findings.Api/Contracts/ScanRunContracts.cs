@@ -37,7 +37,9 @@ public sealed record ScanRunReceiptDto(
 
 public sealed record ScanRunIngestResponse(
     Guid ComponentVersionId,
-    int ReceiptsUpserted);
+    int ReceiptsUpserted,
+    // TFND-266: the build this landed on (id, version, commit, flavor, branch, PR) — compare its commit with the one sent.
+    ResolvedBuild? Build = null);
 
 // Per-scanner state surfaced on /aggregates so the SPA can render
 // "scanned · clean" vs "never scanned" without re-querying.

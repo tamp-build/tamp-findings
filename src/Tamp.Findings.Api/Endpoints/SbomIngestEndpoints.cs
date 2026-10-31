@@ -15,7 +15,8 @@ public static class SbomIngestEndpoints
     {
         app.MapPost("/ingest/sbom", IngestAsync)
            .WithName("IngestSbom")
-           .WithSummary("Ingest a CycloneDX-shaped SBOM (components + deps + vulnerabilities) for one component version. Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<SbomIngestResponse>(
+               "Ingest a CycloneDX-shaped SBOM (components + deps + vulnerabilities) for one build. Requires Authorization: Bearer cli_… or prj_… ingest token.", replaceOnIngest: true)
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         return app;
@@ -148,7 +149,8 @@ public static class SbomIngestEndpoints
             // Vulnerabilities from the SBOM payload PLUS any advisory findings
             // this pass attached. The number is "how many CVEs this build now
             // knows about", which is what a caller is asking.
-            totalVulns + reconciled.Attached));
+            totalVulns + reconciled.Attached,
+            ResolvedBuild.From(version)));
     }
 
     // Resolves the client/project (token-scoped via IngestScopeGuard) and

@@ -18,7 +18,8 @@ public static class IngestEndpoints
     {
         app.MapPost("/ingest/findings", IngestAsync)
            .WithName("IngestFindings")
-           .WithSummary("Ingest a batch of findings from one scanner run for one component version. Requires Authorization: Bearer cli_… or prj_… ingest token.")
+           .WithIngestContract<IngestResponse>(
+               "Ingest a batch of findings from one scanner run for one build. Findings are upserted by hash; open findings of this scanner that are absent from the batch are closed for this build. Requires Authorization: Bearer cli_… or prj_… ingest token.")
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         return app;
@@ -255,7 +256,7 @@ public static class IngestEndpoints
 
         return Results.Ok(new IngestResponse(
             version.Id, inserted, updated, reopened, closed, suppressed,
-            reconciled.Attached, reconciled.Unattached));
+            reconciled.Attached, reconciled.Unattached, ResolvedBuild.From(version)));
     }
 
     /// <summary>

@@ -51,7 +51,9 @@ public sealed record TestResultsIngestResponse(
     Guid ComponentVersionId,
     Guid TestRunReportId,
     int SuitesCount,
-    int CasesCount);
+    int CasesCount,
+    // TFND-266: the build this landed on (id, version, commit, flavor, branch, PR) — compare its commit with the one sent.
+    ResolvedBuild? Build = null);
 
 // Read shape powering the Tests tab and the Overview tile.
 public sealed record TestResultsTreeResponse(
