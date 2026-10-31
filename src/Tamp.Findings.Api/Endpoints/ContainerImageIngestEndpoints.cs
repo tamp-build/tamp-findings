@@ -25,9 +25,8 @@ public static class ContainerImageIngestEndpoints
         app.MapPost("/ingest/container-image", IngestAsync)
            .WithName("IngestContainerImage")
            .WithTags("Ingest")
-           .WithSummary(
-               "Record the image a build produced and, when identifiable, the base image behind it. "
-               + "Produced by Tamp.Trivy InspectImage (TAM-282). Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<ContainerImageIngestResponse>(
+               "Record the image a build produced and, when identifiable, the base image behind it. Produced by Tamp.Trivy InspectImage (TAM-282). Requires Authorization: Bearer cli_… or prj_… ingest token.")
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
 
@@ -100,7 +99,7 @@ public static class ContainerImageIngestEndpoints
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(new ContainerImageIngestResponse(
-            version!.Id, image.Id, image.BaseImageAgeInDays, note));
+            version!.Id, image.Id, image.BaseImageAgeInDays, note, ResolvedBuild.From(version)));
     }
 
     private static async Task<(ComponentVersion? version, IResult? error)> ResolveVersionAsync(

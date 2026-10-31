@@ -17,12 +17,14 @@ public static class CoverageIngestEndpoints
     {
         app.MapPost("/ingest/coverage", IngestAsync)
            .WithName("IngestCoverage")
-           .WithSummary("Replace the coverage report for one component version. Replace-on-ingest: any prior report for the same CV is deleted before insert. Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<CoverageIngestResponse>(
+               "Store the coverage report for one build: overall + per-module + per-class + line-level source overlay. Requires Authorization: Bearer cli_… or prj_… ingest token.", replaceOnIngest: true)
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         app.MapPost("/ingest/coverage/raw", IngestRawAsync)
            .WithName("IngestCoverageRaw")
-           .WithSummary("Ingest a RAW coverage report file (Cobertura or OpenCover XML) — POST the file body; the server parses it into overall + per-module coverage. Line-level overlay is not produced on this path (raw reports carry no source text) — use /ingest/coverage for that. Hierarchy comes from the query string (client, project, version required; commitSha, branch, buildId, pullRequestRef, flavor, toolVersion optional). Pass the SAME commitSha your build's other evidence uses — builds reconcile on the commit (short or full sha), so all evidence lands on one build. Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<CoverageIngestResponse>(
+               "Ingest a RAW coverage report file (Cobertura or OpenCover XML): POST the file body; the server parses it into overall + per-module coverage. Line-level overlay is not produced on this path (raw reports carry no source text); use /ingest/coverage for that. Hierarchy comes from the query string (client, project, version required; commitSha, branch, buildId, pullRequestRef, flavor, toolVersion optional). Requires Authorization: Bearer cli_… or prj_… ingest token.", replaceOnIngest: true)
            .Accepts<string>("application/xml", "text/xml", "application/octet-stream")
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
@@ -149,7 +151,7 @@ public static class CoverageIngestEndpoints
 
         await snapshots.RecordForBuildAsync(version.Id, ct);   // TFND-176: coverage moved the score
 
-        return Results.Ok(new CoverageIngestResponse(version.Id, report.Id, seenModules.Count, classCount, sourceFilesByPath.Count));
+        return Results.Ok(new CoverageIngestResponse(version.Id, report.Id, seenModules.Count, classCount, sourceFilesByPath.Count, ResolvedBuild.From(version)));
     }
 
     // Raw path: POST the cobertura/opencover file the CI run already produced; the sink parses it into

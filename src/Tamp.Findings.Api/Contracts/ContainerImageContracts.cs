@@ -51,4 +51,6 @@ public sealed record ContainerImageIngestResponse(
     /// caller gets told, rather than having to infer it from a 200.
     /// </summary>
     int? BaseImageAgeInDays,
-    string? Note);
+    string? Note,
+    // TFND-266: the build this landed on (id, version, commit, flavor, branch, PR) — compare its commit with the one sent.
+    ResolvedBuild? Build = null);

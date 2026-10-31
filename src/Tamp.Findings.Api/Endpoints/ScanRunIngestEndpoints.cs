@@ -14,7 +14,8 @@ public static class ScanRunIngestEndpoints
     {
         app.MapPost("/ingest/scan-runs", IngestAsync)
            .WithName("IngestScanRuns")
-           .WithSummary("Replace-on-ingest receipts per (ComponentVersion, Scanner). A scanner without a receipt is treated as 'never ran' on the dashboard, so emit one even when the scan ran clean. Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<ScanRunIngestResponse>(
+               "Receipts that a scanner ran against a build, one per (build, scanner). A scanner without a receipt is treated as 'never ran' on the dashboard, so emit one even when the scan ran clean. Requires Authorization: Bearer cli_… or prj_… ingest token.", replaceOnIngest: true)
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         return app;
@@ -76,7 +77,7 @@ public static class ScanRunIngestEndpoints
 
         await snapshots.RecordForBuildAsync(version.Id, ct);   // TFND-176: receipts move the missing-scanners score
 
-        return Results.Ok(new ScanRunIngestResponse(version.Id, upserted));
+        return Results.Ok(new ScanRunIngestResponse(version.Id, upserted, ResolvedBuild.From(version)));
     }
 
     private static async Task<(ComponentVersion? version, IResult? error)> ResolveCvAsync(

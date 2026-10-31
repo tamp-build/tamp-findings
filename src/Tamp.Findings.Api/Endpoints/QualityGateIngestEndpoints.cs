@@ -17,7 +17,8 @@ public static class QualityGateIngestEndpoints
     {
         app.MapPost("/ingest/quality-gate", IngestAsync)
            .WithName("IngestQualityGate")
-           .WithSummary("Attested code-quality gate verdict (SonarQube-style pass/fail/warn + conditions + measures) for a build. Feeds the qualityGate gate (SA-15). Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<QualityGateIngestResponse>(
+               "Attested code-quality gate verdict (SonarQube-style pass/fail/warn + conditions + measures) for a build. Feeds the qualityGate gate (SA-15). Requires Authorization: Bearer cli_… or prj_… ingest token.", replaceOnIngest: true)
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         return app;
@@ -71,6 +72,6 @@ public static class QualityGateIngestEndpoints
 
         await snapshots.RecordForBuildAsync(version.Id, ct);
 
-        return Results.Ok(new QualityGateIngestResponse(version.Id, status, Blocks: status == "fail"));
+        return Results.Ok(new QualityGateIngestResponse(version.Id, status, Blocks: status == "fail", Build: ResolvedBuild.From(version)));
     }
 }

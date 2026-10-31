@@ -31,4 +31,6 @@ public sealed record AnalysisCoverageOverallDto(
 
 public sealed record AnalysisCoverageIngestResponse(
     Guid ComponentVersionId,
-    int LanguagesRecorded);
+    int LanguagesRecorded,
+    // TFND-266: the build this landed on (id, version, commit, flavor, branch, PR) — compare its commit with the one sent.
+    ResolvedBuild? Build = null);

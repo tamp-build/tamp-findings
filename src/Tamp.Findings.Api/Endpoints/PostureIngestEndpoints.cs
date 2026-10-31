@@ -22,7 +22,8 @@ public static class PostureIngestEndpoints
         app.MapPost("/ingest/posture", IngestAsync)
            .WithName("IngestPosture")
            .WithTags("Ingest")
-           .WithSummary("Report repo/org control posture (branch protection, PR reviews, signed commits, org 2FA, CODEOWNERS) for a project. Check ids are defined by findings. Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<PostureIngestResponse>(
+               "Report repo/org control posture (branch protection, PR reviews, signed commits, org 2FA, CODEOWNERS) for a project. Check ids are defined by findings. Project-scoped: posture is a property of the repo, not of a commit, so the latest observation per check is the current posture. Requires Authorization: Bearer cli_… or prj_… ingest token.", singleBuild: false)
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         return app;

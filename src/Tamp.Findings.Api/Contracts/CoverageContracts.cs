@@ -61,4 +61,6 @@ public sealed record CoverageIngestResponse(
     Guid CoverageReportId,
     int ModulesCount,
     int ClassesCount,
-    int SourceFilesCount);
+    int SourceFilesCount,
+    // TFND-266: the build this landed on (id, version, commit, flavor, branch, PR) — compare its commit with the one sent.
+    ResolvedBuild? Build = null);

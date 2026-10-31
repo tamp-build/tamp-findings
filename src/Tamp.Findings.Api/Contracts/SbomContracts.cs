@@ -67,4 +67,6 @@ public sealed record SbomIngestResponse(
     Guid SbomSnapshotId,
     int ComponentsCount,
     int DependenciesCount,
-    int VulnerabilitiesCount);
+    int VulnerabilitiesCount,
+    // TFND-266: the build this landed on (id, version, commit, flavor, branch, PR) — compare its commit with the one sent.
+    ResolvedBuild? Build = null);

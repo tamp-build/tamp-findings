@@ -23,7 +23,8 @@ public static class DecisionDiagnosticIngestEndpoints
         app.MapPost("/ingest/diagnostics", IngestAsync)
            .WithName("IngestDiagnostics")
            .WithTags("Ingest")
-           .WithSummary("Ingest reverse-examination advisories (ADR 0013): diagnostic.emitted notes with ruleId undocumented-decision:<kind>. Accepts a JSON array or NDJSON of canonical BuildEvent envelopes; other events are ignored. Advisory-only — never gates. Requires Authorization: Bearer cli_… or prj_… ingest token.")
+           .WithIngestContract<DiagnosticIngestResponse>(
+               "Ingest reverse-examination advisories (ADR 0013): diagnostic.emitted notes with ruleId undocumented-decision:<kind>. Accepts a JSON array or NDJSON of canonical BuildEvent envelopes; other events are ignored. Advisory-only, never gates. Each note binds to the build named by its own envelope, so the response lists every build it touched. Requires Authorization: Bearer cli_… or prj_… ingest token.", singleBuild: false)
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         return app;

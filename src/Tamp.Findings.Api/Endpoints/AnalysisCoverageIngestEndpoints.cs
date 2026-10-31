@@ -17,7 +17,8 @@ public static class AnalysisCoverageIngestEndpoints
     {
         app.MapPost("/ingest/analysis-coverage", IngestAsync)
            .WithName("IngestAnalysisCoverage")
-           .WithSummary("Per-language analysis-coverage completeness for a build (what was analyzed, by which tool, what's unanalyzed). Distinct from test coverage. Feeds the analysisCoverage gate. Requires Authorization: Bearer cli_… or prj_…")
+           .WithIngestContract<AnalysisCoverageIngestResponse>(
+               "Per-language analysis-coverage completeness for a build (what was analyzed, by which tool, what's unanalyzed). Distinct from test coverage. Feeds the analysisCoverage gate. Requires Authorization: Bearer cli_… or prj_… ingest token.", replaceOnIngest: true)
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         return app;
@@ -70,7 +71,7 @@ public static class AnalysisCoverageIngestEndpoints
 
         await snapshots.RecordForBuildAsync(version.Id, ct);
 
-        return Results.Ok(new AnalysisCoverageIngestResponse(version.Id, report.Languages.Count));
+        return Results.Ok(new AnalysisCoverageIngestResponse(version.Id, report.Languages.Count, ResolvedBuild.From(version)));
     }
 
     private static string? Join(IReadOnlyList<string>? items, int limit = 1000)

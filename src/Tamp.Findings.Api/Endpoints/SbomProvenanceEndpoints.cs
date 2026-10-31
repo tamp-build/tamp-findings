@@ -26,7 +26,9 @@ public static class SbomProvenanceEndpoints
         g.MapPost("/sbom-snapshots/{snapshotId:guid}/provenance", IngestAsync)
          .WithName("IngestSbomProvenance")
          .WithTags("Ingest")
-         .WithSummary("Attach a SLSA / in-toto / DSSE provenance attestation to an existing SBOM snapshot.");
+         .WithIngestContract<ProvenanceIngestResponse>(
+             "Attach a SLSA / in-toto / DSSE provenance attestation to an existing SBOM snapshot. Addressed by the snapshot id that /ingest/sbom returned, so it lands on that snapshot's build; a later attestation for the same snapshot replaces this one. Requires Authorization: Bearer cli_… or prj_… ingest token.",
+             singleBuild: false);
 
         // Read path is cookie-gated alongside the other dashboard endpoints.
         app.MapGet("/sbom-snapshots/{snapshotId:guid}/provenance", GetAsync)
@@ -86,12 +88,7 @@ public static class SbomProvenanceEndpoints
                 snap.ComponentVersionId, $"provenance ({type}) attached to snapshot {snapshotId}", ct);
             await db.SaveChangesAsync(ct);
         }
-        return Results.Ok(new
-        {
-            snapshotId,
-            provenanceType = snap.ProvenanceType,
-            uploadedAt = snap.ProvenanceUploadedAt,
-        });
+        return Results.Ok(new ProvenanceIngestResponse(snapshotId, snap.ProvenanceType, snap.ProvenanceUploadedAt));
     }
 
     private static async Task<IResult> GetAsync(
@@ -113,3 +110,7 @@ public static class SbomProvenanceEndpoints
         });
     }
 }
+
+/// <summary>What POST /ingest/sbom-snapshots/{snapshotId}/provenance stored (TFND-266: a named type so the
+/// OpenAPI document can declare it; the JSON field names are unchanged).</summary>
+public sealed record ProvenanceIngestResponse(Guid SnapshotId, string? ProvenanceType, DateTimeOffset? UploadedAt);

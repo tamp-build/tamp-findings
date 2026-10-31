@@ -86,4 +86,6 @@ public sealed record IngestResponse(
     // it found them in. Returning it rather than only logging it means a build
     // can fail on it if the team wants to.
     int CvesAttached = 0,
-    int CvesUnattached = 0);
+    int CvesUnattached = 0,
+    // TFND-266: the build this landed on (id, version, commit, flavor, branch, PR) — compare its commit with the one sent.
+    ResolvedBuild? Build = null);

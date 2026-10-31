@@ -23,7 +23,8 @@ public static class ConformanceIngestEndpoints
         app.MapPost("/ingest/conformance", IngestAsync)
            .WithName("IngestConformance")
            .WithTags("Ingest")
-           .WithSummary("Ingest conformance.evaluated verdicts (core ADR 0023). Accepts a JSON array or NDJSON of canonical BuildEvent envelopes; non-conformance events are ignored. Requires Authorization: Bearer cli_… or prj_… ingest token.")
+           .WithIngestContract<ConformanceIngestResponse>(
+               "Ingest conformance.evaluated verdicts (core ADR 0023). Accepts a JSON array or NDJSON of canonical BuildEvent envelopes; non-conformance events are ignored. Each verdict binds to the build named by its own envelope (commit), so the response lists every build it touched. Requires Authorization: Bearer cli_… or prj_… ingest token.", singleBuild: false)
            .AllowAnonymous()
            .AddEndpointFilter<IngestAuthFilter>();
         return app;
