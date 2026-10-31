@@ -66,10 +66,21 @@
                 <div class="kicker">@L["Account.NotSignedIn"]</div>
             </NotAuthorized>
         </AuthorizeView>
+        @* TFND-267: which build this is, on every page, so a screenshot or a bug report carries it.
+           Same value as GET /version's "display" and the X-Tamp-Findings-Version header. *@
+        <div class="sidebar__build mono" title="@BuildTitle">tamp.findings @Build.Display</div>
     </div>
 </nav>
 
 @code {
+    private static readonly Tamp.Findings.Application.Versioning.BuildInfo Build =
+        Tamp.Findings.Application.Versioning.BuildInfo.Current;
+
+    private static string BuildTitle =>
+        $"Version {Build.Version}"
+        + (Build.Commit is { } c ? $" · commit {c}" : " · unstamped build (no commit recorded)")
+        + (Build.BuiltAt is { } at ? $" · built {at:yyyy-MM-dd HH:mm} UTC" : "");
+
     private sealed record NavItem(LocalizedString Label, string Href, string? Count = null);
     private sealed record NavGroup(LocalizedString Label, IReadOnlyList<NavItem> Items, bool Instance = false);
 

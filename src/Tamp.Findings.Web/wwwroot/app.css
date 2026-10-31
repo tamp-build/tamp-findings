@@ -476,6 +476,13 @@ code, kbd, samp, pre { font-family: var(--font-mono); }
   padding-top: var(--space-2);
   font-size: var(--text-secondary);
 }
+.sidebar__build {
+  margin-top: var(--space-1);
+  font-size: var(--text-kicker);
+  color: var(--color-text-muted, inherit);
+  opacity: .75;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* ── Header ─────────────────────────────────────────────────────────── */
 

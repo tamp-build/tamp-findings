@@ -1297,6 +1297,9 @@ class Build : SecurityPipelineBuild
     readonly string DeployNamespace = "tamp-findings";
 
     string ImageTag => Git.Commit is { Length: >= 7 } ? Git.Commit[..7] : "dev";
+
+    // One timestamp per build invocation, shared by the build arg and the OCI label.
+    static readonly string BuildTimestamp = DateTimeOffset.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture);
     // Build/push/inspect tags use the push registry.
     string ImageRefShaTag => $"{ImageRegistry}/{ImageName}:{ImageTag}";
     string ImageRefLatestTag => $"{ImageRegistry}/{ImageName}:latest";
@@ -1317,6 +1320,13 @@ class Build : SecurityPipelineBuild
                 .SetDockerfile((RootDirectory / "Dockerfile").Value)
                 .AddTag(ImageRefShaTag)
                 .AddTag(ImageRefLatestTag)
+                // TFND-267: stamp the commit and build time into the binary (GET /version reports them) and
+                // onto the image as OCI labels, so a running instance can say exactly which build it is.
+                .SetBuildArg("GIT_SHA", Git.Commit ?? "")
+                .SetBuildArg("BUILD_TIMESTAMP", BuildTimestamp)
+                .SetLabel("org.opencontainers.image.revision", Git.Commit ?? "")
+                .SetLabel("org.opencontainers.image.created", BuildTimestamp)
+                .SetLabel("org.opencontainers.image.source", "https://github.com/tamp-build/tamp-findings")
                 // SetLoad puts the image in the local engine's image
                 // store so the subsequent Push step has something to
                 // tag-and-push. Push-direct skips local but blocks a

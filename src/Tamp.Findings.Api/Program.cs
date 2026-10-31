@@ -48,7 +48,17 @@ builder.Services.Configure<ForwardedHeadersOptions>(o =>
     o.KnownProxies.Clear();
 });
 
-builder.Services.AddOpenApi();
+// TFND-267: the document names the build it describes. It used to say "1.0.0" on every instance, which is how a
+// customer instance could run newer code than the lab with nobody able to tell.
+builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
+{
+    var build = Tamp.Findings.Application.Versioning.BuildInfo.Current;
+    doc.Info.Version = build.Display;
+    doc.Info.Description = $"tamp.findings {build.Display}"
+        + (build.BuiltAt is { } at ? $", built {at:yyyy-MM-dd HH:mm} UTC" : "")
+        + ". GET /version returns the same, machine-readably. See docs/VERSIONING.md.";
+    return Task.CompletedTask;
+}));
 
 // Spec promises every error response is JSON. Without ProblemDetails,
 // minimal API deserialization failures return 400 with empty body —
@@ -554,6 +564,14 @@ if (app.Configuration["TAMP_FINDINGS_SKIP_MIGRATE"] != "true")
 // generation). Goes first in the pipeline.
 app.UseForwardedHeaders();
 
+// TFND-267: every response names the build that produced it, so a log line or a captured request is enough to
+// know which version answered: no second call, no guessing which instance is behind.
+app.Use((ctx, next) =>
+{
+    ctx.Response.Headers["X-Tamp-Findings-Version"] = Tamp.Findings.Application.Versioning.BuildInfo.Current.Display;
+    return next(ctx);
+});
+
 // Backstop for any 4xx/5xx that reaches the client with an empty
 // body — pairs with AddProblemDetails() to ensure every error
 // response carries a parseable JSON payload. Specifically catches
@@ -626,9 +644,19 @@ app.MapOpenApi().AllowAnonymous();
 // database outage into a crash loop that takes longer to recover from and
 // destroys the logs that would explain it. Readiness is the probe that cares
 // about dependencies — see /ready below.
-app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "tamp.findings.api" }))
+app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "tamp.findings.api",
+        version = Tamp.Findings.Application.Versioning.BuildInfo.Current.Display }))
    .WithName("Health")
    .WithSummary("Liveness probe — is the process alive. Does not check the database.")
+   .AllowAnonymous();
+
+// WHICH BUILD (TFND-267). Anonymous on purpose: a CI job, an agent, or a person filing a report has to be able to
+// tell which build an instance runs without credentials. It carries only what the image is labelled with anyway
+// (the product version, the public repo's commit, the build time) and nothing about the deployment.
+app.MapGet("/version", () => Results.Ok(Tamp.Findings.Api.Contracts.VersionResponse.Current()))
+   .WithName("Version")
+   .WithSummary("Which build of tamp.findings this instance runs: product version, git commit, build time. Anonymous. Quote 'display' when reporting an issue. See docs/VERSIONING.md.")
+   .Produces<Tamp.Findings.Api.Contracts.VersionResponse>(StatusCodes.Status200OK)
    .AllowAnonymous();
 
 // READINESS (TFND-13 / F12.1). Can this instance actually serve a request?
@@ -667,15 +695,6 @@ app.MapGet("/ready", async (FindingsDbContext db, CancellationToken ct) =>
     })
    .WithName("Ready")
    .WithSummary("Readiness probe — can this instance serve requests. Checks the database.")
-   .AllowAnonymous();
-
-app.MapGet("/version", () => Results.Ok(new
-{
-    service = "tamp.findings.api",
-    version = typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0",
-}))
-   .WithName("Version")
-   .WithSummary("Build version")
    .AllowAnonymous();
 
 // Auth surface — challenge, callback (registered by the OAuth handler at

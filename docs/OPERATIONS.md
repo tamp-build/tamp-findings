@@ -15,6 +15,8 @@ Two endpoints, and the difference between them matters.
 | `GET /health` | Is the process alive? | **No** | Restart the container |
 | `GET /ready` | Can it serve a request? | Yes | Take it out of the load balancer |
 
+`GET /version` is not a probe, but it is the first thing to check after a deploy: it names the commit the running binary was built from. See [VERSIONING.md](VERSIONING.md).
+
 **Liveness never checks the database, on purpose.** A failing liveness probe restarts the container. Restarting an application because Postgres is down turns a database outage into a crash loop — one that recovers more slowly than the outage itself and destroys the logs that would have explained it. Point your liveness probe at `/health` and leave it that way.
 
 **Readiness does check it**, with a three-second timeout, and returns `503` with a reason when it cannot connect. That is the probe that should gate traffic.
