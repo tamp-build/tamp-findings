@@ -112,6 +112,13 @@ There are more than the eight above (quality gate, analysis coverage, posture, c
 
 **Build identity is the commit.** Always send `commitSha`, and the same one for every piece of evidence from a build: one commit is one build whatever version string is stamped on it, and two commits are two builds even if they share a version string. **Every ingest response says what was stored and where** — counts, ids, and a `build` object (`componentVersionId`, `versionString`, `commitSha`, `flavor`, `branch`, `pullRequestRef`) naming the build the evidence landed on. Log that, not what you sent, and check its `commitSha` matches yours. Each route's response schema is declared in `/openapi/v1.json`.
 
+**Read back what landed.** The token that posted a commit can ask what the server holds for it: `GET /ingest/builds/{commitSha}` (full sha or a 7+ character prefix) returns each build of that commit with a summary per kind of evidence — coverage (percentages plus how many modules, source files and classes were stored), test results (totals plus suites and cases stored), SBOM (components, vulnerabilities, provenance), findings per scanner (total, open, open by severity), scan receipts, quality gate, container image, analysis coverage and scan usage. A section that is `null` (or an empty list) was not stored. Summaries only — no finding bodies, file paths or source. A `prj_*` token reads its own project; a `cli_*` token names the project with `?project=`. `?flavor=` and `?pullRequestRef=` narrow to one build context. Anything outside the token's scope is a 404, and the read never creates a project.
+
+```bash
+curl -s -H "Authorization: Bearer $TAMP_FINDINGS_INGEST_TOKEN" \
+  "$TAMP_FINDINGS_URL/ingest/builds/$(git rev-parse HEAD)?project=my-project"
+```
+
 A `cli_*` token authorizes ingest under any project beneath one client; a `prj_*` token is locked to one project. Mint on the project's Ingest tokens tab (Settings > Ingest tokens); store in repo-root `.env` as `TAMP_FINDINGS_INGEST_TOKEN=cli_...` (gitignored). The Nuke build picks it up automatically — copy [`.env.example`](.env.example) to get started.
 
 **Leave `TAMP_FINDINGS_URL` unset locally.** Unset, the build defaults to `http://localhost:5080`, so an ingest target run by accident writes to the instance on your own machine rather than to a shared one — the safe target should be the one you get without thinking about it. Set it (with a matching token minted on *that* instance) only for a deliberate roll to the cluster, and comment it back out afterwards. The build prints a banner whenever it is posting anywhere that is not localhost, so a forgotten setting is visible rather than silent.

@@ -70,6 +70,17 @@ public class IngestOpenApiContractTests : IClassFixture<TestApiFactory>
     }
 
     [Fact]
+    public async Task The_build_read_back_is_documented_for_ingest_tokens()
+    {
+        // TFND-265: producers find the read-back in the same document as the ingest routes, with its response shape.
+        var doc = await _factory.CreateClient().GetFromJsonAsync<JsonElement>("/openapi/v1.json");
+        var get = doc.GetProperty("paths").GetProperty("/ingest/builds/{commitSha}").GetProperty("get");
+        Assert.True(get.GetProperty("responses").GetProperty("200").GetProperty("content").EnumerateObject().Any());
+        Assert.Contains("ingest token", get.GetProperty("summary").GetString());
+        Assert.True(doc.GetProperty("components").GetProperty("schemas").TryGetProperty("BuildEvidenceResponse", out _));
+    }
+
+    [Fact]
     public async Task No_ingest_summary_carries_mangled_punctuation()
     {
         // Strata saw "cli_â€¦" in the document. The server's bytes are clean UTF-8 (that was a cp1252 decode on the

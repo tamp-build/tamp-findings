@@ -747,6 +747,7 @@ app.MapContainerImageIngest();
 app.MapSbomEnrich();
 app.MapSbomVulnerabilities();
 app.MapGate();
+app.MapBuildEvidence();
 app.MapComplianceProfile();
 app.MapZtProfile();
 app.MapConformanceRules();
