@@ -113,11 +113,18 @@ COPY src/ src/
 # a missing blazor.web.js — which is the outcome that actually matters.
 RUN dotnet restore src/Tamp.Findings.Api/Tamp.Findings.Api.csproj
 
+# TFND-267: which build this is. .git is not in the build context (.dockerignore), so the commit and build time
+# arrive as build arguments and are stamped into the assemblies; the running API reports them at GET /version.
+# Unset (a bare `docker build`), the API reports its version without a commit rather than inventing one.
+ARG GIT_SHA=
+ARG BUILD_TIMESTAMP=
 RUN dotnet publish src/Tamp.Findings.Api/Tamp.Findings.Api.csproj \
     -c Release \
     -o /app/publish \
     --no-restore \
-    /p:UseAppHost=false
+    /p:UseAppHost=false \
+    "/p:SourceRevisionId=${GIT_SHA}" \
+    "/p:BuildTimestamp=${BUILD_TIMESTAMP}"
 
 # TFND-138: fail the build if the Blazor script did not make it into the publish
 # output. This is the drift --locked-mode was wanted to catch and currently

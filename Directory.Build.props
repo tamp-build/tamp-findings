@@ -35,6 +35,17 @@
   </PropertyGroup>
 
   <!--
+    TFND-267: stamp WHICH build this is into every assembly, so a running instance can report it (GET /version,
+    the OpenAPI info.version, the X-Tamp-Findings-Version header, the UI footer). The SDK appends SourceRevisionId to
+    the informational version as "+<sha>": SourceLink supplies it from .git locally; the container build, where .git
+    is not in the context, passes it as /p:SourceRevisionId=$GIT_SHA. BuildTimestamp comes from the image build.
+    See docs/VERSIONING.md.
+  -->
+  <ItemGroup Condition="'$(BuildTimestamp)' != ''">
+    <AssemblyMetadata Include="BuildTimestamp" Value="$(BuildTimestamp)" />
+  </ItemGroup>
+
+  <!--
     TFND-14: opt-in Roslyn analyzer pack for the security chain (TAM-248
     pattern, copied from tamp's own Directory.Build.props). Activated by
     /p:IncludeSecurityAnalyzers=true (set by the build orchestrator's

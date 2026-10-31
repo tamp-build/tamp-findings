@@ -190,6 +190,8 @@ Everything the totals do is bounded by what the product actually knows:
 
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) covers the operational surface: the two health probes and why liveness deliberately does not check the database, `pg_dump` cadence and restore (storage is BYO Postgres, so the image does not own the backup story), the retention window and what it refuses to delete, and which log lines are worth alerting on.
 
+**Which build is running:** `GET /version` (anonymous) returns the product version, the git commit and the build time; every response also carries an `X-Tamp-Findings-Version` header, and the OpenAPI `info.version` matches. Quote it when reporting an issue. See [`docs/VERSIONING.md`](docs/VERSIONING.md), which also covers how the ingest contract stays compatible across server versions.
+
 Two probes, and the difference matters: `GET /health` answers "is the process alive" and never touches the database — a failing liveness probe restarts the container, and restarting an application because Postgres is down turns an outage into a crash loop. `GET /ready` checks the database and returns 503 with a reason, so an orchestrator pulls the instance out of the load balancer instead.
 
 ## Federal-readiness coverage
