@@ -149,7 +149,9 @@ public sealed class FindingsDbContext(DbContextOptions<FindingsDbContext> option
             // The build anchors to its Project (component-collapse); (project, flavor, version)
             // is the unique build key now that the Component tier is gone.
             e.HasOne(x => x.Project).WithMany(p => p.Versions).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
-            e.HasIndex(x => new { x.ProjectId, x.Flavor, x.VersionString }).IsUnique();
+            // Build identity is the commit (TFND-264), so the version string alone is not unique: two commits
+            // may carry the same product version. Unique per (project, flavor, version, commit, PR context).
+            e.HasIndex(x => new { x.ProjectId, x.Flavor, x.VersionString, x.CommitSha, x.PullRequestRef }).IsUnique();
             e.HasIndex(x => x.CommitSha);
         });
 

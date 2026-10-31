@@ -420,7 +420,7 @@ namespace Tamp.Findings.Data.Migrations
 
                     b.HasIndex("CommitSha");
 
-                    b.HasIndex("ProjectId", "Flavor", "VersionString")
+                    b.HasIndex("ProjectId", "Flavor", "VersionString", "CommitSha", "PullRequestRef")
                         .IsUnique();
 
                     b.ToTable("ComponentVersions");

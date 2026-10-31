@@ -12,7 +12,8 @@ namespace Tamp.Findings.Api.Endpoints;
 // different version strings (e.g. "1.17.3" from one tool, "0.0.0+6648825" from another). Without
 // this, a mismatched version silently spun up a phantom build that held one evidence type while the
 // rest of the build's evidence sat elsewhere, and the ship gate read the split as "evidence missing".
-// The version string is only the fallback key when no commit is supplied.
+// The version string is only the fallback key: with no commit it identifies the build; with a commit it can
+// only adopt a build whose commit is not yet known — never one that belongs to a different commit (TFND-264).
 //
 // The `component`/`componentKind`/`componentProfile` fields ingest still sends are accepted for wire
 // compatibility but no longer modelled — the build anchors straight to the project.
@@ -45,11 +46,24 @@ internal static class BuildResolver
             cv = candidates.FirstOrDefault(v => ShaIdentifiesSameCommit(v.CommitSha!, sha));
         }
 
-        // 2. Fallback: no commit to reconcile on, so key on (project, flavor, version) as before.
-        cv ??= await db.ComponentVersions.FirstOrDefaultAsync(v =>
-            v.ProjectId == projectId
-            && (flavorLower == null ? v.Flavor == null : v.Flavor != null && v.Flavor.ToLower() == flavorLower)
-            && v.VersionString == version, ct);
+        // 2. Fallback on the version string.
+        //    - No commit supplied: key on (project, flavor, version), as before.
+        //    - A commit WAS supplied but matched no build: the version may only adopt a build that has NO
+        //      commit yet (one created before its commit was known), in the same PR context. It must never
+        //      adopt a build that already belongs to a DIFFERENT commit (TFND-264): a producer with a fixed
+        //      product version would otherwise collapse every commit into the first one's build, keep that
+        //      first sha, and replace-on-ingest would overwrite the earlier commit's evidence.
+        if (cv is null)
+        {
+            var byVersion = db.ComponentVersions.Where(v =>
+                v.ProjectId == projectId
+                && (flavorLower == null ? v.Flavor == null : v.Flavor != null && v.Flavor.ToLower() == flavorLower)
+                && v.VersionString == version);
+            if (sha is not null)
+                byVersion = byVersion.Where(v => v.CommitSha == null
+                    && (pr == null ? v.PullRequestRef == null : v.PullRequestRef == pr));
+            cv = await byVersion.FirstOrDefaultAsync(ct);
+        }
 
         if (cv is null)
         {
