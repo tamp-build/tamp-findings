@@ -67,34 +67,34 @@
          resolved worker identity directly instead of re-deriving it — see
          BuildIngestContext(). Security.Pipeline is in tamp's core solution, so
          it ships in lockstep and pulls Tamp.Core transitively — no direct Core pin. -->
-    <PackageVersion Include="Tamp.Security.Pipeline" Version="1.15.2" />
+    <PackageVersion Include="Tamp.Security.Pipeline" Version="1.21.0" />
     <!-- Not in the meta package — secrets scanning satellite. -->
-    <PackageVersion Include="Tamp.TruffleHog.V3" Version="0.1.1" />
+    <PackageVersion Include="Tamp.TruffleHog.V3" Version="0.5.0" />
     <!-- TAM-276: TS/JS style + best-practice (the ReSharper analogue for the
          SPA). Covers what OpenGrep's security packs intentionally don't. -->
-    <PackageVersion Include="Tamp.Eslint.V9" Version="0.1.0" />
+    <PackageVersion Include="Tamp.Eslint.V9" Version="0.2.0" />
     <!-- TAM-277 / TFND-27: axe-core a11y. Scan + ConvertToSarif verbs. SARIF
          output plugs into /ingest/findings the same way ESLint/Trivy do. -->
-    <PackageVersion Include="Tamp.AxeCore" Version="0.1.0" />
+    <PackageVersion Include="Tamp.AxeCore" Version="0.2.0" />
     <!-- TAM-278 / TAM-280 / TFND-38: DAST against a deployed target. Both
          emit SARIF natively, so unlike axe-core there's no converter leg. -->
-    <PackageVersion Include="Tamp.Zap" Version="0.2.0" />
-    <PackageVersion Include="Tamp.Nuclei" Version="0.1.0" />
+    <PackageVersion Include="Tamp.Zap" Version="0.3.0" />
+    <PackageVersion Include="Tamp.Nuclei" Version="0.2.0" />
     <!-- TAM-279: pinned ahead of what Tamp.Security.Pipeline 1.13.0 pulls in
          transitively (1.13.0). 1.14.0 models region.snippet, which is what
          lets SarifIngestMapper stop passing Snippet: null — that improves
          cross-build dedup for EVERY SARIF scanner, not just the DAST ones.
          Transitive pinning is on, so this wins over the transitive version. -->
-    <PackageVersion Include="Tamp.Sarif" Version="1.15.2" />
+    <PackageVersion Include="Tamp.Sarif" Version="1.21.0" />
     <!-- Versioning + GitHub CLI for release/PR plumbing. -->
-    <PackageVersion Include="Tamp.GitVersion.V6" Version="0.2.0" />
-    <PackageVersion Include="Tamp.GitHubCli.V2" Version="0.1.1" />
+    <PackageVersion Include="Tamp.GitVersion.V6" Version="0.3.0" />
+    <PackageVersion Include="Tamp.GitHubCli.V2" Version="0.2.0" />
     <!-- Coverage + reporting. -->
-    <PackageVersion Include="Tamp.DotNetCoverage.V18" Version="1.11.1" />
-    <PackageVersion Include="Tamp.Coverlet.V6" Version="0.2.0" />
-    <PackageVersion Include="Tamp.ReportGenerator.V5" Version="0.1.1" />
+    <PackageVersion Include="Tamp.DotNetCoverage.V18" Version="1.21.0" />
+    <PackageVersion Include="Tamp.Coverlet.V6" Version="0.3.0" />
+    <PackageVersion Include="Tamp.ReportGenerator.V5" Version="0.2.0" />
     <!-- EF Core wrapper for migrations from the build script. -->
-    <PackageVersion Include="Tamp.EFCore.V10" Version="0.4.0" />
+    <PackageVersion Include="Tamp.EFCore.V10" Version="0.5.0" />
     <!-- SBOM + CVE scanners (not in Security.Pipeline meta yet).
          Tamp.Syft (unsuffixed) supersedes the deprecated Tamp.Syft.V1. 0.1.2
          (tamp-syft #6) fixes the silent 0-byte SBOM under a Windows junction
@@ -103,16 +103,16 @@
          source relative to the working directory. New fluent surface —
          Syft.Scan(...) with SetDirectorySource / AddOutputCycloneDxJson /
          AddExclude (was Syft.ScanDirectory / SetPath / SetFormat). Tracked TAM-286. -->
-    <PackageVersion Include="Tamp.Syft" Version="0.1.2" />
-    <PackageVersion Include="Tamp.Grype" Version="0.1.0" />
+    <PackageVersion Include="Tamp.Syft" Version="0.4.0" />
+    <PackageVersion Include="Tamp.Grype" Version="0.4.0" />
     <!-- TFND-227: SonarQube Cloud scan driven by the build (same wrapper tamp-observer uses). -->
-    <PackageVersion Include="Tamp.SonarScanner.V10" Version="0.3.2" />
+    <PackageVersion Include="Tamp.SonarScanner.V10" Version="0.4.0" />
     <!-- Cluster deploy: container build + push, kubectl apply.
          Tamp.Kubectl 0.1.0 (TAM-221), Tamp.Docker.V27 0.3.1. Helm reserved
          for if we move to a chart later. -->
-    <PackageVersion Include="Tamp.Docker.V27" Version="0.3.1" />
-    <PackageVersion Include="Tamp.Kubectl" Version="0.1.0" />
-    <PackageVersion Include="Tamp.Helm.V3" Version="0.1.0" />
+    <PackageVersion Include="Tamp.Docker.V27" Version="0.4.0" />
+    <PackageVersion Include="Tamp.Kubectl" Version="0.2.0" />
+    <PackageVersion Include="Tamp.Helm.V3" Version="0.2.0" />
   </ItemGroup>
 
   <ItemGroup Label="Roslyn security analyzers (TFND-14 — TAM-248 pattern; gated by /p:IncludeSecurityAnalyzers=true)">
